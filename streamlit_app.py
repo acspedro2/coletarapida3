@@ -1,19 +1,26 @@
 import streamlit as st
-import datetime
+from datetime import datetime
+import os
 
 st.set_page_config(page_title="Coleta Rápida", layout="centered")
 
-st.title("📋 Fichas")
-
-st.markdown("Envie a imagem da ficha preenchida (foto ou escaneado)")
+st.markdown("## 📋 Fichas")
+st.write("Envie a imagem da ficha preenchida (foto ou escaneado)")
 
 uploaded_file = st.file_uploader("Envie o arquivo", type=["jpg", "jpeg", "png", "pdf"])
 
-obs = st.text_area("Observações adicionais (opcional)")
+observacoes = st.text_area("Observações adicionais (opcional)")
 
-if uploaded_file is not None:
-    st.success(f"Arquivo recebido: {uploaded_file.name}")
+if uploaded_file:
+    with open(f"temp_{uploaded_file.name}", "wb") as f:
+        f.write(uploaded_file.getbuffer())
+    st.success("✅ Arquivo carregado com sucesso!")
+    st.image(uploaded_file, width=300)
+
     if st.button("Enviar"):
-        st.info("✅ Dados enviados com sucesso (simulação)")
+        # Aqui você pode colocar o processamento real
+        st.success("📥 Dados enviados com sucesso!")
+        # Opcional: limpar o arquivo temporário
+        os.remove(f"temp_{uploaded_file.name}")
 else:
     st.warning("⚠️ Por favor, envie uma imagem antes de confirmar.")
