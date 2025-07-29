@@ -1,19 +1,13 @@
-# 🎈 Blank app template
 
-A simple Streamlit app template for you to modify!
+# Coleta Rápida · Streamlit App
 
-[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://blank-app-template.streamlit.app/)
+App simples para upload de fichas em imagem (JPG/PNG/PDF). Ideal para digitalização de dados do ACS.
 
-### How to run it on your own machine
+## Como rodar localmente
+```bash
+pip install -r requirements.txt
+streamlit run app.py
+```
 
-1. Install the requirements
-
-   ```
-   $ pip install -r requirements.txt
-   ```
-
-2. Run the app
-
-   ```
-   $ streamlit run streamlit_app.py
-   ```
+Ou publique no [Streamlit Cloud](https://streamlit.io/cloud).
+    
