@@ -1,137 +1,98 @@
 import streamlit as st
-import requests
-import re
-from io import BytesIO
+import gspread
+import pandas as pd
 import json
 import os
-import gspread
-from datetime import datetime
+import datetime
 
 # --- Configuração da Página e Título ---
 st.set_page_config(
-    page_title="Leitura de Fichas SUS",
-    page_icon="🩺",
+    page_title="Aplicativo de Coleta Rápida",
+    page_icon=":camera:",
     layout="centered"
 )
 
-st.title("🩺 Leitura Automática de Fichas SUS")
-st.markdown("---")
-
-# --- CONEXÃO COM O GOOGLE SHEETS E SECRETS ---
-
-# 1. Obter as credenciais e a ID da planilha das variáveis de ambiente do Render
-# Usamos os.environ.get() para garantir a compatibilidade com o Render
+# --- Conexão com o Google Sheets ---
 try:
     credenciais_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_CREDENTIALS")
     planilha_id = os.environ.get("GOOGLE_SHEETS_ID")
-    
-    # Adicionando o API Key do OCR Space como variável de ambiente
-    ocr_api_key = os.environ.get("OCR_SPACE_API_KEY")
 
-    if not credenciais_json or not planilha_id or not ocr_api_key:
-        st.error("Erro: Variáveis de ambiente faltando no Render. Verifique a configuração.")
+    if not credenciais_json or not planilha_id:
+        st.error("Erro de configuração: As variáveis de ambiente GOOGLE_SERVICE_ACCOUNT_CREDENTIALS ou GOOGLE_SHEETS_ID não foram encontradas.")
         st.stop()
 
     credenciais = json.loads(credenciais_json)
     gc = gspread.service_account_from_dict(credenciais)
-    
-    # Acessa a primeira aba da planilha com o ID fornecido
     planilha = gc.open_by_key(planilha_id).sheet1 
-    
 except Exception as e:
-    st.error(f"Erro ao conectar com o Google Sheets ou carregar credenciais. Verifique as variáveis de ambiente no Render. Erro: {e}")
+    st.error(f"Erro ao conectar com o Google Sheets. Por favor, verifique as credenciais e as permissões da planilha. Erro: {e}")
     st.stop()
 
-# --- FUNÇÕES ---
+# --- Estrutura da Página ---
+st.title("Aplicativo de Coleta Rápida")
+st.markdown("---")
 
-def extrair_texto_ocr(image_bytes):
-    try:
-        response = requests.post(
-            'https://api.ocr.space/parse/image',
-            headers={'apikey': ocr_api_key},
-            files={'filename': image_bytes},
-            data={'language': 'por', 'isOverlayRequired': False}
-        )
-        response.raise_for_status() # Lança um erro se a resposta HTTP for um erro
-        result = response.json()
-        
-        if result['OCRExitCode'] == 1:
-            return result['ParsedResults'][0]['ParsedText']
-        else:
-            st.warning("O OCR não conseguiu extrair texto da imagem. Tente uma imagem mais clara.")
-            return None
-    except requests.exceptions.RequestException as e:
-        st.error(f"Erro de conexão com o serviço OCR. Verifique sua chave de API e a internet. Erro: {e}")
-        return None
-    except (KeyError, IndexError) as e:
-        st.error(f"Formato de resposta do OCR inesperado. Erro: {e}")
-        return None
+with st.form("formulario_coleta", clear_on_submit=True):
+    st.header("Insira os dados da família")
 
-def extrair_dados(texto):
-    # Regex adaptado para o formato do documento que você enviou
-    dados = {
-        'ID Família': re.search(r"FAM\s?(\d+)", texto),
-        'Nome': re.search(r"(?<=Nome:\n)[A-ZÇ\s]+", texto),
-        'Data de Nascimento': re.search(r"Nascimento\s*:\s*(\d{2}/\d{2}/\d{4})", texto),
-        'Telefone': re.search(r"(?<=Telefone\(s\)\nCELULAR\n\()\d{2}\)\s?\d{4,5}[-]?\d{4}", texto),
-        'CPF': re.search(r"CPF:\n(\d{3}\.\d{3}\.\d{3}-\d{2})", texto)
-    }
-
-    return {
-        'ID Família': dados['ID Família'].group(0) if dados['ID Família'] else '',
-        'Nome': dados['Nome'].group(0).strip() if dados['Nome'] else '',
-        'Data de Nascimento': dados['Data de Nascimento'].group(1) if dados['Data de Nascimento'] else '',
-        'Telefone': dados['Telefone'].group(0).strip() if dados['Telefone'] else '',
-        'CPF': dados['CPF'].group(1) if dados['CPF'] else '',
-        'Data de Envio': datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-    }
-
-# --- STREAMLIT APP ---
-
-st.subheader("Envie a imagem da ficha SUS")
-
-uploaded_file = st.file_uploader("Escolha uma imagem", type=['jpg', 'jpeg', 'png'])
-
-if uploaded_file is not None:
-    st.image(uploaded_file, caption="Imagem enviada", use_column_width=True)
+    # Layout com colunas
+    col1, col2 = st.columns(2)
+    with col1:
+        id_familia = st.text_input("ID Família (Ex: FAM001)", key="id_familia")
+    with col2:
+        nome_completo = st.text_input("Nome Completo", key="nome_completo")
     
-    with st.spinner("Analisando imagem via OCR..."):
-        image_bytes = BytesIO(uploaded_file.getvalue())
-        texto = extrair_texto_ocr(image_bytes)
+    data_nascimento = st.date_input("Data de Nascimento", key="data_nascimento")
 
-    if not texto:
-        st.error("Erro ao processar imagem. Verifique a imagem e tente novamente.")
-    else:
-        st.success("Texto extraído com sucesso!")
-        st.text_area("Texto completo extraído:", texto, height=200)
+    st.markdown("---")
+    st.subheader("Envie a Foto")
+    uploaded_file = st.file_uploader("Escolha uma imagem", type=['png', 'jpg', 'jpeg'], key="uploaded_file")
 
-        dados = extrair_dados(texto)
-        
-        st.subheader("Dados Extraídos:")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.write(f"**ID Família:** {dados['ID Família']}")
-            st.write(f"**Nome:** {dados['Nome']}")
-            st.write(f"**Data de Nascimento:** {dados['Data de Nascimento']}")
-        with col2:
-            st.write(f"**CPF:** {dados['CPF']}")
-            st.write(f"**Telefone:** {dados['Telefone']}")
-            st.write(f"**Data de Envio:** {dados['Data de Envio']}")
-
-        if st.button("✅ Enviar para Google Sheets"):
+    # Pré-visualização da imagem
+    if uploaded_file is not None:
+        # AQUI ESTÁ A ALTERAÇÃO: use_container_width no lugar de use_column_width
+        st.image(uploaded_file, caption="Pré-visualização", use_container_width=True)
+    
+    st.markdown("---")
+    submitted = st.form_submit_button("Salvar Dados na Planilha")
+    
+    if submitted:
+        if id_familia and nome_completo and uploaded_file is not None:
+            # Salvar a imagem localmente (adaptação para Render)
             try:
-                # Cria a lista com os dados na ordem correta das colunas da planilha
+                caminho_imagens = "imagens_salvas"
+                if not os.path.exists(caminho_imagens):
+                    os.makedirs(caminho_imagens)
+                
+                timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+                nome_unico_arquivo = f"{id_familia}_{timestamp}_{uploaded_file.name}"
+                caminho_completo = os.path.join(caminho_imagens, nome_unico_arquivo)
+                
+                with open(caminho_completo, "wb") as f:
+                    f.write(uploaded_file.getbuffer())
+                
+                st.success(f"Imagem salva como '{nome_unico_arquivo}'!")
+                
+            except Exception as e:
+                st.error(f"Ocorreu um erro ao salvar a imagem. Por favor, tente novamente. Erro: {e}")
+                st.stop()
+            
+            # Adicionar os dados à planilha
+            try:
                 nova_linha = [
-                    dados['ID Família'],
-                    dados['Nome'],
-                    dados['Data de Nascimento'],
-                    dados['Telefone'],
-                    dados['CPF'],
-                    dados['Data de Envio']
+                    id_familia,
+                    nome_completo,
+                    data_nascimento.strftime("%d/%m/%Y"),
+                    nome_unico_arquivo
                 ]
                 
                 planilha.append_row(nova_linha)
+                
                 st.success("Dados enviados para a planilha com sucesso!")
+                
             except Exception as e:
-                st.error(f"Erro ao enviar dados para a planilha. Verifique se as colunas estão corretas. Erro: {e}")
+                st.error(f"Ocorreu um erro ao adicionar os dados na planilha. Verifique as permissões. Erro: {e}")
+                
+        else:
+            st.warning("Por favor, preencha todos os campos obrigatórios e envie uma imagem.")
 
