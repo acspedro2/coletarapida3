@@ -3,66 +3,95 @@ import gspread
 import pandas as pd
 import json
 import os
+import datetime
 
-# 1. Obter as credenciais e a ID da planilha das variáveis de ambiente do Render
+# --- Configuração da Página e Título ---
+st.set_page_config(
+    page_title="Aplicativo de Coleta Rápida",
+    page_icon=":camera:",
+    layout="centered"
+)
+
+# --- Conexão com o Google Sheets ---
 try:
-    # O conteúdo do JSON da conta de serviço é lido como uma string
     credenciais_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_CREDENTIALS")
-    credenciais = json.loads(credenciais_json)
-
-    # A ID da planilha também é uma variável de ambiente
     planilha_id = os.environ.get("GOOGLE_SHEETS_ID")
 
-except (json.JSONDecodeError, KeyError) as e:
-    st.error("Erro ao carregar as credenciais ou a ID da planilha. Verifique as variáveis de ambiente no Render.")
-    st.stop()
+    if not credenciais_json or not planilha_id:
+        st.error("Erro de configuração: As variáveis de ambiente GOOGLE_SERVICE_ACCOUNT_CREDENTIALS ou GOOGLE_SHEETS_ID não foram encontradas.")
+        st.stop()
 
-# 2. Autenticar e conectar à planilha
-try:
+    credenciais = json.loads(credenciais_json)
     gc = gspread.service_account_from_dict(credenciais)
-    planilha = gc.open_by_key(planilha_id).sheet1
-except gspread.exceptions.APIError as e:
-    st.error(f"Erro de autenticação com a API do Google Sheets. Verifique as permissões da conta de serviço. Detalhes do erro: {e}")
-    st.stop()
+    planilha = gc.open_by_key(planilha_id).sheet1 
 except Exception as e:
-    st.error(f"Não foi possível conectar à planilha. Verifique se a ID está correta e se a planilha existe. Detalhes do erro: {e}")
+    st.error(f"Erro ao conectar com o Google Sheets. Por favor, verifique as credenciais e as permissões da planilha. Erro: {e}")
     st.stop()
 
+# --- Estrutura da Página ---
+st.title("Aplicativo de Coleta Rápida")
+st.markdown("---")
 
-st.title("Aplicativo de Coleta")
+with st.form("formulario_coleta", clear_on_submit=True):
+    st.header("Insira os dados da família")
 
-with st.form("meu_formulario"):
-    nome = st.text_input("Nome")
-    uploaded_file = st.file_uploader("Envie uma imagem", type=['png', 'jpg', 'jpeg'])
+    # Layout com colunas
+    col1, col2 = st.columns(2)
+    with col1:
+        id_familia = st.text_input("ID Família (Ex: FAM001)", key="id_familia")
+    with col2:
+        nome_completo = st.text_input("Nome Completo", key="nome_completo")
     
-    submitted = st.form_submit_button("Salvar")
+    data_nascimento = st.date_input("Data de Nascimento", key="data_nascimento")
+
+    st.markdown("---")
+    st.subheader("Envie a Foto")
+    uploaded_file = st.file_uploader("Escolha uma imagem", type=['png', 'jpg', 'jpeg'], key="uploaded_file")
+
+    # Pré-visualização da imagem
+    if uploaded_file is not None:
+        st.image(uploaded_file, caption="Pré-visualização", use_column_width=True)
+    
+    st.markdown("---")
+    submitted = st.form_submit_button("Salvar Dados na Planilha")
     
     if submitted:
-        if nome and uploaded_file is not None:
-            # 3. Salvar a imagem localmente (adaptação para Render/Glitch/Replit)
+        if id_familia and nome_completo and uploaded_file is not None:
+            # Salvar a imagem localmente (adaptação para Render)
             try:
-                # O caminho da pasta para salvar as imagens
                 caminho_imagens = "imagens_salvas"
                 if not os.path.exists(caminho_imagens):
                     os.makedirs(caminho_imagens)
                 
-                # Caminho completo do arquivo
-                caminho_completo = os.path.join(caminho_imagens, uploaded_file.name)
+                timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+                nome_unico_arquivo = f"{id_familia}_{timestamp}_{uploaded_file.name}"
+                caminho_completo = os.path.join(caminho_imagens, nome_unico_arquivo)
                 
-                # Salva o arquivo
                 with open(caminho_completo, "wb") as f:
                     f.write(uploaded_file.getbuffer())
                 
-                st.success(f"Imagem '{uploaded_file.name}' salva com sucesso!")
+                st.success(f"Imagem salva como '{nome_unico_arquivo}'!")
                 
-                # 4. Adicionar os dados à planilha
-                nova_linha = [nome, uploaded_file.name]
+            except Exception as e:
+                st.error(f"Ocorreu um erro ao salvar a imagem. Por favor, tente novamente. Erro: {e}")
+                st.stop()
+            
+            # Adicionar os dados à planilha
+            try:
+                nova_linha = [
+                    id_familia,
+                    nome_completo,
+                    data_nascimento.strftime("%d/%m/%Y"),
+                    nome_unico_arquivo
+                ]
+                
                 planilha.append_row(nova_linha)
                 
-                st.success("Dados enviados para a planilha!")
-            
+                st.success("Dados enviados para a planilha com sucesso!")
+                
             except Exception as e:
-                st.error(f"Ocorreu um erro ao salvar a imagem ou adicionar os dados na planilha. Erro: {e}")
+                st.error(f"Ocorreu um erro ao adicionar os dados na planilha. Verifique as permissões. Erro: {e}")
+                
         else:
-            st.warning("Por favor, preencha o nome e envie uma imagem.")
+            st.warning("Por favor, preencha todos os campos obrigatórios e envie uma imagem.")
 
