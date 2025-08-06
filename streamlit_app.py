@@ -110,11 +110,17 @@ def extrair_dados_com_gemini(image_bytes):
     
     try:
         response = model.generate_content([prompt, image])
-        json_string = response.text.replace('```json', '').replace('```', '').strip()
-        dados = json.loads(json_string)
-        return dados
+        
+        if response.text:
+            json_string = response.text.replace('```json', '').replace('```', '').strip()
+            dados = json.loads(json_string)
+            return dados
+        else:
+            st.warning(f"A IA bloqueou a resposta para o arquivo. A imagem pode conter dados sensíveis ou foi sinalizada pelo filtro de segurança.")
+            return None
+            
     except Exception as e:
-        st.error(f"Erro ao extrair dados com Gemini. Verifique a chave da API e a imagem. Erro: {e}")
+        st.error(f"Erro ao extrair dados com Gemini para o arquivo. Verifique a chave da API e a imagem. Erro: {e}")
         return None
 
 def calcular_idade(data_nascimento):
@@ -138,72 +144,105 @@ def destacar_idosos(linha):
 
 # --- STREAMLIT APP ---
 planilha_conectada = conectar_planilha()
-st.subheader("Envie a imagem da ficha SUS")
-uploaded_file = st.file_uploader("Escolha uma imagem", type=['jpg', 'jpeg', 'png'])
 
-if uploaded_file is not None:
-    st.image(uploaded_file, caption="Pré-visualização", use_container_width=True)
-    
-    with st.spinner("Analisando imagem..."):
-        image_bytes_original = BytesIO(uploaded_file.read())
-        
-        asterisco_presente = detectar_asterisco(image_bytes_original)
-        
-        image_bytes_original.seek(0)
-        dados = extrair_dados_com_gemini(image_bytes_original)
+st.subheader("Envie a(s) imagem(ns) da(s) ficha(s) SUS")
+uploaded_files = st.file_uploader("Escolha uma ou mais imagens", type=['jpg', 'jpeg', 'png'], accept_multiple_files=True)
 
-    if not dados:
-        st.error("Erro ao processar imagem ou extrair dados. Verifique a imagem e tente novamente.")
-    else:
-        st.success("Dados extraídos com sucesso!")
-        
-        # Formata o nome se o asterisco for detectado
-        nome_paciente = dados.get('Nome Completo', '')
-        if asterisco_presente:
-            nome_paciente = f"**{nome_paciente.upper()}**"
-        
-        st.subheader("Dados Extraídos:")
-        
-        # Cria um DataFrame para a estilização
-        dados_formatados = {
-            'ID Família': dados.get('ID Família', ''),
-            'Nome': nome_paciente,
-            'Data de Nascimento': dados.get('Data de Nascimento', ''),
-            'Telefone': dados.get('Telefone', ''),
-            'CPF': dados.get('CPF', ''),
-            'Data de Envio': datetime.now().strftime('%d/%m/%Y %H:%M:%S')
-        }
-        df_dados = pd.DataFrame([dados_formatados])
-        
-        st.dataframe(df_dados.style.apply(destacar_idosos, axis=1), hide_index=True, use_container_width=True)
+# Inicializa o estado da sessão para rastrear arquivos processados
+if 'processed_files' not in st.session_state:
+    st.session_state.processed_files = {}
 
-        if st.button("✅ Enviar para Google Sheets"):
-            if not dados.get('ID Família') or not dados.get('Nome Completo'):
-                st.warning("Dados principais (ID e Nome) não foram encontrados. Envio cancelado.")
-            else:
+if uploaded_files:
+    if st.button("✅ Processar e Enviar Arquivos"):
+        with st.spinner("Processando arquivos..."):
+            for uploaded_file in uploaded_files:
+                file_name = uploaded_file.name
+                
+                # Impede o reprocessamento do mesmo arquivo
+                if file_name in st.session_state.processed_files:
+                    st.warning(f"Arquivo '{file_name}' já foi processado e enviado. Ignorando.")
+                    continue
+
                 try:
-                    # Lista de dados na ordem CORRETA para a sua planilha
-                    # ID, FAMÍLIA, Nome Completo, Data de Nascimento, Idade, Sexo, ID Mãe, Pai, Município de Nascimento, Município de Residência, CPF, CNS, Telefones, Observações, Fonte da Imagem, Data da Extração
-                    nova_linha = [
-                        '', # Coluna A: ID (deixe vazio, a planilha gera)
-                        dados.get('ID Família', ''),  # Coluna B: FAMÍLIA
-                        dados.get('Nome Completo', ''), # Coluna C: Nome Completo
-                        dados.get('Data de Nascimento', ''), # Coluna D: Data de Nascimento
-                        '',                           # Coluna E: Idade
-                        '',                           # Coluna F: Sexo
-                        '',                           # Coluna G: ID Mãe
-                        '',                           # Coluna H: Pai
-                        '',                           # Coluna I: Município de Nascimento
-                        '',                           # Coluna J: Município de Residência
-                        dados.get('CPF', ''),         # Coluna K: CPF
-                        '',                           # Coluna L: CNS
-                        dados.get('Telefone', ''),    # Coluna M: Telefones
-                        '',                           # Coluna N: Observações
-                        uploaded_file.name,           # Coluna O: Fonte da Imagem
-                        datetime.now().strftime('%d/%m/%Y %H:%M:%S') # Coluna P: Data da Extração
-                    ]
+                    # Pré-visualização da imagem
+                    image_bytes_original = BytesIO(uploaded_file.read())
+                    st.image(image_bytes_original, caption=f"Pré-visualização: {file_name}", use_container_width=True)
                     
-                    planilha_conectada.append_row(nova_linha)
-                    st.success("Dados enviados para a planilha com sucesso!")
+                    # Detecção de asterisco
+                    image_bytes_original.seek(0)
+                    asterisco_presente = detectar_asterisco(image_bytes_original)
+
+                    # Extração de dados com Gemini
+                    image_bytes_original.seek(0)
+                    dados = extrair_dados_com_gemini(image_bytes_original)
+
+                    if not dados:
+                        st.error(f"Erro ao processar imagem '{file_name}'. Verifique o arquivo e a API.")
+                        st.session_state.processed_files[file_name] = 'Erro'
+                    else:
+                        st.success(f"Dados do arquivo '{file_name}' extraídos com sucesso!")
+                        
+                        # Formata o nome se o asterisco for detectado
+                        nome_paciente = dados.get('Nome Completo', '')
+                        if asterisco_presente:
+                            nome_paciente = f"**{nome_paciente.upper()}**"
+                        
+                        st.subheader(f"Dados Extraídos de '{file_name}':")
+                        
+                        dados_formatados = {
+                            'ID Família': dados.get('ID Família', ''),
+                            'Nome': nome_paciente,
+                            'Data de Nascimento': dados.get('Data de Nascimento', ''),
+                            'Telefone': dados.get('Telefone', ''),
+                            'CPF': dados.get('CPF', ''),
+                            'Data de Envio': datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+                        }
+                        df_dados = pd.DataFrame([dados_formatados])
+                        
+                        st.dataframe(df_dados.style.apply(destacar_idosos, axis=1), hide_index=True, use_container_width=True)
+                        
+                        if st.button(f"✅ Enviar dados de '{file_name}' para Google Sheets", key=f"send_button_{file_name}"):
+                            if not dados.get('ID Família') or not dados.get('Nome Completo'):
+                                st.warning(f"Dados principais (ID e Nome) de '{file_name}' não foram encontrados. Envio cancelado.")
+                            else:
+                                try:
+                                    nova_linha = [
+                                        '', # Coluna A: ID (deixe vazio, a planilha gera)
+                                        dados.get('ID Família', ''),  # Coluna B: FAMÍLIA
+                                        dados.get('Nome Completo', ''), # Coluna C: Nome Completo
+                                        dados.get('Data de Nascimento', ''), # Coluna D: Data de Nascimento
+                                        '',                           # Coluna E: Idade
+                                        '',                           # Coluna F: Sexo
+                                        '',                           # Coluna G: ID Mãe
+                                        '',                           # Coluna H: Pai
+                                        '',                           # Coluna I: Município de Nascimento
+                                        '',                           # Coluna J: Município de Residência
+                                        dados.get('CPF', ''),         # Coluna K: CPF
+                                        '',                           # Coluna L: CNS
+                                        dados.get('Telefone', ''),    # Coluna M: Telefones
+                                        '',                           # Coluna N: Observações
+                                        file_name,                    # Coluna O: Fonte da Imagem
+                                        datetime.now().strftime('%d/%m/%Y %H:%M:%S') # Coluna P: Data da Extração
+                                    ]
+                                    
+                                    planilha_conectada.append_row(nova_linha)
+                                    st.success(f"Dados de '{file_name}' enviados para a planilha com sucesso!")
+                                    st.session_state.processed_files[file_name] = 'Sucesso'
+                                except Exception as e:
+                                    st.error(f"Erro ao enviar dados de '{file_name}' para a planilha. Verifique as colunas. Erro: {e}")
+                                    st.session_state.processed_files[file_name] = 'Erro'
+                
                 except Exception as e:
-                    st.error(f"Erro ao enviar dados para a planilha. Verifique se as colunas estão corretas. Erro: {e}")
+                    st.error(f"Ocorreu um erro inesperado ao processar o arquivo '{file_name}': {e}")
+                    st.session_state.processed_files[file_name] = 'Erro'
+
+    st.markdown("---")
+    st.subheader("Status dos Arquivos Processados")
+    if st.session_state.processed_files:
+        for file_name, status in st.session_state.processed_files.items():
+            if status == 'Sucesso':
+                st.write(f"✅ {file_name}: Sucesso")
+            elif status == 'Erro':
+                st.write(f"❌ {file_name}: Erro")
+            else:
+                st.write(f"🔄 {file_name}: Aguardando Envio")
