@@ -103,9 +103,14 @@ def extrair_dados_com_gemini(image_bytes):
     - Data de Nascimento (formato DD/MM/AAAA)
     - Telefone (com DDD)
     - CPF (formato 000.000.000-00)
+    - Nome da Mãe
+    - Nome do Pai
+    - Sexo (ex: FEMININO, MASCULINO)
+    - CNS (formato 000 0000 0000 0000)
+    - Município de Nascimento
     Se algum dado não for encontrado, retorne um campo vazio.
     Retorne os dados como um objeto JSON. Exemplo:
-    {"ID Família": "...", "Nome Completo": "...", "Data de Nascimento": "...", "Telefone": "...", "CPF": "..."}
+    {"ID Família": "...", "Nome Completo": "...", "Data de Nascimento": "...", "Telefone": "...", "CPF": "...", "Nome da Mãe": "...", "Nome do Pai": "...", "Sexo": "...", "CNS": "...", "Município de Nascimento": "..."}
     """
     
     try:
@@ -187,38 +192,48 @@ if uploaded_files:
                         if asterisco_presente:
                             nome_paciente = f"**{nome_paciente.upper()}**"
                         
+                        # Calcular a idade
+                        idade = calcular_idade(dados.get('Data de Nascimento', ''))
+
                         st.subheader(f"Dados Extraídos de '{file_name}':")
                         
-                        dados_formatados = {
+                        # DataFrame para visualização dos dados extraídos
+                        dados_para_df = {
                             'ID Família': dados.get('ID Família', ''),
-                            'Nome': nome_paciente,
+                            'Nome Completo': nome_paciente,
                             'Data de Nascimento': dados.get('Data de Nascimento', ''),
+                            'Idade': str(idade) if idade is not None else '',
+                            'Sexo': dados.get('Sexo', ''),
+                            'Nome da Mãe': dados.get('Nome da Mãe', ''),
+                            'Nome do Pai': dados.get('Nome do Pai', ''),
+                            'Município de Nascimento': dados.get('Município de Nascimento', ''),
                             'Telefone': dados.get('Telefone', ''),
                             'CPF': dados.get('CPF', ''),
+                            'CNS': dados.get('CNS', ''),
                             'Data de Envio': datetime.now().strftime('%d/%m/%Y %H:%M:%S')
                         }
-                        df_dados = pd.DataFrame([dados_formatados])
+                        df_dados = pd.DataFrame([dados_para_df])
                         
                         st.dataframe(df_dados.style.apply(destacar_idosos, axis=1), hide_index=True, use_container_width=True)
                         
                         try:
-                            # A sua lista nova_linha deve ser ajustada para se alinhar com as colunas da planilha
+                            # A sua lista nova_linha foi ajustada para se alinhar com as colunas da planilha
                             nova_linha = [
                                 '', # Coluna A: ID (deixe vazio, a planilha gera)
                                 dados.get('ID Família', ''),  # Coluna B: FAMÍLIA
                                 dados.get('Nome Completo', ''), # Coluna C: Nome Completo
                                 dados.get('Data de Nascimento', ''), # Coluna D: Data de Nascimento
-                                '',                           # Coluna E: Idade
-                                '',                           # Coluna F: Sexo
-                                '',                           # Coluna G: ID Mãe
-                                '',                           # Coluna H: Pai
-                                '',                           # Coluna I: Município de Nascimento
-                                '',                           # Coluna J: Município de Residência
-                                dados.get('CPF', ''),         # Coluna K: CPF
-                                '',                           # Coluna L: CNS
-                                dados.get('Telefone', ''),    # Coluna M: Telefones
-                                '',                           # Coluna N: Observações
-                                file_name,                    # Coluna O: Fonte da Imagem
+                                str(idade) if idade is not None else '', # Coluna E: Idade
+                                dados.get('Sexo', ''), # Coluna F: Sexo
+                                dados.get('Nome da Mãe', ''), # Coluna G: ID Mãe (Usando Nome da Mãe)
+                                dados.get('Nome do Pai', ''), # Coluna H: Pai
+                                dados.get('Município de Nascimento', ''), # Coluna I: Município de Nascimento
+                                '', # Coluna J: Município de Residência
+                                dados.get('CPF', ''), # Coluna K: CPF
+                                dados.get('CNS', ''), # Coluna L: CNS
+                                dados.get('Telefone', ''), # Coluna M: Telefones
+                                '', # Coluna N: Observações
+                                file_name, # Coluna O: Fonte da Imagem
                                 datetime.now().strftime('%d/%m/%Y %H:%M:%S') # Coluna P: Data da Extração
                             ]
                             
