@@ -91,7 +91,6 @@ def detectar_asterisco(image_bytes):
 def extrair_dados_com_gemini(image_bytes):
     """Extrai dados da imagem usando a API do Google Gemini."""
     genai.configure(api_key=gemini_api_key)
-    # Usa o modelo correto que encontramos na sua lista
     model = genai.GenerativeModel('gemini-2.5-pro')
 
     image_bytes.seek(0)
@@ -165,7 +164,6 @@ if uploaded_file is not None:
         
         st.subheader("Dados Extraídos:")
         
-        # Cria um DataFrame para a estilização com a idade
         dados_formatados = {
             'ID Família': dados.get('ID Família', ''),
             'Nome': nome_paciente,
@@ -176,10 +174,6 @@ if uploaded_file is not None:
         }
         df_dados = pd.DataFrame([dados_formatados])
         
-        # O DataFrame para estilização deve ter a coluna de Data de Nascimento
-        df_para_estilo = pd.DataFrame([dados])
-        
-        # Aplica a estilização
         st.dataframe(df_dados.style.apply(destacar_idosos, axis=1), hide_index=True, use_container_width=True)
 
         if st.button("✅ Enviar para Google Sheets"):
