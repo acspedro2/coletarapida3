@@ -31,7 +31,7 @@ try:
     gemini_api_key = os.environ.get("GOOGLE_GEMINI_API_KEY")
 
     if not credenciais_json or not planilha_id or not ocr_api_key or not gemini_api_key:
-        st.error("Erro de configuração: Variáveis de ambiente faltando. Verifique a configuração no Render.")
+        st.error("Erro de configuração: Variáveis de ambiente faltando no Render. Verifique a configuração.")
         st.stop()
 
     credenciais = json.loads(credenciais_json)
@@ -65,7 +65,7 @@ def detectar_asterisco(image_bytes):
 
         imagem_cinza = cv2.cvtColor(imagem_cv, cv2.COLOR_BGR2GRAY)
         
-        roi = imagem_cinco[0:200, 0:200]
+        roi = imagem_cinza[0:200, 0:200]
         
         template = np.array([
             [0, 0, 0, 255, 0, 0, 0],
