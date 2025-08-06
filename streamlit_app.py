@@ -65,7 +65,7 @@ def detectar_asterisco(image_bytes):
 
         imagem_cinza = cv2.cvtColor(imagem_cv, cv2.COLOR_BGR2GRAY)
         
-        roi = imagem_cinza[0:200, 0:200]
+        roi = imagem_cinco[0:200, 0:200]
         
         template = np.array([
             [0, 0, 0, 255, 0, 0, 0],
@@ -258,4 +258,3 @@ if uploaded_files:
                 st.write(f"❌ {file_name}: Erro")
             else:
                 st.write(f"🔄 {file_name}: Aguardando Envio")
-
