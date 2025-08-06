@@ -141,7 +141,7 @@ def calcular_idade(data_nascimento):
 
 def destacar_idosos(linha):
     """Aplica estilo à linha se a idade for 60 ou mais."""
-    idade = calcular_idade(linha['Data de Nascimento'])
+    idade = calcular_idade(linha.get('Data de Nascimento', ''))
     if idade is not None and idade >= 60:
         return ['background-color: orange'] * len(linha)
     else:
@@ -228,11 +228,11 @@ if uploaded_files:
                                 dados.get('Nome da Mãe', ''), # Coluna G: ID Mãe (Usando Nome da Mãe)
                                 dados.get('Nome do Pai', ''), # Coluna H: Pai
                                 dados.get('Município de Nascimento', ''), # Coluna I: Município de Nascimento
-                                '', # Coluna J: Município de Residência
+                                '', # Coluna J: Município de Residência (não extraído)
                                 dados.get('CPF', ''), # Coluna K: CPF
                                 dados.get('CNS', ''), # Coluna L: CNS
                                 dados.get('Telefone', ''), # Coluna M: Telefones
-                                '', # Coluna N: Observações
+                                '', # Coluna N: Observações (não extraído)
                                 file_name, # Coluna O: Fonte da Imagem
                                 datetime.now().strftime('%d/%m/%Y %H:%M:%S') # Coluna P: Data da Extração
                             ]
@@ -258,3 +258,4 @@ if uploaded_files:
                 st.write(f"❌ {file_name}: Erro")
             else:
                 st.write(f"🔄 {file_name}: Aguardando Envio")
+
