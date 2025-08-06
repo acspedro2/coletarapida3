@@ -8,6 +8,10 @@ from io import BytesIO
 from datetime import datetime
 from gspread.exceptions import APIError
 
+# Importa as bibliotecas para processamento de imagem
+import cv2
+import numpy as np
+
 # --- Configuração da Página e Título ---
 st.set_page_config(
     page_title="Aplicativo de Coleta Rápida",
@@ -19,7 +23,6 @@ st.title("Aplicativo de Coleta Rápida")
 st.markdown("---")
 
 # --- CONEXÃO E VARIÁVEIS DE AMBIENTE ---
-# Usa os.environ.get() para compatibilidade com o Render
 try:
     credenciais_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_CREDENTIALS")
     planilha_id = os.environ.get("GOOGLE_SHEETS_ID")
@@ -39,10 +42,7 @@ except Exception as e:
 
 @st.cache_resource
 def conectar_planilha():
-    """
-    Tenta conectar com o Google Sheets e retorna o objeto da planilha.
-    Usa caching para evitar múltiplas conexões.
-    """
+    """Tenta conectar com o Google Sheets e retorna o objeto da planilha."""
     try:
         gc = gspread.service_account_from_dict(credenciais)
         planilha = gc.open_by_key(planilha_id).sheet1 
@@ -54,6 +54,28 @@ def conectar_planilha():
         st.error(f"Não foi possível conectar à planilha. Verifique a ID e as permissões. Erro: {e}")
         st.stop()
 
+def pre_processar_imagem(image_bytes):
+    """Aplica filtros para melhorar a qualidade da imagem para o OCR."""
+    try:
+        np_array = np.frombuffer(image_bytes.read(), np.uint8)
+        imagem = cv2.imdecode(np_array, cv2.IMREAD_COLOR)
+
+        imagem_cinza = cv2.cvtColor(imagem, cv2.COLOR_BGR2GRAY)
+        
+        # Binarização adaptativa: Funciona melhor com iluminação desigual
+        imagem_binaria = cv2.adaptiveThreshold(imagem_cinza, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 11, 2)
+
+        is_success, buffer = cv2.imencode(".png", imagem_binaria)
+        
+        if is_success:
+            return BytesIO(buffer)
+        else:
+            return image_bytes
+    except Exception as e:
+        st.warning(f"Erro ao pré-processar a imagem. Usando a imagem original. Erro: {e}")
+        image_bytes.seek(0)
+        return image_bytes
+
 def extrair_texto_ocr(image_bytes):
     """Tenta extrair texto de uma imagem usando o serviço de OCR."""
     try:
@@ -62,12 +84,12 @@ def extrair_texto_ocr(image_bytes):
             headers={'apikey': ocr_api_key},
             files={'filename': image_bytes},
             data={'language': 'por', 'isOverlayRequired': False},
-            timeout=15 # Aumentado o tempo limite para 15 segundos
+            timeout=15
         )
-        response.raise_for_status() # Lança um erro se o status HTTP for um erro
+        response.raise_for_status()
         result = response.json()
         
-        if result['OCRExitCode'] == 1:
+        if result['OCRExitCode'] == 1 and result['ParsedResults']:
             return result['ParsedResults'][0]['ParsedText']
         else:
             st.warning("O OCR não conseguiu extrair texto da imagem. Tente uma imagem mais clara.")
@@ -81,8 +103,6 @@ def extrair_texto_ocr(image_bytes):
 
 def extrair_dados(texto):
     """Extrai dados específicos do texto usando expressões regulares aprimoradas."""
-    
-    # As expressões foram ajustadas com base no documento que você enviou
     dados = {
         'ID Família': re.search(r"FAM[\s\n]*(\d{3,})", texto, re.IGNORECASE),
         'Nome': re.search(r"(Nome:)\n([A-ZÇ\s]+)", texto, re.IGNORECASE),
@@ -101,26 +121,26 @@ def extrair_dados(texto):
     }
 
 # --- STREAMLIT APP ---
-
-# Conecta à planilha uma única vez quando o aplicativo é iniciado
 planilha_conectada = conectar_planilha()
-
 st.subheader("Envie a imagem da ficha SUS")
-
 uploaded_file = st.file_uploader("Escolha uma imagem", type=['jpg', 'jpeg', 'png'])
 
 if uploaded_file is not None:
     st.image(uploaded_file, caption="Pré-visualização", use_container_width=True)
     
     with st.spinner("Analisando imagem via OCR..."):
-        image_bytes = BytesIO(uploaded_file.getvalue())
-        texto = extrair_texto_ocr(image_bytes)
+        # Leitura e pré-processamento da imagem
+        image_bytes_lida = BytesIO(uploaded_file.read())
+        image_bytes_processada = pre_processar_imagem(image_bytes_lida)
+        
+        texto = extrair_texto_ocr(image_bytes_processada)
 
     if not texto:
         st.error("Erro ao processar imagem. Verifique a imagem e tente novamente.")
     else:
         st.success("Texto extraído com sucesso!")
-        
+        st.text_area("Texto completo extraído:", texto, height=200)
+
         dados = extrair_dados(texto)
         
         st.subheader("Dados Extraídos:")
@@ -135,7 +155,6 @@ if uploaded_file is not None:
             st.write(f"**Data de Envio:** {dados['Data de Envio']}")
 
         if st.button("✅ Enviar para Google Sheets"):
-            # Verifica se os dados principais foram extraídos
             if not dados['ID Família'] or not dados['Nome']:
                 st.warning("Dados principais (ID e Nome) não foram encontrados. Envio cancelado.")
             else:
@@ -153,4 +172,3 @@ if uploaded_file is not None:
                     st.success("Dados enviados para a planilha com sucesso!")
                 except Exception as e:
                     st.error(f"Erro ao enviar dados para a planilha. Verifique se as colunas estão corretas. Erro: {e}")
-
