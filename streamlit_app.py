@@ -76,20 +76,31 @@ def extrair_texto_ocr(image_bytes):
         return None
 
 def extrair_dados(texto):
-    """Extrai dados específicos do texto usando expressões regulares."""
+    """Extrai dados específicos do texto usando expressões regulares aprimoradas."""
+    
+    # As expressões foram ajustadas com base no documento que você enviou
     dados = {
-        'ID Família': re.search(r"FAM\s?(\d+)", texto),
-        'Nome': re.search(r"(?<=Nome:\n)[A-ZÇ\s]+", texto),
-        'Data de Nascimento': re.search(r"Nascimento\s*:\s*(\d{2}/\d{2}/\d{4})", texto),
-        'Telefone': re.search(r"(?<=Telefone\(s\)\nCELULAR\n\()\d{2}\)\s?\d{4,5}[-]?\d{4}", texto),
-        'CPF': re.search(r"CPF:\n(\d{3}\.\d{3}\.\d{3}-\d{2})", texto)
+        # Busca o ID da família (ex: FAM001)
+        'ID Família': re.search(r"FAM[\s\n]*(\d{3,})", texto, re.IGNORECASE),
+        
+        # Busca o nome completo, geralmente após "Nome:" ou "Nome Social"
+        'Nome': re.search(r"(Nome:)\n([A-ZÇ\s]+)", texto, re.IGNORECASE),
+        
+        # Busca a data de nascimento
+        'Data de Nascimento': re.search(r"Nascimento\s*:\s*(\d{2}/\d{2}/\d{4})", texto, re.IGNORECASE),
+        
+        # Busca o telefone (DDD e número)
+        'Telefone': re.search(r"CELULAR\n\((\d{2})\)\s?(\d{4,5})[-]?(\d{4})", texto, re.IGNORECASE),
+        
+        # Busca o CPF
+        'CPF': re.search(r"CPF:\n(\d{3}\.\d{3}\.\d{3}-\d{2})", texto, re.IGNORECASE)
     }
 
     return {
         'ID Família': dados['ID Família'].group(0) if dados['ID Família'] else '',
-        'Nome': dados['Nome'].group(0).strip() if dados['Nome'] else '',
+        'Nome': dados['Nome'].group(2).strip() if dados['Nome'] else '',
         'Data de Nascimento': dados['Data de Nascimento'].group(1) if dados['Data de Nascimento'] else '',
-        'Telefone': dados['Telefone'].group(0).strip() if dados['Telefone'] else '',
+        'Telefone': f"({dados['Telefone'].group(1)}) {dados['Telefone'].group(2)}-{dados['Telefone'].group(3)}" if dados['Telefone'] else '',
         'CPF': dados['CPF'].group(1) if dados['CPF'] else '',
         'Data de Envio': datetime.now().strftime("%d/%m/%Y %H:%M:%S")
     }
@@ -104,7 +115,8 @@ st.subheader("Envie a imagem da ficha SUS")
 uploaded_file = st.file_uploader("Escolha uma imagem", type=['jpg', 'jpeg', 'png'])
 
 if uploaded_file is not None:
-    st.image(uploaded_file, caption="Imagem enviada", use_container_width=True)
+    # AQUI ESTÁ A ALTERAÇÃO: use_container_width no lugar de use_column_width
+    st.image(uploaded_file, caption="Pré-visualização", use_container_width=True)
     
     with st.spinner("Analisando imagem via OCR..."):
         image_bytes = BytesIO(uploaded_file.getvalue())
