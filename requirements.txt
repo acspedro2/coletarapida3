@@ -13,3 +13,4 @@ pandas
 pytesseract
 Pillow
 reportlab
+opencv-python
