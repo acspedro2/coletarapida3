@@ -164,6 +164,7 @@ if uploaded_file is not None:
         
         st.subheader("Dados Extraídos:")
         
+        # Cria um DataFrame para a estilização
         dados_formatados = {
             'ID Família': dados.get('ID Família', ''),
             'Nome': nome_paciente,
@@ -181,13 +182,25 @@ if uploaded_file is not None:
                 st.warning("Dados principais (ID e Nome) não foram encontrados. Envio cancelado.")
             else:
                 try:
+                    # Lista de dados na ordem CORRETA para a sua planilha
+                    # ID, FAMÍLIA, Nome Completo, Data de Nascimento, Idade, Sexo, ID Mãe, Pai, Município de Nascimento, Município de Residência, CPF, CNS, Telefones, Observações, Fonte da Imagem, Data da Extração
                     nova_linha = [
-                        dados.get('ID Família', ''),
-                        dados.get('Nome Completo', ''),
-                        dados.get('Data de Nascimento', ''),
-                        dados.get('Telefone', ''),
-                        dados.get('CPF', ''),
-                        datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+                        '', # Coluna A: ID (deixe vazio, a planilha gera)
+                        dados.get('ID Família', ''),  # Coluna B: FAMÍLIA
+                        dados.get('Nome Completo', ''), # Coluna C: Nome Completo
+                        dados.get('Data de Nascimento', ''), # Coluna D: Data de Nascimento
+                        '',                           # Coluna E: Idade
+                        '',                           # Coluna F: Sexo
+                        '',                           # Coluna G: ID Mãe
+                        '',                           # Coluna H: Pai
+                        '',                           # Coluna I: Município de Nascimento
+                        '',                           # Coluna J: Município de Residência
+                        dados.get('CPF', ''),         # Coluna K: CPF
+                        '',                           # Coluna L: CNS
+                        dados.get('Telefone', ''),    # Coluna M: Telefones
+                        '',                           # Coluna N: Observações
+                        uploaded_file.name,           # Coluna O: Fonte da Imagem
+                        datetime.now().strftime('%d/%m/%Y %H:%M:%S') # Coluna P: Data da Extração
                     ]
                     
                     planilha_conectada.append_row(nova_linha)
