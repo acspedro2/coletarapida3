@@ -7,3 +7,9 @@ google-auth-httplib2
 google-auth-oauthlib
 pytesseract
 reportlab
+streamlit
+gspread
+pandas
+pytesseract
+Pillow
+reportlab
