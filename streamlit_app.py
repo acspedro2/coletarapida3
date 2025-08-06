@@ -6,6 +6,7 @@ import os
 import re
 from io import BytesIO
 from datetime import datetime
+from gspread.exceptions import APIError
 
 # --- Configuração da Página e Título ---
 st.set_page_config(
@@ -38,12 +39,15 @@ except Exception as e:
 
 @st.cache_resource
 def conectar_planilha():
-    """Tenta conectar com o Google Sheets e retorna o objeto da planilha."""
+    """
+    Tenta conectar com o Google Sheets e retorna o objeto da planilha.
+    Usa caching para evitar múltiplas conexões.
+    """
     try:
         gc = gspread.service_account_from_dict(credenciais)
         planilha = gc.open_by_key(planilha_id).sheet1 
         return planilha
-    except gspread.exceptions.APIError as e:
+    except APIError as e:
         st.error("Erro de permissão! Verifique se a planilha foi compartilhada com a conta de serviço.")
         st.stop()
     except Exception as e:
@@ -58,7 +62,7 @@ def extrair_texto_ocr(image_bytes):
             headers={'apikey': ocr_api_key},
             files={'filename': image_bytes},
             data={'language': 'por', 'isOverlayRequired': False},
-            timeout=10 # Define um tempo limite de 10 segundos
+            timeout=15 # Aumentado o tempo limite para 15 segundos
         )
         response.raise_for_status() # Lança um erro se o status HTTP for um erro
         result = response.json()
@@ -80,19 +84,10 @@ def extrair_dados(texto):
     
     # As expressões foram ajustadas com base no documento que você enviou
     dados = {
-        # Busca o ID da família (ex: FAM001)
         'ID Família': re.search(r"FAM[\s\n]*(\d{3,})", texto, re.IGNORECASE),
-        
-        # Busca o nome completo, geralmente após "Nome:" ou "Nome Social"
         'Nome': re.search(r"(Nome:)\n([A-ZÇ\s]+)", texto, re.IGNORECASE),
-        
-        # Busca a data de nascimento
         'Data de Nascimento': re.search(r"Nascimento\s*:\s*(\d{2}/\d{2}/\d{4})", texto, re.IGNORECASE),
-        
-        # Busca o telefone (DDD e número)
         'Telefone': re.search(r"CELULAR\n\((\d{2})\)\s?(\d{4,5})[-]?(\d{4})", texto, re.IGNORECASE),
-        
-        # Busca o CPF
         'CPF': re.search(r"CPF:\n(\d{3}\.\d{3}\.\d{3}-\d{2})", texto, re.IGNORECASE)
     }
 
@@ -115,7 +110,6 @@ st.subheader("Envie a imagem da ficha SUS")
 uploaded_file = st.file_uploader("Escolha uma imagem", type=['jpg', 'jpeg', 'png'])
 
 if uploaded_file is not None:
-    # AQUI ESTÁ A ALTERAÇÃO: use_container_width no lugar de use_column_width
     st.image(uploaded_file, caption="Pré-visualização", use_container_width=True)
     
     with st.spinner("Analisando imagem via OCR..."):
@@ -126,8 +120,7 @@ if uploaded_file is not None:
         st.error("Erro ao processar imagem. Verifique a imagem e tente novamente.")
     else:
         st.success("Texto extraído com sucesso!")
-        st.text_area("Texto completo extraído:", texto, height=200)
-
+        
         dados = extrair_dados(texto)
         
         st.subheader("Dados Extraídos:")
@@ -142,18 +135,22 @@ if uploaded_file is not None:
             st.write(f"**Data de Envio:** {dados['Data de Envio']}")
 
         if st.button("✅ Enviar para Google Sheets"):
-            try:
-                # Cria a lista com os dados na ordem correta das colunas da planilha
-                nova_linha = [
-                    dados['ID Família'],
-                    dados['Nome'],
-                    dados['Data de Nascimento'],
-                    dados['Telefone'],
-                    dados['CPF'],
-                    dados['Data de Envio']
-                ]
-                
-                planilha_conectada.append_row(nova_linha)
-                st.success("Dados enviados para a planilha com sucesso!")
-            except Exception as e:
-                st.error(f"Erro ao enviar dados para a planilha. Verifique se as colunas estão corretas. Erro: {e}")
+            # Verifica se os dados principais foram extraídos
+            if not dados['ID Família'] or not dados['Nome']:
+                st.warning("Dados principais (ID e Nome) não foram encontrados. Envio cancelado.")
+            else:
+                try:
+                    nova_linha = [
+                        dados['ID Família'],
+                        dados['Nome'],
+                        dados['Data de Nascimento'],
+                        dados['Telefone'],
+                        dados['CPF'],
+                        dados['Data de Envio']
+                    ]
+                    
+                    planilha_conectada.append_row(nova_linha)
+                    st.success("Dados enviados para a planilha com sucesso!")
+                except Exception as e:
+                    st.error(f"Erro ao enviar dados para a planilha. Verifique se as colunas estão corretas. Erro: {e}")
+
