@@ -2,6 +2,24 @@ import streamlit as st
 import google.generativeai as genai
 import os
 
+gemini_api_key = os.environ.get("GOOGLE_GEMINI_API_KEY")
+
+if gemini_api_key:
+    genai.configure(api_key=gemini_api_key)
+    st.write("Modelos disponíveis:")
+    try:
+        for m in genai.list_models():
+            st.write(f"- {m.name}")
+    except Exception as e:
+        st.error(f"Erro ao listar os modelos. Verifique a sua chave de API. Erro: {e}")
+else:
+    st.error("Chave de API do Gemini não encontrada.")
+
+
+import streamlit as st
+import google.generativeai as genai
+import os
+
 # Pega a chave da API do Render
 gemini_api_key = os.environ.get("GOOGLE_GEMINI_API_KEY")
 
