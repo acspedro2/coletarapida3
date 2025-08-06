@@ -120,7 +120,7 @@ def extrair_dados_com_gemini(image_bytes):
             return None
             
     except Exception as e:
-        st.error(f"Erro ao extrair dados com Gemini para o arquivo. Verifique a chave da API e a imagem. Erro: {e}")
+        st.error(f"Erro ao extrair dados com Gemini. Verifique a chave da API e a imagem. Erro: {e}")
         return None
 
 def calcular_idade(data_nascimento):
@@ -201,36 +201,33 @@ if uploaded_files:
                         
                         st.dataframe(df_dados.style.apply(destacar_idosos, axis=1), hide_index=True, use_container_width=True)
                         
-                        if st.button(f"✅ Enviar dados de '{file_name}' para Google Sheets", key=f"send_button_{file_name}"):
-                            if not dados.get('ID Família') or not dados.get('Nome Completo'):
-                                st.warning(f"Dados principais (ID e Nome) de '{file_name}' não foram encontrados. Envio cancelado.")
-                            else:
-                                try:
-                                    nova_linha = [
-                                        '', # Coluna A: ID (deixe vazio, a planilha gera)
-                                        dados.get('ID Família', ''),  # Coluna B: FAMÍLIA
-                                        dados.get('Nome Completo', ''), # Coluna C: Nome Completo
-                                        dados.get('Data de Nascimento', ''), # Coluna D: Data de Nascimento
-                                        '',                           # Coluna E: Idade
-                                        '',                           # Coluna F: Sexo
-                                        '',                           # Coluna G: ID Mãe
-                                        '',                           # Coluna H: Pai
-                                        '',                           # Coluna I: Município de Nascimento
-                                        '',                           # Coluna J: Município de Residência
-                                        dados.get('CPF', ''),         # Coluna K: CPF
-                                        '',                           # Coluna L: CNS
-                                        dados.get('Telefone', ''),    # Coluna M: Telefones
-                                        '',                           # Coluna N: Observações
-                                        file_name,                    # Coluna O: Fonte da Imagem
-                                        datetime.now().strftime('%d/%m/%Y %H:%M:%S') # Coluna P: Data da Extração
-                                    ]
-                                    
-                                    planilha_conectada.append_row(nova_linha)
-                                    st.success(f"Dados de '{file_name}' enviados para a planilha com sucesso!")
-                                    st.session_state.processed_files[file_name] = 'Sucesso'
-                                except Exception as e:
-                                    st.error(f"Erro ao enviar dados de '{file_name}' para a planilha. Verifique as colunas. Erro: {e}")
-                                    st.session_state.processed_files[file_name] = 'Erro'
+                        try:
+                            # A sua lista nova_linha deve ser ajustada para se alinhar com as colunas da planilha
+                            nova_linha = [
+                                '', # Coluna A: ID (deixe vazio, a planilha gera)
+                                dados.get('ID Família', ''),  # Coluna B: FAMÍLIA
+                                dados.get('Nome Completo', ''), # Coluna C: Nome Completo
+                                dados.get('Data de Nascimento', ''), # Coluna D: Data de Nascimento
+                                '',                           # Coluna E: Idade
+                                '',                           # Coluna F: Sexo
+                                '',                           # Coluna G: ID Mãe
+                                '',                           # Coluna H: Pai
+                                '',                           # Coluna I: Município de Nascimento
+                                '',                           # Coluna J: Município de Residência
+                                dados.get('CPF', ''),         # Coluna K: CPF
+                                '',                           # Coluna L: CNS
+                                dados.get('Telefone', ''),    # Coluna M: Telefones
+                                '',                           # Coluna N: Observações
+                                file_name,                    # Coluna O: Fonte da Imagem
+                                datetime.now().strftime('%d/%m/%Y %H:%M:%S') # Coluna P: Data da Extração
+                            ]
+                            
+                            planilha_conectada.append_row(nova_linha)
+                            st.success(f"Dados de '{file_name}' enviados para a planilha com sucesso!")
+                            st.session_state.processed_files[file_name] = 'Sucesso'
+                        except Exception as e:
+                            st.error(f"Erro ao enviar dados de '{file_name}' para a planilha. Verifique as colunas. Erro: {e}")
+                            st.session_state.processed_files[file_name] = 'Erro'
                 
                 except Exception as e:
                     st.error(f"Ocorreu um erro inesperado ao processar o arquivo '{file_name}': {e}")
