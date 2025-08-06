@@ -1,145 +1,137 @@
 import streamlit as st
-import gspread
-import pandas as pd
+import requests
+import re
+from io import BytesIO
 import json
 import os
-import datetime
-import re
-import requests
-from PIL import Image
-from reportlab.lib.pagesizes import A4
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image as RLImage
-from reportlab.lib.styles import getSampleStyleSheet
+import gspread
+from datetime import datetime
 
-st.set_page_config(page_title="OCR Ficha SUS", page_icon=":camera:", layout="centered")
+# --- Configuração da Página e Título ---
+st.set_page_config(
+    page_title="Leitura de Fichas SUS",
+    page_icon="🩺",
+    layout="centered"
+)
 
-# --- Chave da API OCR.Space ---
-OCR_API_KEY = os.getenv("OCR_SPACE_API_KEY")
+st.title("🩺 Leitura Automática de Fichas SUS")
+st.markdown("---")
 
-# --- Conexão com o Google Sheets ---
+# --- CONEXÃO COM O GOOGLE SHEETS E SECRETS ---
+
+# 1. Obter as credenciais e a ID da planilha das variáveis de ambiente do Render
+# Usamos os.environ.get() para garantir a compatibilidade com o Render
 try:
     credenciais_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_CREDENTIALS")
     planilha_id = os.environ.get("GOOGLE_SHEETS_ID")
-    if not credenciais_json or not planilha_id or not OCR_API_KEY:
-        st.error("Variáveis de ambiente faltando.")
+    
+    # Adicionando o API Key do OCR Space como variável de ambiente
+    ocr_api_key = os.environ.get("OCR_SPACE_API_KEY")
+
+    if not credenciais_json or not planilha_id or not ocr_api_key:
+        st.error("Erro: Variáveis de ambiente faltando no Render. Verifique a configuração.")
         st.stop()
+
     credenciais = json.loads(credenciais_json)
     gc = gspread.service_account_from_dict(credenciais)
-    planilha = gc.open_by_key(planilha_id).sheet1
+    
+    # Acessa a primeira aba da planilha com o ID fornecido
+    planilha = gc.open_by_key(planilha_id).sheet1 
+    
 except Exception as e:
-    st.error(f"Erro ao conectar com Google Sheets: {e}")
+    st.error(f"Erro ao conectar com o Google Sheets ou carregar credenciais. Verifique as variáveis de ambiente no Render. Erro: {e}")
     st.stop()
 
-ids_existentes = [row[0] for row in planilha.get_all_values() if row]
+# --- FUNÇÕES ---
 
-def formatar_cpf(cpf_raw):
-    cpf = re.sub(r'\D', '', cpf_raw)
-    return f"{cpf[:3]}.{cpf[3:6]}.{cpf[6:9]}-{cpf[9:]}" if len(cpf) == 11 else cpf_raw
-
-def formatar_telefone(telefone_raw):
-    tel = re.sub(r'\D', '', telefone_raw)
-    if len(tel) == 11:
-        return f"({tel[:2]}) {tel[2:7]}-{tel[7:]}"
-    elif len(tel) == 10:
-        return f"({tel[:2]}) {tel[2:6]}-{tel[6:]}"
-    return telefone_raw
-
-def formatar_data(data_raw):
-    match = re.search(r'(\d{2})[^\d]?(\d{2})[^\d]?(\d{4})', data_raw)
-    return f"{match.group(1)}/{match.group(2)}/{match.group(3)}" if match else data_raw
+def extrair_texto_ocr(image_bytes):
+    try:
+        response = requests.post(
+            'https://api.ocr.space/parse/image',
+            headers={'apikey': ocr_api_key},
+            files={'filename': image_bytes},
+            data={'language': 'por', 'isOverlayRequired': False}
+        )
+        response.raise_for_status() # Lança um erro se a resposta HTTP for um erro
+        result = response.json()
+        
+        if result['OCRExitCode'] == 1:
+            return result['ParsedResults'][0]['ParsedText']
+        else:
+            st.warning("O OCR não conseguiu extrair texto da imagem. Tente uma imagem mais clara.")
+            return None
+    except requests.exceptions.RequestException as e:
+        st.error(f"Erro de conexão com o serviço OCR. Verifique sua chave de API e a internet. Erro: {e}")
+        return None
+    except (KeyError, IndexError) as e:
+        st.error(f"Formato de resposta do OCR inesperado. Erro: {e}")
+        return None
 
 def extrair_dados(texto):
-    def buscar(padrao, texto, grupo=1):
-        match = re.search(padrao, texto, re.IGNORECASE)
-        return match.group(grupo).strip() if match else ""
-    return {
-        "id_familia": buscar(r'FAM\d{3,}', texto),
-        "nome_completo": buscar(r'(?:Nome completo|Nome)\s*[:\-]?\s*(.+)', texto),
-        "data_nascimento": formatar_data(buscar(r'(\d{2}[\/\-\.]\d{2}[\/\-\.]\d{4})', texto)),
-        "nome_mae": buscar(r'Nome da mãe\s*[:\-]?\s*(.+)', texto),
-        "cpf": formatar_cpf(buscar(r'(\d{3}\.?\d{3}\.?\d{3}-?\d{2})', texto)),
-        "telefone": formatar_telefone(buscar(r'(\(?\d{2}\)?\s?\d{4,5}-?\d{4})', texto)),
-        "cns": buscar(r'\b(\d{15})\b', texto)
+    # Regex adaptado para o formato do documento que você enviou
+    dados = {
+        'ID Família': re.search(r"FAM\s?(\d+)", texto),
+        'Nome': re.search(r"(?<=Nome:\n)[A-ZÇ\s]+", texto),
+        'Data de Nascimento': re.search(r"Nascimento\s*:\s*(\d{2}/\d{2}/\d{4})", texto),
+        'Telefone': re.search(r"(?<=Telefone\(s\)\nCELULAR\n\()\d{2}\)\s?\d{4,5}[-]?\d{4}", texto),
+        'CPF': re.search(r"CPF:\n(\d{3}\.\d{3}\.\d{3}-\d{2})", texto)
     }
 
-def gerar_pdf(dados, caminho_imagem, caminho_pdf):
-    doc = SimpleDocTemplate(caminho_pdf, pagesize=A4)
-    estilos = getSampleStyleSheet()
-    elementos = [
-        Paragraph(f"<b>ID Família:</b> {dados['id_familia']}", estilos['Normal']),
-        Paragraph(f"<b>Nome Completo:</b> {dados['nome_completo']}", estilos['Normal']),
-        Paragraph(f"<b>Data de Nascimento:</b> {dados['data_nascimento']}", estilos['Normal']),
-        Paragraph(f"<b>Nome da Mãe:</b> {dados['nome_mae']}", estilos['Normal']),
-        Paragraph(f"<b>CPF:</b> {dados['cpf']}", estilos['Normal']),
-        Paragraph(f"<b>Telefone:</b> {dados['telefone']}", estilos['Normal']),
-        Paragraph(f"<b>CNS:</b> {dados['cns']}", estilos['Normal']),
-        Spacer(1, 12)
-    ]
-    if os.path.exists(caminho_imagem):
-        elementos.append(RLImage(caminho_imagem, width=300, height=200))
-    doc.build(elementos)
+    return {
+        'ID Família': dados['ID Família'].group(0) if dados['ID Família'] else '',
+        'Nome': dados['Nome'].group(0).strip() if dados['Nome'] else '',
+        'Data de Nascimento': dados['Data de Nascimento'].group(1) if dados['Data de Nascimento'] else '',
+        'Telefone': dados['Telefone'].group(0).strip() if dados['Telefone'] else '',
+        'CPF': dados['CPF'].group(1) if dados['CPF'] else '',
+        'Data de Envio': datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    }
 
-def fazer_ocr_via_api(image_file):
-    response = requests.post(
-        "https://api.ocr.space/parse/image",
-        files={"filename": image_file},
-        data={"apikey": OCR_API_KEY, "language": "por", "OCREngine": 2},
-    )
-    result = response.json()
-    if result.get("IsErroredOnProcessing"):
-        return None, result.get("ErrorMessage", "Erro desconhecido")
-    texto = result["ParsedResults"][0]["ParsedText"]
-    return texto, None
+# --- STREAMLIT APP ---
 
-st.title("📋 OCR de Ficha SUS via API")
+st.subheader("Envie a imagem da ficha SUS")
 
-uploaded_file = st.file_uploader("📥 Envie a imagem da ficha SUS", type=["jpg", "jpeg", "png"])
+uploaded_file = st.file_uploader("Escolha uma imagem", type=['jpg', 'jpeg', 'png'])
 
-if uploaded_file:
-    st.image(uploaded_file, caption="Pré-visualização da ficha", use_container_width=True)
+if uploaded_file is not None:
+    st.image(uploaded_file, caption="Imagem enviada", use_column_width=True)
+    
+    with st.spinner("Analisando imagem via OCR..."):
+        image_bytes = BytesIO(uploaded_file.getvalue())
+        texto = extrair_texto_ocr(image_bytes)
 
-    texto, erro = fazer_ocr_via_api(uploaded_file)
-    if erro:
-        st.error(f"Erro no OCR: {erro}")
-        st.stop()
-
-    st.subheader("🧾 Texto extraído")
-    st.text_area("Resultado OCR:", texto, height=200)
-
-    dados = extrair_dados(texto)
-    st.subheader("📌 Dados extraídos:")
-    for campo, valor in dados.items():
-        st.write(f"**{campo.replace('_', ' ').capitalize()}:** {valor or '❌ Não encontrado'}")
-
-    if not dados["id_familia"] or not dados["nome_completo"] or not dados["data_nascimento"]:
-        st.warning("Campos obrigatórios ausentes.")
-    elif dados["id_familia"] in ids_existentes:
-        st.error(f"O ID '{dados['id_familia']}' já existe.")
+    if not texto:
+        st.error("Erro ao processar imagem. Verifique a imagem e tente novamente.")
     else:
-        pasta_imagens = "imagens_salvas"
-        os.makedirs(pasta_imagens, exist_ok=True)
-        timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        nome_imagem = f"{dados['id_familia']}_{timestamp}_{uploaded_file.name}"
-        caminho_imagem = os.path.join(pasta_imagens, nome_imagem)
-        with open(caminho_imagem, "wb") as f:
-            f.write(uploaded_file.getbuffer())
+        st.success("Texto extraído com sucesso!")
+        st.text_area("Texto completo extraído:", texto, height=200)
 
-        planilha.append_row([
-            dados["id_familia"],
-            dados["nome_completo"],
-            dados["data_nascimento"],
-            dados["nome_mae"],
-            dados["cpf"],
-            dados["telefone"],
-            dados["cns"],
-            nome_imagem
-        ])
-        st.success("✅ Dados enviados ao Google Sheets!")
+        dados = extrair_dados(texto)
+        
+        st.subheader("Dados Extraídos:")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.write(f"**ID Família:** {dados['ID Família']}")
+            st.write(f"**Nome:** {dados['Nome']}")
+            st.write(f"**Data de Nascimento:** {dados['Data de Nascimento']}")
+        with col2:
+            st.write(f"**CPF:** {dados['CPF']}")
+            st.write(f"**Telefone:** {dados['Telefone']}")
+            st.write(f"**Data de Envio:** {dados['Data de Envio']}")
 
-        pasta_pdfs = "pdfs_gerados"
-        os.makedirs(pasta_pdfs, exist_ok=True)
-        caminho_pdf = os.path.join(pasta_pdfs, f"{dados['id_familia']}.pdf")
-        gerar_pdf(dados, caminho_imagem, caminho_pdf)
+        if st.button("✅ Enviar para Google Sheets"):
+            try:
+                # Cria a lista com os dados na ordem correta das colunas da planilha
+                nova_linha = [
+                    dados['ID Família'],
+                    dados['Nome'],
+                    dados['Data de Nascimento'],
+                    dados['Telefone'],
+                    dados['CPF'],
+                    dados['Data de Envio']
+                ]
+                
+                planilha.append_row(nova_linha)
+                st.success("Dados enviados para a planilha com sucesso!")
+            except Exception as e:
+                st.error(f"Erro ao enviar dados para a planilha. Verifique se as colunas estão corretas. Erro: {e}")
 
-        with open(caminho_pdf, "rb") as f:
-            st.download_button("📄 Baixar ficha em PDF", f, file_name=f"{dados['id_familia']}.pdf")
