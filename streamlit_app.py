@@ -1,41 +1,9 @@
 import streamlit as st
-import google.generativeai as genai
-import os
-
-gemini_api_key = os.environ.get("GOOGLE_GEMINI_API_KEY")
-
-if gemini_api_key:
-    genai.configure(api_key=gemini_api_key)
-    st.write("Modelos disponíveis:")
-    try:
-        for m in genai.list_models():
-            st.write(f"- {m.name}")
-    except Exception as e:
-        st.error(f"Erro ao listar os modelos. Verifique a sua chave de API. Erro: {e}")
-else:
-    st.error("Chave de API do Gemini não encontrada.")
-
-
-import streamlit as st
-import google.generativeai as genai
-import os
-
-# Pega a chave da API do Render
-gemini_api_key = os.environ.get("GOOGLE_GEMINI_API_KEY")
-
-if gemini_api_key:
-    genai.configure(api_key=gemini_api_key)
-    st.write("Modelos disponíveis:")
-    for m in genai.list_models():
-        st.write(m.name)
-else:
-    st.error("Chave de API do Gemini não encontrada.")
-
-import streamlit as st
 import gspread
 import requests
 import json
 import os
+import re
 from io import BytesIO
 from datetime import datetime
 from gspread.exceptions import APIError
@@ -63,13 +31,13 @@ try:
     gemini_api_key = os.environ.get("GOOGLE_GEMINI_API_KEY")
 
     if not credenciais_json or not planilha_id or not ocr_api_key or not gemini_api_key:
-        st.error("Erro de configuração: Variáveis de ambiente faltando no Render. Verifique a configuração.")
+        st.error("Erro de configuração: Variáveis de ambiente faltando. Verifique a configuração no Render.")
         st.stop()
 
     credenciais = json.loads(credenciais_json)
     
 except Exception as e:
-    st.error(f"Erro ao carregar as variáveis de ambiente. Verifique se os nomes e valores estão corretos. Erro: {e}")
+    st.error(f"Erro ao carregar as variáveis de ambiente. Verifique os nomes e valores. Erro: {e}")
     st.stop()
 
 # --- FUNÇÕES ---
@@ -88,59 +56,17 @@ def conectar_planilha():
         st.error(f"Não foi possível conectar à planilha. Verifique a ID e as permissões. Erro: {e}")
         st.stop()
 
-def pre_processar_imagem_ocr(image_bytes):
-    """Aplica filtros para melhorar a qualidade da imagem para o OCR tradicional."""
-    # ... (código existente para pré-processamento, sem alterações)
-    try:
-        np_array = np.frombuffer(image_bytes.read(), np.uint8)
-        imagem = cv2.imdecode(np_array, cv2.IMREAD_COLOR)
-        imagem_cinza = cv2.cvtColor(imagem, cv2.COLOR_BGR2GRAY)
-        imagem_binaria = cv2.adaptiveThreshold(imagem_cinza, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 11, 2)
-        is_success, buffer = cv2.imencode(".png", imagem_binaria)
-        if is_success:
-            return BytesIO(buffer)
-        else:
-            image_bytes.seek(0)
-            return image_bytes
-    except Exception as e:
-        st.warning(f"Erro ao pré-processar a imagem. Usando a imagem original. Erro: {e}")
-        image_bytes.seek(0)
-        return image_bytes
-
-def extrair_texto_ocr(image_bytes):
-    """Tenta extrair texto de uma imagem usando o serviço de OCR."""
-    try:
-        response = requests.post(
-            'https://api.ocr.space/parse/image',
-            headers={'apikey': ocr_api_key},
-            files={'filename': image_bytes},
-            data={'language': 'por', 'isOverlayRequired': False},
-            timeout=15
-        )
-        response.raise_for_status()
-        result = response.json()
-        if result['OCRExitCode'] == 1 and result['ParsedResults']:
-            return result['ParsedResults'][0]['ParsedText']
-        else:
-            return None
-    except requests.exceptions.RequestException:
-        return None
-    except Exception:
-        return None
-
 def detectar_asterisco(image_bytes):
     """Detecta a presença de um asterisco no canto superior esquerdo da imagem."""
     try:
+        image_bytes.seek(0)
         np_array = np.frombuffer(image_bytes.read(), np.uint8)
         imagem_cv = cv2.imdecode(np_array, cv2.IMREAD_COLOR)
 
-        # Converte para tons de cinza
         imagem_cinza = cv2.cvtColor(imagem_cv, cv2.COLOR_BGR2GRAY)
         
-        # Define a Região de Interesse (ROI) no canto superior esquerdo
         roi = imagem_cinza[0:200, 0:200]
         
-        # Cria um modelo de asterisco simples
         template = np.array([
             [0, 0, 0, 255, 0, 0, 0],
             [0, 0, 255, 255, 255, 0, 0],
@@ -151,31 +77,26 @@ def detectar_asterisco(image_bytes):
             [0, 0, 0, 255, 0, 0, 0]
         ], dtype=np.uint8)
         
-        # Redimensiona o template para um tamanho apropriado
         template = cv2.resize(template, (30, 30))
 
-        # Procura o asterisco na ROI usando template matching
         res = cv2.matchTemplate(roi, template, cv2.TM_CCOEFF_NORMED)
-        min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
+        _, max_val, _, _ = cv2.minMaxLoc(res)
 
-        # Se o valor de correspondência for alto, considera que o asterisco foi encontrado
-        if max_val > 0.6:  # O valor 0.6 é um threshold, pode ser ajustado
+        if max_val > 0.6:
             return True
         return False
     except Exception as e:
-        st.warning(f"Erro ao detectar asterisco. Erro: {e}")
         return False
 
 def extrair_dados_com_gemini(image_bytes):
-    """
-    Extrai dados da imagem usando a API do Google Gemini.
-    """
+    """Extrai dados da imagem usando a API do Google Gemini."""
     genai.configure(api_key=gemini_api_key)
-    model = genai.GenerativeModel('gemini-pro-vision')
+    # Usa o modelo correto que encontramos na sua lista
+    model = genai.GenerativeModel('gemini-2.5-pro')
 
+    image_bytes.seek(0)
     image = Image.open(image_bytes)
 
-    # O prompt instrui o modelo a extrair informações específicas do formulário
     prompt = """
     Analise esta imagem de um formulário e extraia as seguintes informações de forma estruturada:
     - ID Família (ex: FAM001)
@@ -197,6 +118,25 @@ def extrair_dados_com_gemini(image_bytes):
         st.error(f"Erro ao extrair dados com Gemini. Verifique a chave da API e a imagem. Erro: {e}")
         return None
 
+def calcular_idade(data_nascimento):
+    """Calcula a idade a partir da data de nascimento."""
+    if not data_nascimento:
+        return None
+    try:
+        data_nasc = datetime.strptime(data_nascimento, '%d/%m/%Y')
+        hoje = datetime.now()
+        return hoje.year - data_nasc.year - ((hoje.month, hoje.day) < (data_nasc.month, data_nasc.day))
+    except (ValueError, TypeError):
+        return None
+
+def destacar_idosos(linha):
+    """Aplica estilo à linha se a idade for 60 ou mais."""
+    idade = calcular_idade(linha['Data de Nascimento'])
+    if idade is not None and idade >= 60:
+        return ['background-color: orange'] * len(linha)
+    else:
+        return [''] * len(linha)
+
 # --- STREAMLIT APP ---
 planilha_conectada = conectar_planilha()
 st.subheader("Envie a imagem da ficha SUS")
@@ -207,13 +147,10 @@ if uploaded_file is not None:
     
     with st.spinner("Analisando imagem..."):
         image_bytes_original = BytesIO(uploaded_file.read())
-        image_bytes_original.seek(0)
         
-        # Detecção de asterisco
         asterisco_presente = detectar_asterisco(image_bytes_original)
-        image_bytes_original.seek(0)
         
-        # Extração de dados com Gemini
+        image_bytes_original.seek(0)
         dados = extrair_dados_com_gemini(image_bytes_original)
 
     if not dados:
@@ -221,22 +158,29 @@ if uploaded_file is not None:
     else:
         st.success("Dados extraídos com sucesso!")
         
-        st.subheader("Dados Extraídos:")
-        
         # Formata o nome se o asterisco for detectado
         nome_paciente = dados.get('Nome Completo', '')
         if asterisco_presente:
             nome_paciente = f"**{nome_paciente.upper()}**"
         
-        col1, col2 = st.columns(2)
-        with col1:
-            st.write(f"**ID Família:** {dados.get('ID Família', '')}")
-            st.write(f"**Nome:** {nome_paciente}")
-            st.write(f"**Data de Nascimento:** {dados.get('Data de Nascimento', '')}")
-        with col2:
-            st.write(f"**CPF:** {dados.get('CPF', '')}")
-            st.write(f"**Telefone:** {dados.get('Telefone', '')}")
-            st.write(f"**Data de Envio:** {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
+        st.subheader("Dados Extraídos:")
+        
+        # Cria um DataFrame para a estilização com a idade
+        dados_formatados = {
+            'ID Família': dados.get('ID Família', ''),
+            'Nome': nome_paciente,
+            'Data de Nascimento': dados.get('Data de Nascimento', ''),
+            'Telefone': dados.get('Telefone', ''),
+            'CPF': dados.get('CPF', ''),
+            'Data de Envio': datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+        }
+        df_dados = pd.DataFrame([dados_formatados])
+        
+        # O DataFrame para estilização deve ter a coluna de Data de Nascimento
+        df_para_estilo = pd.DataFrame([dados])
+        
+        # Aplica a estilização
+        st.dataframe(df_dados.style.apply(destacar_idosos, axis=1), hide_index=True, use_container_width=True)
 
         if st.button("✅ Enviar para Google Sheets"):
             if not dados.get('ID Família') or not dados.get('Nome Completo'):
