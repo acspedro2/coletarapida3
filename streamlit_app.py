@@ -31,7 +31,7 @@ try:
     gemini_api_key = os.environ.get("GOOGLE_GEMINI_API_KEY")
 
     if not credenciais_json or not planilha_id or not ocr_api_key or not gemini_api_key:
-        st.error("Erro de configuração: Variáveis de ambiente faltando no Render. Verifique a configuração.")
+        st.error("Erro de configuração: Variáveis de ambiente faltando. Verifique a configuração no Render.")
         st.stop()
 
     credenciais = json.loads(credenciais_json)
@@ -158,26 +158,23 @@ if 'processed_files' not in st.session_state:
     st.session_state.processed_files = {}
 
 if uploaded_files:
+    # Apenas exibe o botão de processamento se houver arquivos
     if st.button("✅ Processar e Enviar Arquivos"):
         with st.spinner("Processando arquivos..."):
             for uploaded_file in uploaded_files:
                 file_name = uploaded_file.name
                 
-                # Impede o reprocessamento do mesmo arquivo
                 if file_name in st.session_state.processed_files:
-                    st.warning(f"Arquivo '{file_name}' já foi processado e enviado. Ignorando.")
+                    st.warning(f"Arquivo '{file_name}' já foi processado. Ignorando.")
                     continue
 
                 try:
-                    # Pré-visualização da imagem
                     image_bytes_original = BytesIO(uploaded_file.read())
                     st.image(image_bytes_original, caption=f"Pré-visualização: {file_name}", use_container_width=True)
                     
-                    # Detecção de asterisco
                     image_bytes_original.seek(0)
                     asterisco_presente = detectar_asterisco(image_bytes_original)
 
-                    # Extração de dados com Gemini
                     image_bytes_original.seek(0)
                     dados = extrair_dados_com_gemini(image_bytes_original)
 
@@ -187,20 +184,17 @@ if uploaded_files:
                     else:
                         st.success(f"Dados do arquivo '{file_name}' extraídos com sucesso!")
                         
-                        # Formata o nome se o asterisco for detectado
                         nome_paciente = dados.get('Nome Completo', '')
                         if asterisco_presente:
                             nome_paciente = f"**{nome_paciente.upper()}**"
                         
-                        # Calcular a idade
                         idade = calcular_idade(dados.get('Data de Nascimento', ''))
 
                         st.subheader(f"Dados Extraídos de '{file_name}':")
                         
-                        # DataFrame para visualização dos dados extraídos
                         dados_para_df = {
                             'ID Família': dados.get('ID Família', ''),
-                            'Nome Completo': nome_paciente,
+                            'Nome Completo': dados.get('Nome Completo', ''),
                             'Data de Nascimento': dados.get('Data de Nascimento', ''),
                             'Idade': str(idade) if idade is not None else '',
                             'Sexo': dados.get('Sexo', ''),
@@ -210,40 +204,30 @@ if uploaded_files:
                             'Telefone': dados.get('Telefone', ''),
                             'CPF': dados.get('CPF', ''),
                             'CNS': dados.get('CNS', ''),
-                            'Data de Envio': datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+                            'Observações': '', # Campo de observações, se necessário
+                            'Fonte da Imagem': file_name,
+                            'Data da Extração': datetime.now().strftime('%d/%m/%Y %H:%M:%S'),
+                            'Nome Formatado': nome_paciente, # Para estilização
+                            'Asterisco': 'Sim' if asterisco_presente else ''
                         }
+                        
                         df_dados = pd.DataFrame([dados_para_df])
                         
-                        st.dataframe(df_dados.style.apply(destacar_idosos, axis=1), hide_index=True, use_container_width=True)
-                        
-                        try:
-                            # A sua lista nova_linha foi ajustada para se alinhar com as colunas da planilha
-                            nova_linha = [
-                                '', # Coluna A: ID (deixe vazio, a planilha gera)
-                                dados.get('ID Família', ''),  # Coluna B: FAMÍLIA
-                                dados.get('Nome Completo', ''), # Coluna C: Nome Completo
-                                dados.get('Data de Nascimento', ''), # Coluna D: Data de Nascimento
-                                str(idade) if idade is not None else '', # Coluna E: Idade
-                                dados.get('Sexo', ''), # Coluna F: Sexo
-                                dados.get('Nome da Mãe', ''), # Coluna G: ID Mãe (Usando Nome da Mãe)
-                                dados.get('Nome do Pai', ''), # Coluna H: Pai
-                                dados.get('Município de Nascimento', ''), # Coluna I: Município de Nascimento
-                                '', # Coluna J: Município de Residência (não extraído)
-                                dados.get('CPF', ''), # Coluna K: CPF
-                                dados.get('CNS', ''), # Coluna L: CNS
-                                dados.get('Telefone', ''), # Coluna M: Telefones
-                                '', # Coluna N: Observações (não extraído)
-                                file_name, # Coluna O: Fonte da Imagem
-                                datetime.now().strftime('%d/%m/%Y %H:%M:%S') # Coluna P: Data da Extração
-                            ]
-                            
-                            planilha_conectada.append_row(nova_linha)
-                            st.success(f"Dados de '{file_name}' enviados para a planilha com sucesso!")
-                            st.session_state.processed_files[file_name] = 'Sucesso'
-                        except Exception as e:
-                            st.error(f"Erro ao enviar dados de '{file_name}' para a planilha. Verifique as colunas. Erro: {e}")
-                            st.session_state.processed_files[file_name] = 'Erro'
-                
+                        # Use st.data_editor para permitir edição
+                        df_editado = st.data_editor(df_dados, key=f"data_editor_{file_name}")
+
+                        if st.button(f"✅ Enviar dados de '{file_name}' para Google Sheets", key=f"send_button_{file_name}"):
+                            try:
+                                # A lista nova_linha é criada a partir do df_editado
+                                dados_enviados = df_editado.iloc[0].tolist()
+                                
+                                planilha_conectada.append_row(dados_enviados)
+                                st.success(f"Dados de '{file_name}' enviados para a planilha com sucesso!")
+                                st.session_state.processed_files[file_name] = 'Sucesso'
+                            except Exception as e:
+                                st.error(f"Erro ao enviar dados de '{file_name}' para a planilha. Verifique as colunas. Erro: {e}")
+                                st.session_state.processed_files[file_name] = 'Erro'
+
                 except Exception as e:
                     st.error(f"Ocorreu um erro inesperado ao processar o arquivo '{file_name}': {e}")
                     st.session_state.processed_files[file_name] = 'Erro'
