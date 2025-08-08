@@ -185,11 +185,7 @@ if uploaded_files:
                         continue
                     
                     idade = calcular_idade(dados.get('Data de Nascimento', ''))
-                    if idade is not None and idade < 60:
-                        st.warning(f"Paciente {dados.get('Nome Completo', '')} não tem 60 anos ou mais. Processamento cancelado.")
-                        st.session_state.processed_files[file_name] = 'Cancelado'
-                        continue
-
+                    
                     nome_paciente = dados.get('Nome Completo', '')
                     if asterisco_presente:
                         nome_paciente = f"**{nome_paciente.upper()}**"
