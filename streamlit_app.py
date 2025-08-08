@@ -12,6 +12,9 @@ import cv2
 import numpy as np
 import google.generativeai as genai
 from PIL import Image
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
+from reportlab.lib.units import inch
 
 # --- Configuração da Página e Título ---
 st.set_page_config(
@@ -159,11 +162,27 @@ def destacar_idosos(linha):
     else:
         return [''] * len(linha)
 
+def salvar_pdf(dados, filename="ficha_sus.pdf"):
+    """Gera e salva um documento PDF com os dados da ficha."""
+    buffer = BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A4)
+    c.setFont("Helvetica", 12)
+    
+    y = 750
+    for key, value in dados.items():
+        c.drawString(50, y, f"{key}: {value}")
+        y -= 20
+        
+    c.showPage()
+    c.save()
+    buffer.seek(0)
+    return buffer
+
 # --- STREAMLIT APP ---
 planilha_conectada = conectar_planilha()
 
 st.sidebar.title("Ações")
-page = st.sidebar.radio("Navegação", ["Coletar Fichas", "Dashboard de Dados"])
+page = st.sidebar.radio("Navegação", ["Coletar Fichas", "Preencher Formulário", "Dashboard de Dados"])
 
 if page == "Coletar Fichas":
     st.subheader("Envie a(s) imagem(ns) da(s) ficha(s) SUS")
@@ -212,77 +231,4 @@ if page == "Coletar Fichas":
                             'Idade': str(idade) if idade is not None else '',
                             'Sexo': dados.get('Sexo', ''),
                             'Nome da Mãe': dados.get('Nome da Mãe', ''),
-                            'Nome do Pai': dados.get('Nome do Pai', ''),
-                            'Município de Nascimento': dados.get('Município de Nascimento', ''),
-                            'Telefone': dados.get('Telefone', ''),
-                            'CPF': dados.get('CPF', ''),
-                            'CNS': dados.get('CNS', ''),
-                            'Data de Envio': datetime.now().strftime('%d/%m/%Y %H:%M:%S')
-                        }
-                        df_dados = pd.DataFrame([dados_para_df])
-                        
-                        st.dataframe(df_dados.style.apply(destacar_idosos, axis=1), hide_index=True, use_container_width=True)
-                        
-                        try:
-                            nova_linha = [
-                                '',
-                                dados.get('ID Família', ''),
-                                dados.get('Nome Completo', ''),
-                                dados.get('Data de Nascimento', ''),
-                                str(idade) if idade is not None else '',
-                                dados.get('Sexo', ''),
-                                dados.get('Nome da Mãe', ''),
-                                dados.get('Nome do Pai', ''),
-                                dados.get('Município de Nascimento', ''),
-                                '',
-                                dados.get('CPF', ''),
-                                dados.get('CNS', ''),
-                                dados.get('Telefone', ''),
-                                f"Asterisco: {'Sim' if asterisco_presente else 'Não'}",
-                                file_name,
-                                datetime.now().strftime('%d/%m/%Y %H:%M:%S')
-                            ]
-                            
-                            planilha_conectada.append_row(nova_linha)
-                            st.success(f"Dados de '{file_name}' enviados para a planilha com sucesso!")
-                            st.session_state.processed_files[file_name] = 'Sucesso'
-                        except Exception as e:
-                            st.error(f"Erro ao enviar dados de '{file_name}' para a planilha. Verifique as colunas. Erro: {e}")
-                            st.session_state.processed_files[file_name] = 'Erro'
-                    
-                    except Exception as e:
-                        st.error(f"Ocorreu um erro inesperado ao processar o arquivo '{file_name}': {e}")
-                        st.session_state.processed_files[file_name] = 'Erro'
-
-    st.markdown("---")
-    st.subheader("Status dos Arquivos Processados")
-    if st.session_state.processed_files:
-        for file_name, status in st.session_state.processed_files.items():
-            if status == 'Sucesso':
-                st.write(f"✅ {file_name}: Sucesso")
-            elif status == 'Erro':
-                st.write(f"❌ {file_name}: Erro")
-            elif status == 'Cancelado':
-                st.write(f"🚫 {file_name}: Não processado (idade inferior a 60 anos)")
-            else:
-                st.write(f"🔄 {file_name}: Aguardando Envio")
-
-elif page == "Dashboard de Dados":
-    st.header("📊 Dashboard de Fichas Coletadas")
-    df = ler_dados_da_planilha()
-
-    if not df.empty:
-        st.write(f"Total de Fichas na Planilha: **{len(df)}**")
-        st.dataframe(df, use_container_width=True)
-
-        if 'Município de Nascimento' in df.columns:
-            st.subheader("Distribuição por Município de Nascimento")
-            municipio_counts = df['Município de Nascimento'].value_counts()
-            st.bar_chart(municipio_counts)
-
-        if 'Idade' in df.columns:
-            df['Idade'] = pd.to_numeric(df['Idade'], errors='coerce')
-            st.subheader("Distribuição de Idades")
-            st.bar_chart(df['Idade'].dropna().value_counts())
-    else:
-        st.info("Nenhuma ficha encontrada na planilha para exibir.")
+                            '
