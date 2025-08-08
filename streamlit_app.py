@@ -207,7 +207,7 @@ if page == "Coletar Fichas":
                         
                         dados_para_df = {
                             'ID Família': dados.get('ID Família', ''),
-                            'Nome Completo': nome_paciente,
+                            'Nome Completo': dados.get('Nome Completo', ''),
                             'Data de Nascimento': dados.get('Data de Nascimento', ''),
                             'Idade': str(idade) if idade is not None else '',
                             'Sexo': dados.get('Sexo', ''),
