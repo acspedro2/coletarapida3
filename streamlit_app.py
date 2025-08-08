@@ -12,6 +12,9 @@ import cv2
 import numpy as np
 import google.generativeai as genai
 from PIL import Image
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
+from reportlab.lib.units import inch
 
 # --- Configuração da Página e Título ---
 st.set_page_config(
