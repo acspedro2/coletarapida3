@@ -152,9 +152,3 @@ def calcular_idade(data_nascimento):
         hoje = datetime.now()
         return hoje.year - data_nasc.year - ((hoje.month, hoje.day) < (data_nasc.month, data_nasc.day))
     except (ValueError, TypeError):
-        return None
-
-def destacar_idosos(linha):
-    """Aplica estilo à linha se a idade for 60 ou mais."""
-    idade = calcular_idade(linha.get('Data de Nascimento', ''))
-    if idade is not None and idade >= 60:
