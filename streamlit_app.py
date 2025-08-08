@@ -12,15 +12,12 @@ import cv2
 import numpy as np
 import google.generativeai as genai
 from PIL import Image
-from reportlab.lib.pagesizes import A4
-from reportlab.pdfgen import canvas
-from reportlab.lib.units import inch
 
 # --- Configuração da Página e Título ---
 st.set_page_config(
     page_title="Aplicativo de Coleta Rápida",
     page_icon=":camera:",
-    layout="centered"
+    layout="wide"  # Layout amplo para o dashboard
 )
 
 st.title("Aplicativo de Coleta Rápida")
@@ -58,6 +55,18 @@ def conectar_planilha():
     except Exception as e:
         st.error(f"Não foi possível conectar à planilha. Verifique a ID e as permissões. Erro: {e}")
         st.stop()
+
+@st.cache_data(ttl=60)
+def ler_dados_da_planilha():
+    """Lê todos os dados da planilha para o dashboard."""
+    try:
+        planilha_obj = conectar_planilha()
+        dados = planilha_obj.get_all_records()
+        df = pd.DataFrame(dados)
+        return df
+    except Exception as e:
+        st.error(f"Erro ao ler dados da planilha para o dashboard. Erro: {e}")
+        return pd.DataFrame()
 
 def detectar_asterisco(image_bytes):
     """Detecta a presença de um asterisco no canto superior esquerdo da imagem."""
@@ -153,95 +162,97 @@ def destacar_idosos(linha):
 # --- STREAMLIT APP ---
 planilha_conectada = conectar_planilha()
 
-st.subheader("Envie a(s) imagem(ns) da(s) ficha(s) SUS")
-uploaded_files = st.file_uploader("Escolha uma ou mais imagens", type=['jpg', 'jpeg', 'png'], accept_multiple_files=True)
+st.sidebar.title("Ações")
+page = st.sidebar.radio("Navegação", ["Coletar Fichas", "Dashboard de Dados"])
 
-if 'processed_files' not in st.session_state:
-    st.session_state.processed_files = {}
+if page == "Coletar Fichas":
+    st.subheader("Envie a(s) imagem(ns) da(s) ficha(s) SUS")
+    uploaded_files = st.file_uploader("Escolha uma ou mais imagens", type=['jpg', 'jpeg', 'png'], accept_multiple_files=True)
 
-if uploaded_files:
-    if st.button("✅ Processar e Enviar Arquivos"):
-        with st.spinner("Processando arquivos..."):
-            for uploaded_file in uploaded_files:
-                file_name = uploaded_file.name
-                
-                if file_name in st.session_state.processed_files:
-                    st.warning(f"Arquivo '{file_name}' já foi processado e enviado. Ignorando.")
-                    continue
+    if 'processed_files' not in st.session_state:
+        st.session_state.processed_files = {}
 
-                try:
-                    image_bytes_original = BytesIO(uploaded_file.read())
-                    st.image(image_bytes_original, caption=f"Pré-visualização: {file_name}", use_container_width=True)
+    if uploaded_files:
+        if st.button("✅ Processar e Enviar Arquivos"):
+            with st.spinner("Processando arquivos..."):
+                for uploaded_file in uploaded_files:
+                    file_name = uploaded_file.name
                     
-                    image_bytes_original.seek(0)
-                    asterisco_presente = detectar_asterisco(image_bytes_original)
-
-                    image_bytes_original.seek(0)
-                    dados = extrair_dados_com_gemini(image_bytes_original)
-
-                    if not dados:
-                        st.error(f"Erro ao processar imagem '{file_name}'. Verifique o arquivo e a API.")
-                        st.session_state.processed_files[file_name] = 'Erro'
+                    if file_name in st.session_state.processed_files:
+                        st.warning(f"Arquivo '{file_name}' já foi processado e enviado. Ignorando.")
                         continue
-                    
-                    idade = calcular_idade(dados.get('Data de Nascimento', ''))
-                    
-                    nome_paciente = dados.get('Nome Completo', '')
-                    if asterisco_presente:
-                        nome_paciente = f"**{nome_paciente.upper()}**"
-                    else:
-                        nome_paciente = dados.get('Nome Completo', '')
-                    
-                    st.subheader(f"Dados Extraídos de '{file_name}':")
-                    
-                    dados_para_df = {
-                        'ID Família': dados.get('ID Família', ''),
-                        'Nome Completo': nome_paciente,
-                        'Data de Nascimento': dados.get('Data de Nascimento', ''),
-                        'Idade': str(idade) if idade is not None else '',
-                        'Sexo': dados.get('Sexo', ''),
-                        'Nome da Mãe': dados.get('Nome da Mãe', ''),
-                        'Nome do Pai': dados.get('Nome do Pai', ''),
-                        'Município de Nascimento': dados.get('Município de Nascimento', ''),
-                        'Telefone': dados.get('Telefone', ''),
-                        'CPF': dados.get('CPF', ''),
-                        'CNS': dados.get('CNS', ''),
-                        'Data de Envio': datetime.now().strftime('%d/%m/%Y %H:%M:%S')
-                    }
-                    df_dados = pd.DataFrame([dados_para_df])
-                    
-                    st.dataframe(df_dados.style.apply(destacar_idosos, axis=1), hide_index=True, use_container_width=True)
-                    
+
                     try:
-                        nova_linha = [
-                            '',
-                            dados.get('ID Família', ''),
-                            dados.get('Nome Completo', ''),
-                            dados.get('Data de Nascimento', ''),
-                            str(idade) if idade is not None else '',
-                            dados.get('Sexo', ''),
-                            dados.get('Nome da Mãe', ''),
-                            dados.get('Nome do Pai', ''),
-                            dados.get('Município de Nascimento', ''),
-                            '',
-                            dados.get('CPF', ''),
-                            dados.get('CNS', ''),
-                            dados.get('Telefone', ''),
-                            f"Asterisco: {'Sim' if asterisco_presente else 'Não'}",
-                            file_name,
-                            datetime.now().strftime('%d/%m/%Y %H:%M:%S')
-                        ]
+                        image_bytes_original = BytesIO(uploaded_file.read())
+                        st.image(image_bytes_original, caption=f"Pré-visualização: {file_name}", use_container_width=True)
                         
-                        planilha_conectada.append_row(nova_linha)
-                        st.success(f"Dados de '{file_name}' enviados para a planilha com sucesso!")
-                        st.session_state.processed_files[file_name] = 'Sucesso'
+                        image_bytes_original.seek(0)
+                        asterisco_presente = detectar_asterisco(image_bytes_original)
+
+                        image_bytes_original.seek(0)
+                        dados = extrair_dados_com_gemini(image_bytes_original)
+
+                        if not dados:
+                            st.error(f"Erro ao processar imagem '{file_name}'. Verifique o arquivo e a API.")
+                            st.session_state.processed_files[file_name] = 'Erro'
+                            continue
+                        
+                        idade = calcular_idade(dados.get('Data de Nascimento', ''))
+                        
+                        nome_paciente = dados.get('Nome Completo', '')
+                        if asterisco_presente:
+                            nome_paciente = f"**{nome_paciente.upper()}**"
+                        
+                        st.subheader(f"Dados Extraídos de '{file_name}':")
+                        
+                        dados_para_df = {
+                            'ID Família': dados.get('ID Família', ''),
+                            'Nome Completo': nome_paciente,
+                            'Data de Nascimento': dados.get('Data de Nascimento', ''),
+                            'Idade': str(idade) if idade is not None else '',
+                            'Sexo': dados.get('Sexo', ''),
+                            'Nome da Mãe': dados.get('Nome da Mãe', ''),
+                            'Nome do Pai': dados.get('Nome do Pai', ''),
+                            'Município de Nascimento': dados.get('Município de Nascimento', ''),
+                            'Telefone': dados.get('Telefone', ''),
+                            'CPF': dados.get('CPF', ''),
+                            'CNS': dados.get('CNS', ''),
+                            'Data de Envio': datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+                        }
+                        df_dados = pd.DataFrame([dados_para_df])
+                        
+                        st.dataframe(df_dados.style.apply(destacar_idosos, axis=1), hide_index=True, use_container_width=True)
+                        
+                        try:
+                            nova_linha = [
+                                '',
+                                dados.get('ID Família', ''),
+                                dados.get('Nome Completo', ''),
+                                dados.get('Data de Nascimento', ''),
+                                str(idade) if idade is not None else '',
+                                dados.get('Sexo', ''),
+                                dados.get('Nome da Mãe', ''),
+                                dados.get('Nome do Pai', ''),
+                                dados.get('Município de Nascimento', ''),
+                                '',
+                                dados.get('CPF', ''),
+                                dados.get('CNS', ''),
+                                dados.get('Telefone', ''),
+                                f"Asterisco: {'Sim' if asterisco_presente else 'Não'}",
+                                file_name,
+                                datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+                            ]
+                            
+                            planilha_conectada.append_row(nova_linha)
+                            st.success(f"Dados de '{file_name}' enviados para a planilha com sucesso!")
+                            st.session_state.processed_files[file_name] = 'Sucesso'
+                        except Exception as e:
+                            st.error(f"Erro ao enviar dados de '{file_name}' para a planilha. Verifique as colunas. Erro: {e}")
+                            st.session_state.processed_files[file_name] = 'Erro'
+                    
                     except Exception as e:
-                        st.error(f"Erro ao enviar dados de '{file_name}' para a planilha. Verifique as colunas. Erro: {e}")
+                        st.error(f"Ocorreu um erro inesperado ao processar o arquivo '{file_name}': {e}")
                         st.session_state.processed_files[file_name] = 'Erro'
-                
-                except Exception as e:
-                    st.error(f"Ocorreu um erro inesperado ao processar o arquivo '{file_name}': {e}")
-                    st.session_state.processed_files[file_name] = 'Erro'
 
     st.markdown("---")
     st.subheader("Status dos Arquivos Processados")
@@ -255,3 +266,13 @@ if uploaded_files:
                 st.write(f"🚫 {file_name}: Não processado (idade inferior a 60 anos)")
             else:
                 st.write(f"🔄 {file_name}: Aguardando Envio")
+
+elif page == "Dashboard de Dados":
+    st.header("📊 Dashboard de Fichas Coletadas")
+    df = ler_dados_da_planilha()
+
+    if not df.empty:
+        st.write(f"Total de Fichas na Planilha: **{len(df)}**")
+        st.dataframe(df, use_container_width=True)
+    else:
+        st.info("Nenhuma ficha encontrada na planilha para exibir.")
