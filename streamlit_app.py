@@ -182,7 +182,7 @@ def salvar_pdf(dados, filename="ficha_sus.pdf"):
 planilha_conectada = conectar_planilha()
 
 st.sidebar.title("Ações")
-page = st.sidebar.radio("Navegação", ["Coletar Fichas", "Dashboard de Dados"])
+page = st.sidebar.radio("Navegação", ["Coletar Fichas", "Preencher Formulário", "Dashboard de Dados"])
 
 if page == "Coletar Fichas":
     st.subheader("Envie a(s) imagem(ns) da(s) ficha(s) SUS")
@@ -286,22 +286,34 @@ if page == "Coletar Fichas":
             else:
                 st.write(f"🔄 {file_name}: Aguardando Envio")
 
-elif page == "Dashboard de Dados":
-    st.header("📊 Dashboard de Fichas Coletadas")
-    df = ler_dados_da_planilha()
+elif page == "Preencher Formulário":
+    st.header("🖊️ Preencher Formulário Automático")
+    st.write("Insira o ID de um paciente para preencher o formulário com dados da planilha.")
 
-    if not df.empty:
-        st.write(f"Total de Fichas na Planilha: **{len(df)}**")
-        st.dataframe(df, use_container_width=True)
+    id_busca = st.text_input("ID do Paciente:")
+    
+    if st.button("Buscar Dados"):
+        if not id_busca:
+            st.warning("Por favor, insira um ID para buscar.")
+            st.stop()
+        
+        try:
+            df_planilha = ler_dados_da_planilha()
+            df_encontrado = df_planilha[df_planilha['FAMÍLIA'] == id_busca]
+            
+            if not df_encontrado.empty:
+                dados_encontrados = df_encontrado.iloc[0].to_dict()
+                
+                st.success(f"Dados encontrados para o paciente {dados_encontrados['Nome Completo']}!")
+                st.markdown("---")
 
-        if 'Município de Nascimento' in df.columns:
-            st.subheader("Distribuição por Município de Nascimento")
-            municipio_counts = df['Município de Nascimento'].value_counts()
-            st.bar_chart(municipio_counts)
-
-        if 'Idade' in df.columns:
-            df['Idade'] = pd.to_numeric(df['Idade'], errors='coerce')
-            st.subheader("Distribuição de Idades")
-            st.bar_chart(df['Idade'].dropna().value_counts())
-    else:
-        st.info("Nenhuma ficha encontrada na planilha para exibir.")
+                st.subheader("Formulário Preenchido (Dados da Planilha)")
+                
+                with st.form("form_preenchido"):
+                    st.text_input("ID Família", value=dados_encontrados.get('FAMÍLIA', ''))
+                    st.text_input("Nome Completo", value=dados_encontrados.get('Nome Completo', ''))
+                    st.date_input("Data de Nascimento", value=pd.to_datetime(dados_encontrados.get('Data de Nascimento', '')))
+                    st.text_input("CPF", value=dados_encontrados.get('CPF', ''))
+                    st.text_input("Telefone", value=dados_encontrados.get('Telefone', ''))
+                    
+                    if st.form_submit_button("Gerar PDF do Formulário"):
