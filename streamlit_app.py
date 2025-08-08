@@ -162,27 +162,11 @@ def destacar_idosos(linha):
     else:
         return [''] * len(linha)
 
-def salvar_pdf(dados, filename="ficha_sus.pdf"):
-    """Gera e salva um documento PDF com os dados da ficha."""
-    buffer = BytesIO()
-    c = canvas.Canvas(buffer, pagesize=A4)
-    c.setFont("Helvetica", 12)
-    
-    y = 750
-    for key, value in dados.items():
-        c.drawString(50, y, f"{key}: {value}")
-        y -= 20
-        
-    c.showPage()
-    c.save()
-    buffer.seek(0)
-    return buffer
-
 # --- STREAMLIT APP ---
 planilha_conectada = conectar_planilha()
 
 st.sidebar.title("Ações")
-page = st.sidebar.radio("Navegação", ["Coletar Fichas", "Preencher Formulário", "Dashboard de Dados"])
+page = st.sidebar.radio("Navegação", ["Coletar Fichas", "Listagem de Idosos", "Dashboard de Dados"])
 
 if page == "Coletar Fichas":
     st.subheader("Envie a(s) imagem(ns) da(s) ficha(s) SUS")
@@ -229,120 +213,4 @@ if page == "Coletar Fichas":
                             'Nome Completo': nome_paciente,
                             'Data de Nascimento': dados.get('Data de Nascimento', ''),
                             'Idade': str(idade) if idade is not None else '',
-                            'Sexo': dados.get('Sexo', ''),
-                            'Nome da Mãe': dados.get('Nome da Mãe', ''),
-                            'Nome do Pai': dados.get('Nome do Pai', ''),
-                            'Município de Nascimento': dados.get('Município de Nascimento', ''),
-                            'Telefone': dados.get('Telefone', ''),
-                            'CPF': dados.get('CPF', ''),
-                            'CNS': dados.get('CNS', ''),
-                            'Data de Envio': datetime.now().strftime('%d/%m/%Y %H:%M:%S')
-                        }
-                        df_dados = pd.DataFrame([dados_para_df])
-                        
-                        st.dataframe(df_dados.style.apply(destacar_idosos, axis=1), hide_index=True, use_container_width=True)
-                        
-                        try:
-                            nova_linha = [
-                                '',
-                                dados.get('ID Família', ''),
-                                dados.get('Nome Completo', ''),
-                                dados.get('Data de Nascimento', ''),
-                                str(idade) if idade is not None else '',
-                                dados.get('Sexo', ''),
-                                dados.get('Nome da Mãe', ''),
-                                dados.get('Nome do Pai', ''),
-                                dados.get('Município de Nascimento', ''),
-                                '',
-                                dados.get('CPF', ''),
-                                dados.get('CNS', ''),
-                                dados.get('Telefone', ''),
-                                f"Asterisco: {'Sim' if asterisco_presente else 'Não'}",
-                                file_name,
-                                datetime.now().strftime('%d/%m/%Y %H:%M:%S')
-                            ]
-                            
-                            planilha_conectada.append_row(nova_linha)
-                            st.success(f"Dados de '{file_name}' enviados para a planilha com sucesso!")
-                            st.session_state.processed_files[file_name] = 'Sucesso'
-                        except Exception as e:
-                            st.error(f"Erro ao enviar dados de '{file_name}' para a planilha. Verifique as colunas. Erro: {e}")
-                            st.session_state.processed_files[file_name] = 'Erro'
-                    
-                    except Exception as e:
-                        st.error(f"Ocorreu um erro inesperado ao processar o arquivo '{file_name}': {e}")
-                        st.session_state.processed_files[file_name] = 'Erro'
-
-    st.markdown("---")
-    st.subheader("Status dos Arquivos Processados")
-    if st.session_state.processed_files:
-        for file_name, status in st.session_state.processed_files.items():
-            if status == 'Sucesso':
-                st.write(f"✅ {file_name}: Sucesso")
-            elif status == 'Erro':
-                st.write(f"❌ {file_name}: Erro")
-            elif status == 'Cancelado':
-                st.write(f"🚫 {file_name}: Não processado (idade inferior a 60 anos)")
-            else:
-                st.write(f"🔄 {file_name}: Aguardando Envio")
-
-elif page == "Preencher Formulário":
-    st.header("🖊️ Preencher Formulário Automático")
-    st.write("Insira o ID de um paciente para preencher o formulário com dados da planilha.")
-
-    id_busca = st.text_input("ID do Paciente:")
-    
-    if st.button("Buscar Dados"):
-        if not id_busca:
-            st.warning("Por favor, insira um ID para buscar.")
-            st.stop()
-        
-        try:
-            df_planilha = ler_dados_da_planilha()
-            df_encontrado = df_planilha[df_planilha['FAMÍLIA'] == id_busca]
-            
-            if not df_encontrado.empty:
-                dados_encontrados = df_encontrado.iloc[0].to_dict()
-                
-                st.success(f"Dados encontrados para o paciente {dados_encontrados['Nome Completo']}!")
-                st.markdown("---")
-
-                st.subheader("Formulário Preenchido (Dados da Planilha)")
-                
-                with st.form("form_preenchido"):
-                    st.text_input("ID Família", value=dados_encontrados.get('FAMÍLIA', ''))
-                    st.text_input("Nome Completo", value=dados_encontrados.get('Nome Completo', ''))
-                    st.date_input("Data de Nascimento", value=pd.to_datetime(dados_encontrados.get('Data de Nascimento', '')))
-                    st.text_input("CPF", value=dados_encontrados.get('CPF', ''))
-                    st.text_input("Telefone", value=dados_encontrados.get('Telefone', ''))
-                    
-                    if st.form_submit_button("Gerar PDF do Formulário"):
-                        pdf_buffer = salvar_pdf(dados_encontrados, f"ficha_{dados_encontrados['FAMÍLIA']}.pdf")
-                        st.download_button(
-                            label="⬇️ Baixar Ficha em PDF",
-                            data=pdf_buffer,
-                            file_name=f"ficha_{dados_encontrados['FAMÍLIA']}.pdf",
-                            mime="application/pdf"
-                        )
-            else:
-                st.warning(f"Nenhum paciente encontrado com o ID '{id_busca}'.")
-        except Exception as e:
-            st.error(f"Erro ao buscar dados na planilha. Erro: {e}")
-            
-elif page == "Dashboard de Dados":
-    st.header("📊 Dashboard de Fichas Coletadas")
-    df = ler_dados_da_planilha()
-
-    if not df.empty:
-        st.write(f"Total de Fichas na Planilha: **{len(df)}**")
-        st.dataframe(df, use_container_width=True)
-
-        st.subheader("Distribuição por Município de Nascimento")
-        municipio_counts = df['Município de Nascimento'].value_counts()
-        st.bar_chart(municipio_counts)
-
-        st.subheader("Distribuição de Idades")
-        df['Idade'] = pd.to_numeric(df['Idade'], errors='coerce')
-        st.bar_chart(df['Idade'].dropna().value_counts())
-    else:
-        st.info("Nenhuma ficha encontrada na planilha para exibir.")
+                            'Sexo':
