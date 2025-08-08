@@ -162,11 +162,27 @@ def destacar_idosos(linha):
     else:
         return [''] * len(linha)
 
+def salvar_pdf(dados, filename="ficha_sus.pdf"):
+    """Gera e salva um documento PDF com os dados da ficha."""
+    buffer = BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A4)
+    c.setFont("Helvetica", 12)
+    
+    y = 750
+    for key, value in dados.items():
+        c.drawString(50, y, f"{key}: {value}")
+        y -= 20
+        
+    c.showPage()
+    c.save()
+    buffer.seek(0)
+    return buffer
+
 # --- STREAMLIT APP ---
 planilha_conectada = conectar_planilha()
 
 st.sidebar.title("Ações")
-page = st.sidebar.radio("Navegação", ["Coletar Fichas", "Dashboard de Dados"])
+page = st.sidebar.radio("Navegação", ["Coletar Fichas", "Preencher Formulário", "Dashboard de Dados"])
 
 if page == "Coletar Fichas":
     st.subheader("Envie a(s) imagem(ns) da(s) ficha(s) SUS")
@@ -270,6 +286,49 @@ if page == "Coletar Fichas":
             else:
                 st.write(f"🔄 {file_name}: Aguardando Envio")
 
+elif page == "Preencher Formulário":
+    st.header("🖊️ Preencher Formulário Automático")
+    st.write("Insira o ID de um paciente para preencher o formulário com dados da planilha.")
+
+    id_busca = st.text_input("ID do Paciente:")
+    
+    if st.button("Buscar Dados"):
+        if not id_busca:
+            st.warning("Por favor, insira um ID para buscar.")
+            st.stop()
+        
+        try:
+            df_planilha = ler_dados_da_planilha()
+            df_encontrado = df_planilha[df_planilha['FAMÍLIA'] == id_busca]
+            
+            if not df_encontrado.empty:
+                dados_encontrados = df_encontrado.iloc[0].to_dict()
+                
+                st.success(f"Dados encontrados para o paciente {dados_encontrados['Nome Completo']}!")
+                st.markdown("---")
+
+                st.subheader("Formulário Preenchido (Dados da Planilha)")
+                
+                with st.form("form_preenchido"):
+                    st.text_input("ID Família", value=dados_encontrados.get('FAMÍLIA', ''))
+                    st.text_input("Nome Completo", value=dados_encontrados.get('Nome Completo', ''))
+                    st.date_input("Data de Nascimento", value=pd.to_datetime(dados_encontrados.get('Data de Nascimento', '')))
+                    st.text_input("CPF", value=dados_encontrados.get('CPF', ''))
+                    st.text_input("Telefone", value=dados_encontrados.get('Telefone', ''))
+                    
+                    if st.form_submit_button("Gerar PDF do Formulário"):
+                        pdf_buffer = salvar_pdf(dados_encontrados, f"ficha_{dados_encontrados['FAMÍLIA']}.pdf")
+                        st.download_button(
+                            label="⬇️ Baixar Ficha em PDF",
+                            data=pdf_buffer,
+                            file_name=f"ficha_{dados_encontrados['FAMÍLIA']}.pdf",
+                            mime="application/pdf"
+                        )
+            else:
+                st.warning(f"Nenhum paciente encontrado com o ID '{id_busca}'.")
+        except Exception as e:
+            st.error(f"Erro ao buscar dados na planilha. Erro: {e}")
+            
 elif page == "Dashboard de Dados":
     st.header("📊 Dashboard de Fichas Coletadas")
     df = ler_dados_da_planilha()
