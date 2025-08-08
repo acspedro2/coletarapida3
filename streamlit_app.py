@@ -17,7 +17,7 @@ from PIL import Image
 st.set_page_config(
     page_title="Aplicativo de Coleta Rápida",
     page_icon=":camera:",
-    layout="wide"  # Layout amplo para o dashboard
+    layout="wide"
 )
 
 st.title("Aplicativo de Coleta Rápida")
@@ -274,5 +274,13 @@ elif page == "Dashboard de Dados":
     if not df.empty:
         st.write(f"Total de Fichas na Planilha: **{len(df)}**")
         st.dataframe(df, use_container_width=True)
+
+        st.subheader("Distribuição por Município de Nascimento")
+        municipio_counts = df['Município de Nascimento'].value_counts()
+        st.bar_chart(municipio_counts)
+
+        st.subheader("Distribuição de Idades")
+        df['Idade'] = pd.to_numeric(df['Idade'], errors='coerce')
+        st.hist_chart(df['Idade'], x_label='Idade', y_label='Número de Pacientes')
     else:
         st.info("Nenhuma ficha encontrada na planilha para exibir.")
