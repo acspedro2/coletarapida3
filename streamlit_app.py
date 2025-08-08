@@ -12,9 +12,6 @@ import cv2
 import numpy as np
 import google.generativeai as genai
 from PIL import Image
-from reportlab.lib.pagesizes import A4
-from reportlab.pdfgen import canvas
-from reportlab.lib.units import inch
 
 # --- Configuração da Página e Título ---
 st.set_page_config(
@@ -58,6 +55,18 @@ def conectar_planilha():
     except Exception as e:
         st.error(f"Não foi possível conectar à planilha. Verifique a ID e as permissões. Erro: {e}")
         st.stop()
+
+@st.cache_data(ttl=60)
+def ler_dados_da_planilha():
+    """Lê todos os dados da planilha para o dashboard."""
+    try:
+        planilha_obj = conectar_planilha()
+        dados = planilha_obj.get_all_records()
+        df = pd.DataFrame(dados)
+        return df
+    except Exception as e:
+        st.error(f"Erro ao ler dados da planilha para o dashboard. Erro: {e}")
+        return pd.DataFrame()
 
 def detectar_asterisco(image_bytes):
     """Detecta a presença de um asterisco no canto superior esquerdo da imagem."""
@@ -150,37 +159,6 @@ def destacar_idosos(linha):
     else:
         return [''] * len(linha)
 
-def gerar_resumo_vulnerabilidade(dados_paciente):
-    """Gera um resumo de vulnerabilidade com base nos dados extraídos."""
-    genai.configure(api_key=gemini_api_key)
-    model = genai.GenerativeModel('gemini-pro')
-
-    prompt = f"""
-    Com base nos seguintes dados de uma ficha de paciente, atue como um Agente Comunitário de Saúde e escreva um resumo de vulnerabilidade.
-    Considere idade, comorbidades e outras informações relevantes. O resumo deve ser conciso e fácil de entender.
-
-    Dados do Paciente:
-    - ID Família: {dados_paciente.get('ID Família', '')}
-    - Nome Completo: {dados_paciente.get('Nome Completo', '')}
-    - Idade: {calcular_idade(dados_paciente.get('Data de Nascimento', ''))} anos
-    - Sexo: {dados_paciente.get('Sexo', '')}
-    - CPF: {dados_paciente.get('CPF', '')}
-    - Nome da Mãe: {dados_paciente.get('Nome da Mãe', '')}
-    - Nome do Pai: {dados_paciente.get('Nome do Pai', '')}
-    - Município de Nascimento: {dados_paciente.get('Município de Nascimento', '')}
-    - CNS: {dados_paciente.get('CNS', '')}
-    - Data de Nascimento: {dados_paciente.get('Data de Nascimento', '')}
-
-    Análise e Resumo de Vulnerabilidade:
-    """
-    
-    try:
-        response = model.generate_content(prompt)
-        return response.text
-    except Exception as e:
-        return f"Erro ao gerar resumo de vulnerabilidade: {e}"
-
-
 # --- STREAMLIT APP ---
 planilha_conectada = conectar_planilha()
 
@@ -244,11 +222,6 @@ if page == "Coletar Fichas":
                         df_dados = pd.DataFrame([dados_para_df])
                         
                         st.dataframe(df_dados.style.apply(destacar_idosos, axis=1), hide_index=True, use_container_width=True)
-                        
-                        st.subheader("Resumo de Vulnerabilidade por IA")
-                        with st.spinner("Gerando resumo..."):
-                            resumo = gerar_resumo_vulnerabilidade(dados)
-                            st.write(resumo)
                         
                         try:
                             nova_linha = [
