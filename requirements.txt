@@ -19,3 +19,12 @@ pandas
 opencv-python
 numpy
 google-generativeai # Nova biblioteca
+gspread
+pandas
+opencv-python-headless
+google-generativeai
+Pillow
+reportlab
+google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib
