@@ -24,12 +24,13 @@ st.markdown("---")
 
 # --- CONEXÃO E VARIÁVEIS DE AMBIENTE ---
 try:
-    gemini_api_key = os.environ.get("GOOGLE_GEMINI_API_KEY")
-    supabase_url = os.environ.get("SUPABASE_URL")
-    supabase_key = os.environ.get("SUPABASE_KEY")
+    # Usando os nomes simplificados que funcionam no Codespaces
+    gemini_api_key = os.environ.get("geminikey")
+    supabase_url = os.environ.get("supabaseurl")
+    supabase_key = os.environ.get("supabasekey")
 
     if not all([gemini_api_key, supabase_url, supabase_key]):
-        st.error("Erro de configuração: Uma ou mais variáveis de ambiente estão faltando. Verifique seus 'Secrets' no Codespaces.")
+        st.error("Erro de configuração: Uma ou mais variáveis de ambiente estão faltando. Verifique seus 'Secrets' no Codespaces e faça o 'Rebuild Container'.")
         st.stop()
 
 except Exception as e:
@@ -61,7 +62,7 @@ def ler_dados_do_banco(_db_client):
         return pd.DataFrame()
 
 def extrair_dados_com_gemini(image_bytes):
-
+    """Extrai dados da imagem usando a API do Google Gemini."""
     genai.configure(api_key=gemini_api_key)
     model = genai.GenerativeModel('gemini-pro-vision')
 
@@ -84,7 +85,7 @@ def extrair_dados_com_gemini(image_bytes):
     Retorne os dados estritamente como um objeto JSON válido. Exemplo:
     {"ID Família": "FAM001", "Nome Completo": "NOME DO PACIENTE", ...}
     """
-
+    
     try:
         response = model.generate_content([prompt, image])
         json_string = response.text.replace('```json', '').replace('```', '').strip()
@@ -101,11 +102,11 @@ def salvar_dados_e_imagem(db_client, dados_paciente, image_bytes, file_name):
         path_on_storage = f"{datetime.now().strftime('%Y-%m-%d')}/{file_name}"
         image_bytes.seek(0)
         db_client.storage.from_('fichas').upload(path_on_storage, image_bytes.read(), {'content-type': 'image/jpeg', 'x-upsert': 'true'})
-
+        
         # 2. Obter o link público da imagem
         response_link = db_client.storage.from_('fichas').get_public_url(path_on_storage)
         dados_paciente['link_imagem'] = response_link
-
+        
         # 3. Inserir os dados na tabela 'pacientes'
         db_client.table('pacientes').insert(dados_paciente).execute()
         return True
@@ -144,7 +145,7 @@ if page == "Coletar Fichas":
                     dados = extrair_dados_com_gemini(uploaded_file)
                     if dados:
                         st.session_state.dados_fichas[uploaded_file.name] = {"dados": dados, "imagem": BytesIO(uploaded_file.getvalue())}
-
+        
         if st.session_state.dados_fichas:
             st.markdown("---")
             st.header("2. Revise, corrija e salve os dados")
@@ -160,7 +161,7 @@ if page == "Coletar Fichas":
                                 dados_atuais['cpf'] = st.text_input("CPF", value=dados_atuais.get('CPF'), key=f"cpf_{file_name}")
                             with col2:
                                 dados_atuais['telefone'] = st.text_input("Telefone", value=dados_atuais.get('Telefone'), key=f"tel_{file_name}")
-
+                            
                             submitted = st.form_submit_button("✅ Confirmar e Salvar")
                             if submitted:
                                 idade = calcular_idade(dados_atuais.get('data_nascimento'))
