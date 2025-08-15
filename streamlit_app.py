@@ -23,11 +23,15 @@ try:
     # Carrega os segredos do Streamlit Cloud
     gemini_api_key = st.secrets["GEMINIKEY"]
     google_sheets_id = st.secrets["SHEETSID"]
-    # As credenciais do Google precisam ser carregadas como um dicionário
-    google_credentials_dict = dict(st.secrets["GCPCREDENTIALS"])
+    
+    # Carrega as credenciais da seção [gcp_service_account] que definimos nos segredos
+    google_credentials_dict = st.secrets["gcp_service_account"]
 
+except KeyError as e:
+    st.error(f"Erro de configuração: A chave secreta '{e.args[0]}' não foi encontrada. Verifique o nome no painel de Secrets do Streamlit Cloud.")
+    st.stop()
 except Exception as e:
-    st.error(f"Erro ao carregar as chaves secretas do Streamlit. Verifique as configurações. Erro: {e}")
+    st.error(f"Erro inesperado ao carregar as chaves secretas. Verifique a formatação no painel de Secrets. Erro: {e}")
     st.stop()
 
 
@@ -41,7 +45,7 @@ def conectar_planilha():
         planilha = gc.open_by_key(google_sheets_id).sheet1
         return planilha
     except Exception as e:
-        st.error(f"Não foi possível conectar à planilha. Verifique a ID e as permissões. Erro: {e}")
+        st.error(f"Não foi possível conectar à planilha. Verifique a ID, as permissões de partilha e o formato das credenciais. Erro: {e}")
         st.stop()
 
 def extrair_dados_com_gemini(image_bytes):
@@ -60,15 +64,15 @@ def extrair_dados_com_gemini(image_bytes):
         Retorne os dados estritamente como um objeto JSON.
         Exemplo: {"ID Família": "FAM001", "Nome Completo": "NOME COMPLETO", ...}
         """
-
+        
         response = model.generate_content([prompt, image])
         json_string = response.text.replace('```json', '').replace('```', '').strip()
         dados = json.loads(json_string)
         return dados
     except Exception as e:
-        st.error(f"Erro ao extrair dados com Gemini. Erro: {e}")
+        st.error(f"Erro ao extrair dados com Gemini. Verifique a sua chave da API. Erro: {e}")
         return None
-
+        
 # --- INICIALIZAÇÃO E INTERFACE DO APP ---
 planilha_conectada = conectar_planilha()
 
@@ -77,7 +81,7 @@ uploaded_file = st.file_uploader("Escolha uma imagem", type=['jpg', 'jpeg', 'png
 
 if uploaded_file is not None:
     st.image(uploaded_file, caption="Imagem Carregada.", use_column_width=True)
-
+    
     if st.button("🔎 Processar e Enviar Dados"):
         with st.spinner("A IA está a analisar a imagem..."):
             dados_extraidos = extrair_dados_com_gemini(uploaded_file)
@@ -102,12 +106,12 @@ if uploaded_file is not None:
                         dados_extraidos.get("Município de Nascimento", ""),
                         datetime.now().strftime('%d/%m/%Y %H:%M:%S')
                     ]
-
+                    
                     planilha_conectada.append_row(nova_linha)
                     st.success("🎉 Dados enviados para a planilha com sucesso!")
                     st.balloons()
                 except Exception as e:
-                    st.error(f"Ocorreu um erro ao enviar os dados para a planilha. Erro: {e}")
+                    st.error(f"Ocorreu um erro ao enviar os dados para a planilha. Verifique as colunas da sua planilha. Erro: {e}")
 
             else:
                 st.error("Não foi possível extrair dados da imagem.")
