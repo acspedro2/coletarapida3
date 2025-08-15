@@ -48,7 +48,13 @@ def ler_dados_da_planilha(_planilha):
     """Lê todos os dados da planilha e retorna como DataFrame do Pandas."""
     try:
         dados = _planilha.get_all_records()
-        return pd.DataFrame(dados)
+        df = pd.DataFrame(dados)
+        # Garante que todas as colunas esperadas existam, preenchendo com vazio se necessário
+        colunas_esperadas = ["ID Família", "Nome Completo", "Data de Nascimento", "Telefone", "CPF", "Nome da Mãe", "Nome do Pai", "Sexo", "CNS", "Município de Nascimento", "Timestamp de Envio"]
+        for col in colunas_esperadas:
+            if col not in df.columns:
+                df[col] = ""
+        return df
     except Exception as e:
         st.error(f"Não foi possível ler os dados da planilha para o dashboard. Erro: {e}")
         return pd.DataFrame()
@@ -64,20 +70,30 @@ def apagar_linha_por_timestamp(planilha, timestamp):
     except Exception as e:
         st.error(f"Ocorreu um erro ao tentar apagar a linha. Erro: {e}")
         return False
+        
+# --- NOVA FUNÇÃO PARA ATUALIZAR LINHA ---
+def atualizar_linha(planilha, timestamp, novos_dados):
+    """Encontra uma linha pelo timestamp e atualiza seus valores."""
+    try:
+        cell = planilha.find(timestamp)
+        if cell:
+            # gspread espera uma lista de valores para atualizar a linha
+            # A ordem deve corresponder exatamente à ordem das colunas na planilha
+            valores_atualizados = list(novos_dados.values())
+            planilha.update(f'A{cell.row}:K{cell.row}', [valores_atualizados])
+            return True
+        return False
+    except Exception as e:
+        st.error(f"Ocorreu um erro ao tentar atualizar a linha. Erro: {e}")
+        return False
 
 def extrair_dados_com_gemini(image_bytes):
-    """Extrai dados da imagem usando a API do Google Gemini."""
     try:
         genai.configure(api_key=gemini_api_key)
-        model = genai.GenerativeModel('gemini-1.5-pro-latest') # Nome do modelo de visão
+        model = genai.GenerativeModel('gemini-1.5-pro-latest')
         image_bytes.seek(0)
         image = Image.open(image_bytes)
-        prompt = """
-        Analise esta imagem de um formulário e extraia as seguintes informações:
-        - ID Família, Nome Completo, Data de Nascimento (DD/MM/AAAA), Telefone, CPF, Nome da Mãe, Nome do Pai, Sexo, CNS, Município de Nascimento.
-        Se um dado não for encontrado, retorne um campo vazio. Retorne os dados estritamente como um objeto JSON.
-        Exemplo: {"ID Família": "FAM001", "Nome Completo": "NOME COMPLETO", ...}
-        """
+        prompt = "Analise esta imagem de um formulário e extraia as seguintes informações: ID Família, Nome Completo, Data de Nascimento (DD/MM/AAAA), Telefone, CPF, Nome da Mãe, Nome do Pai, Sexo, CNS, Município de Nascimento. Se um dado não for encontrado, retorne um campo vazio. Retorne os dados estritamente como um objeto JSON."
         response = model.generate_content([prompt, image])
         json_string = response.text.replace('```json', '').replace('```', '').strip()
         return json.loads(json_string)
@@ -86,15 +102,9 @@ def extrair_dados_com_gemini(image_bytes):
         return None
 
 def validar_dados_com_gemini(dados_para_validar):
-    """Envia os dados extraídos para o Gemini para uma verificação de qualidade."""
     try:
-        # --- LINHA CORRIGIDA ---
         model = genai.GenerativeModel('gemini-1.5-pro-latest')
-        prompt_validacao = f"""
-        Você é um auditor de qualidade de dados de saúde do Brasil. Analise o seguinte JSON e verifique se há inconsistências óbvias (CPF, Data de Nascimento, CNS).
-        Responda APENAS com um objeto JSON com uma chave "avisos" que é uma lista de strings em português com os problemas encontrados. Se não houver problemas, a lista deve ser vazia.
-        Dados para validar: {json.dumps(dados_para_validar)}
-        """
+        prompt_validacao = f'Você é um auditor de qualidade de dados de saúde do Brasil. Analise o seguinte JSON e verifique se há inconsistências óbvias (CPF, Data de Nascimento, CNS). Responda APENAS com um objeto JSON com uma chave "avisos" que é uma lista de strings em português com os problemas encontrados. Se não houver problemas, a lista deve ser vazia. Dados para validar: {json.dumps(dados_para_validar)}'
         response = model.generate_content(prompt_validacao)
         json_string = response.text.replace('```json', '').replace('```', '').strip()
         return json.loads(json_string)
@@ -103,22 +113,11 @@ def validar_dados_com_gemini(dados_para_validar):
         return {"avisos": []}
 
 def analisar_dados_com_gemini(pergunta_usuario, dataframe):
-    """Usa o Gemini para responder perguntas sobre os dados da planilha."""
     if dataframe.empty:
         return "Não há dados na planilha para analisar."
-    
     dados_string = dataframe.to_string()
-    # --- LINHA CORRIGIDA ---
     model = genai.GenerativeModel('gemini-1.5-pro-latest')
-    prompt_analise = f"""
-    Você é um assistente de análise de dados. Sua tarefa é responder à pergunta do utilizador com base nos dados da tabela fornecida.
-    Seja claro, direto e responda apenas com base nos dados.
-
-    Pergunta do utilizador: "{pergunta_usuario}"
-
-    Dados da Tabela:
-    {dados_string}
-    """
+    prompt_analise = f'Você é um assistente de análise de dados. Sua tarefa é responder à pergunta do utilizador com base nos dados da tabela fornecida. Seja claro, direto e responda apenas com base nos dados. Pergunta do utilizador: "{pergunta_usuario}". Dados da Tabela:\n{dados_string}'
     try:
         response = model.generate_content(prompt_analise)
         return response.text
@@ -181,12 +180,13 @@ if pagina_selecionada == "Coletar Fichas":
                     except Exception as e:
                         st.error(f"Ocorreu um erro ao enviar os dados para a planilha. Erro: {e}")
 
-# --- PÁGINA 2: DASHBOARD ---
+# --- PÁGINA 2: DASHBOARD (COM GESTÃO COMPLETA) ---
 elif pagina_selecionada == "Dashboard":
     st.header("📊 Dashboard de Dados Coletados")
     df = ler_dados_da_planilha(planilha_conectada)
     
     if not df.empty:
+        # (Seção de Métricas e Gráficos)
         st.subheader("Resumo Geral")
         col1, col2, col3 = st.columns(3)
         col1.metric("Total de Fichas", len(df))
@@ -196,9 +196,7 @@ elif pagina_selecionada == "Dashboard":
             fichas_femininas = df[df['Sexo'].str.strip().str.upper() == 'FEMININO'].shape[0]
             col3.metric("Pacientes Femininos", fichas_femininas)
         except (KeyError, AttributeError):
-            col2.metric("Pacientes Masculinos", "N/A")
-            col3.metric("Pacientes Femininos", "N/A")
-        
+            col2.metric("Pacientes Masculinos", "N/A"); col3.metric("Pacientes Femininos", "N/A")
         st.markdown("---")
         st.subheader("Fichas por Município de Nascimento")
         try:
@@ -207,37 +205,78 @@ elif pagina_selecionada == "Dashboard":
         except (KeyError, AttributeError):
             st.warning("A coluna 'Município de Nascimento' não foi encontrada ou está vazia.")
 
+        # --- SEÇÃO DE GESTÃO DE REGISTOS (APAGAR E EDITAR) ---
         st.markdown("---")
         st.subheader("⚙️ Gerir Registos")
-        with st.expander("Apagar um registo"):
-            try:
-                opcoes = [f"{nome} ({timestamp})" for nome, timestamp in zip(df['Nome Completo'], df['Timestamp de Envio'])]
-                registo_para_apagar = st.selectbox("Selecione o registo a apagar:", options=opcoes, index=None, placeholder="Escolha um registo...")
-                
-                if 'confirmacao_apagar' not in st.session_state:
-                    st.session_state.confirmacao_apagar = None
+        
+        aba_apagar, aba_editar = st.tabs(["Apagar Registo", "Editar Registo"])
 
+        with aba_apagar:
+            try:
+                opcoes_apagar = [f"{nome} ({timestamp})" for nome, timestamp in zip(df['Nome Completo'], df['Timestamp de Envio'])]
+                registo_para_apagar = st.selectbox("Selecione o registo a apagar:", options=opcoes_apagar, index=None, placeholder="Escolha um registo...")
+                
                 if st.button("Apagar Registo Selecionado"):
                     if registo_para_apagar:
-                        if st.session_state.confirmacao_apagar == registo_para_apagar:
-                            with st.spinner("A apagar..."):
-                                timestamp_selecionado = registo_para_apagar.split('(')[-1].replace(')', '')
-                                sucesso = apagar_linha_por_timestamp(planilha_conectada, timestamp_selecionado)
-                                if sucesso:
-                                    st.success("Registo apagado com sucesso!")
-                                    st.cache_data.clear()
-                                    st.session_state.confirmacao_apagar = None
-                                    st.experimental_rerun()
-                                else:
-                                    st.error("Não foi possível apagar o registo.")
-                        else:
-                            st.session_state.confirmacao_apagar = registo_para_apagar
-                            st.warning(f"Tem a CERTEZA de que quer apagar o registo de **{registo_para_apagar.split(' (')[0]}**? Clique novamente em 'Apagar' para confirmar.")
-                    else:
-                        st.warning("Por favor, selecione um registo para apagar.")
+                        st.session_state.confirmacao_apagar = registo_para_apagar
+                
+                if st.session_state.get('confirmacao_apagar') == registo_para_apagar and registo_para_apagar is not None:
+                    st.warning(f"Tem a CERTEZA de que quer apagar o registo de **{registo_para_apagar.split(' (')[0]}**?")
+                    if st.button("Sim, tenho a certeza. Apagar."):
+                        with st.spinner("A apagar..."):
+                            timestamp_selecionado = registo_para_apagar.split('(')[-1].replace(')', '')
+                            if apagar_linha_por_timestamp(planilha_conectada, timestamp_selecionado):
+                                st.success("Registo apagado com sucesso!")
+                                st.cache_data.clear()
+                                st.session_state.confirmacao_apagar = None
+                                st.experimental_rerun()
             except (KeyError, AttributeError):
                 st.error("As colunas 'Nome Completo' ou 'Timestamp de Envio' não foram encontradas na planilha.")
 
+        with aba_editar:
+            try:
+                opcoes_editar = [f"{nome} ({timestamp})" for nome, timestamp in zip(df['Nome Completo'], df['Timestamp de Envio'])]
+                registo_para_editar = st.selectbox("Selecione o registo a editar:", options=opcoes_editar, index=None, placeholder="Escolha um registo...", key="sb_editar")
+
+                if registo_para_editar:
+                    timestamp_selecionado = registo_para_editar.split('(')[-1].replace(')', '')
+                    dados_atuais = df[df['Timestamp de Envio'] == timestamp_selecionado].iloc[0].to_dict()
+
+                    with st.form("formulario_de_edicao"):
+                        st.subheader(f"A editar: {dados_atuais['Nome Completo']}")
+                        
+                        id_familia_edit = st.text_input("ID Família", value=dados_atuais.get("ID Família", ""))
+                        nome_completo_edit = st.text_input("Nome Completo", value=dados_atuais.get("Nome Completo", ""))
+                        data_nascimento_edit = st.text_input("Data de Nascimento", value=dados_atuais.get("Data de Nascimento", ""))
+                        telefone_edit = st.text_input("Telefone", value=dados_atuais.get("Telefone", ""))
+                        cpf_edit = st.text_input("CPF", value=dados_atuais.get("CPF", ""))
+                        nome_mae_edit = st.text_input("Nome da Mãe", value=dados_atuais.get("Nome da Mãe", ""))
+                        nome_pai_edit = st.text_input("Nome do Pai", value=dados_atuais.get("Nome do Pai", ""))
+                        sexo_edit = st.text_input("Sexo", value=dados_atuais.get("Sexo", ""))
+                        cns_edit = st.text_input("CNS", value=dados_atuais.get("CNS", ""))
+                        municipio_nascimento_edit = st.text_input("Município de Nascimento", value=dados_atuais.get("Município de Nascimento", ""))
+
+                        submitted_edit = st.form_submit_button("Salvar Alterações")
+
+                        if submitted_edit:
+                            dados_atualizados = {
+                                "ID Família": id_familia_edit, "Nome Completo": nome_completo_edit,
+                                "Data de Nascimento": data_nascimento_edit, "Telefone": telefone_edit,
+                                "CPF": cpf_edit, "Nome da Mãe": nome_mae_edit,
+                                "Nome do Pai": nome_pai_edit, "Sexo": sexo_edit,
+                                "CNS": cns_edit, "Município de Nascimento": municipio_nascimento_edit,
+                                "Timestamp de Envio": timestamp_selecionado
+                            }
+                            with st.spinner("A salvar alterações..."):
+                                if atualizar_linha(planilha_conectada, timestamp_selecionado, dados_atualizados):
+                                    st.success("Registo atualizado com sucesso!")
+                                    st.cache_data.clear()
+                                    st.experimental_rerun()
+            except (KeyError, AttributeError):
+                st.error("As colunas 'Nome Completo' ou 'Timestamp de Envio' não foram encontradas na planilha.")
+
+
+        # (Seção de Pesquisa e Dados)
         st.markdown("---")
         st.subheader("🤖 Converse com seus Dados")
         pergunta = st.text_area("Faça uma pergunta em português sobre os dados da planilha abaixo:")
@@ -254,3 +293,4 @@ elif pagina_selecionada == "Dashboard":
         st.dataframe(df, use_container_width=True)
     else:
         st.warning("Ainda não há dados na planilha para exibir.")
+
