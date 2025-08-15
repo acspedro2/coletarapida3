@@ -45,137 +45,117 @@ def conectar_planilha():
         st.stop()
 
 def calcular_idade(data_nasc):
-    """Calcula a idade a partir de um objeto datetime."""
-    if pd.isna(data_nasc):
-        return 0
+    if pd.isna(data_nasc): return 0
     hoje = datetime.now()
     return hoje.year - data_nasc.year - ((hoje.month, hoje.day) < (data_nasc.month, data_nasc.day))
 
 @st.cache_data(ttl=60)
 def ler_dados_da_planilha(_planilha):
-    """Lê os dados, garante colunas e calcula a idade."""
     try:
         dados = _planilha.get_all_records()
         df = pd.DataFrame(dados)
-        colunas_esperadas = ["ID Família", "Nome Completo", "Data de Nascimento", "Telefone", "CPF", "Nome da Mãe", "Nome do Pai", "Sexo", "CNS", "Município de Nascimento", "Timestamp de Envio"]
+        colunas_esperadas = ["ID Família", "Nome Completo", "Data de Nascimento", "Telefone", "CPF", "Nome da Mãe", "Nome do Pai", "Sexo", "CNS", "Timestamp de Envio"]
         for col in colunas_esperadas:
-            if col not in df.columns:
-                df[col] = ""
-        
-        # Converte a coluna de data e calcula a idade
+            if col not in df.columns: df[col] = ""
         df['Data de Nascimento DT'] = pd.to_datetime(df['Data de Nascimento'], format='%d/%m/%Y', errors='coerce')
         df['Idade'] = df['Data de Nascimento DT'].apply(calcular_idade)
-        
         return df
     except Exception as e:
         st.error(f"Não foi possível ler os dados da planilha. Erro: {e}")
         return pd.DataFrame()
 
-# --- NOVA FUNÇÃO PARA GERAR A FICHA IVCF-20 ---
-def gerar_pdf_ivcf20(paciente):
-    """Gera o cabeçalho da ficha IVCF-20 para um paciente específico."""
+# --- NOVA FUNÇÃO DE PDF COMPLETO ---
+def gerar_pdf_ivcf20_completo(paciente):
     buffer = BytesIO()
     p = canvas.Canvas(buffer, pagesize=letter)
     width, height = letter
+    margin = 0.75 * inch
     
-    # Desenha o cabeçalho principal
+    # Função auxiliar para desenhar uma pergunta com checkboxes
+    def draw_question(y, question_number, question_text, options=["Sim (1)", "Não (0)"]):
+        p.setFont("Helvetica", 9)
+        p.drawString(margin, y, f"{question_number}. {question_text}")
+        
+        # Desenha as opções com checkboxes
+        x_offset = margin + 350
+        for option in options:
+            p.rect(x_offset, y - 2, 8, 8) # Checkbox
+            p.drawString(x_offset + 12, y, option)
+            x_offset += 80
+        return y - 25 # Retorna a nova posição Y
+
+    # Cabeçalho principal
     p.setFont("Helvetica-Bold", 12)
     p.drawCentredString(width / 2.0, height - 50, "ÍNDICE DE VULNERABILIDADE CLÍNICO FUNCIONAL 20 (IVCF-20)")
     
-    # Seção de IDENTIFICAÇÃO
+    # Secção de IDENTIFICAÇÃO (como antes)
     p.setFont("Helvetica-Bold", 10)
-    p.drawString(72, height - 80, "IDENTIFICAÇÃO")
-    
+    p.drawString(margin, height - 80, "IDENTIFICAÇÃO")
     y = height - 110
-    
-    # Campo Nome social
     p.setFont("Helvetica", 8)
-    p.drawString(72, y + 5, "Nome social:")
-    p.setFont("Helvetica-Bold", 12)
-    p.drawString(150, y + 5, str(paciente.get("Nome Completo", "")))
-    p.line(148, y, width - 72, y)
-    
-    # Campo CPF/CNS
-    y -= 30
+    p.drawString(margin, y + 5, "Nome social:")
+    p.setFont("Helvetica-Bold", 11)
+    p.drawString(margin + 75, y + 5, str(paciente.get("Nome Completo", "")))
+    p.line(margin + 73, y, width - margin, y)
+    y -= 25
     p.setFont("Helvetica", 8)
-    p.drawString(72, y + 5, "CPF/CNS:")
-    p.setFont("Helvetica-Bold", 12)
-    p.drawString(150, y + 5, str(paciente.get("CPF", ""))) # Assumindo que o campo CPF contenha o que for necessário
-    p.line(148, y, 400, y)
-
-    # Campo Data de nascimento
+    p.drawString(margin, y + 5, "CPF/CNS:")
+    p.setFont("Helvetica-Bold", 11)
+    p.drawString(margin + 75, y + 5, str(paciente.get("CPF", "")))
+    p.line(margin + 73, y, 400, y)
     p.setFont("Helvetica", 8)
     p.drawString(420, y + 5, "Data de nascimento:")
-    p.setFont("Helvetica-Bold", 12)
+    p.setFont("Helvetica-Bold", 11)
     p.drawString(500, y + 5, str(paciente.get("Data de Nascimento", "")))
-    p.line(498, y, width - 72, y)
+    p.line(498, y, width - margin, y)
+    y -= 30
+
+    # Corpo do Formulário
+    p.setFont("Helvetica-Bold", 10)
+    p.drawString(margin, y, "IDADE")
+    y = draw_question(y-15, 1, "Qual é a sua idade?", options=["60 a 74 anos (0)", "75 a 84 anos (1)", "≥ 85 anos (3)"])
+
+    p.setFont("Helvetica-Bold", 10)
+    p.drawString(margin, y, "PERCEPÇÃO DA SAÚDE")
+    y = draw_question(y-15, 2, "Em geral, comparando com outras pessoas de sua idade, você diria que sua saúde é:", options=["Excelente (0)", "Boa (0)", "Regular (1)"])
+    y -= 10
+
+    p.setFont("Helvetica-Bold", 10)
+    p.drawString(margin, y, "AVD INSTRUMENTAL")
+    y = draw_question(y-15, 3, "Por causa de sua saúde ou condição física, você deixou de fazer compras?", options=["Sim (4)", "Não (0)"])
+    y = draw_question(y, 4, "Por causa de sua saúde ou condição física, você deixou de controlar seu dinheiro, gasto ou pagar suas contas?", options=["Sim (4)", "Não (0)"])
+    y = draw_question(y, 5, "Por causa de sua saúde ou condição física, você deixou de realizar pequenos trabalhos domésticos?", options=["Sim (4)", "Não (0)"])
+    y -= 10
+
+    p.setFont("Helvetica-Bold", 10)
+    p.drawString(margin, y, "AVD BÁSICA")
+    y = draw_question(y-15, 6, "Por causa de sua saúde ou condição física, você deixou de tomar banho sozinho?", options=["Sim (6)", "Não (0)"])
+    y -= 10
     
-    p.save()
-    buffer.seek(0)
-    return buffer
+    p.setFont("Helvetica-Bold", 10)
+    p.drawString(margin, y, "COGNIÇÃO")
+    y = draw_question(y-15, 7, "Alguém (amigo ou parente) falou que você está ficando esquecido?", options=["Sim (1)", "Não (0)"])
+    y = draw_question(y, 8, "Este esquecimento está piorando nos últimos meses?", options=["Sim (1)", "Não (0)"])
+    y = draw_question(y, 9, "Este esquecimento está impedindo a realização de alguma atividade do cotidiano?", options=["Sim (2)", "Não (0)"])
+    y -= 10
 
-# (As outras funções como extrair_dados, validar, etc. permanecem aqui)
-# ...
+    p.setFont("Helvetica-Bold", 10)
+    p.drawString(margin, y, "HUMOR")
+    y = draw_question(y-15, 10, "No último mês, você ficou com desânimo, tristeza ou desesperança?", options=["Sim (2)", "Não (0)"])
+    y = draw_question(y, 11, "No último mês, você perdeu o interesse ou prazer em atividades anteriormente prazerosas?", options=["Sim (2)", "Não (0)"])
+    y -= 10
 
-# --- INICIALIZAÇÃO ---
-planilha_conectada = conectar_planilha()
-
-# --- NAVEGAÇÃO E PÁGINAS ---
-st.sidebar.title("Navegação")
-paginas = ["Coletar Fichas", "Dashboard", "Gerar Relatórios", "Gerar Ficha IVCF-20"]
-pagina_selecionada = st.sidebar.radio("Escolha uma página:", paginas)
-
-# ... (Página de Coletar Fichas e Dashboard permanecem iguais)
-
-# --- PÁGINA 3: GERAR RELATÓRIOS ---
-if pagina_selecionada == "Gerar Relatórios":
-    st.header("📄 Gerador de Relatórios Personalizados")
-    # ... (código da página de relatórios)
-
-# --- PÁGINA 4: GERAR FICHA IVCF-20 (NOVA!) ---
-elif pagina_selecionada == "Gerar Ficha IVCF-20":
-    st.header("📝 Gerar Ficha de Vulnerabilidade (IVCF-20)")
-    st.info("Esta ferramenta gera o cabeçalho da ficha IVCF-20 para pacientes com 60 anos ou mais.")
+    p.setFont("Helvetica-Bold", 10)
+    p.drawString(margin, y, "MOBILIDADE")
     
-    df_completo = ler_dados_da_planilha(planilha_conectada)
+    # Inicia a segunda coluna
+    p.saveState()
+    y2 = y
     
-    # Filtra o dataframe para incluir apenas pacientes com 60 anos ou mais
-    df_idosos = df_completo[df_completo['Idade'] >= 60].copy()
-    
-    if not df_idosos.empty:
-        # Cria uma lista de nomes de pacientes para o utilizador escolher
-        lista_pacientes = df_idosos['Nome Completo'].tolist()
-        
-        paciente_selecionado_nome = st.selectbox(
-            "Selecione um paciente para gerar a ficha:",
-            options=lista_pacientes,
-            index=None,
-            placeholder="Escolha um paciente..."
-        )
-        
-        if paciente_selecionado_nome:
-            # Encontra os dados completos do paciente selecionado
-            dados_paciente = df_idosos[df_idosos['Nome Completo'] == paciente_selecionado_nome].iloc[0].to_dict()
-            
-            st.write("---")
-            st.subheader("Pré-visualização dos Dados")
-            st.write(f"**Nome:** {dados_paciente['Nome Completo']}")
-            st.write(f"**CPF/CNS:** {dados_paciente.get('CPF', 'Não informado')}")
-            st.write(f"**Data de Nascimento:** {dados_paciente['Data de Nascimento']}")
-            
-            # Gera o PDF em memória
-            pdf_ficha = gerar_pdf_ivcf20(dados_paciente)
-            
-            # Botão de download
-            st.download_button(
-                label="Descarregar Ficha IVCF-20 em PDF",
-                data=pdf_ficha,
-                file_name=f"IVCF20_{paciente_selecionado_nome.replace(' ', '_')}.pdf",
-                mime="application/pdf"
-            )
-
-    else:
-        st.warning("Não foram encontrados registos de pacientes com 60 anos ou mais na planilha.")
-
-# O restante do código das outras páginas (Coletar Fichas, Dashboard, etc.) deve ser mantido
-# ...
+    y = draw_question(y-15, 12, "Você é incapaz de elevar os braços acima do nível do ombro?", options=["Sim (1)", "Não (0)"])
+    y = draw_question(y, 13, "Você é incapaz de manusear ou segurar pequenos objetos?", options=["Sim (1)", "Não (0)"])
+    y = draw_question(y, 14, "Você tem alguma das três condições abaixo relacionadas?", options=["Sim (2)", "Não (0)"])
+    p.setFont("Helvetica", 8)
+    p.drawString(margin + 15, y, "Perda de peso não intencional de 4,5Kg ou 5% do peso corporal no último ano...")
+    y -= 25
+    y = draw_question(y, 15, "Você tem dificuldades para caminhar capaz
