@@ -121,3 +121,88 @@ def analisar_dados_com_gemini(pergunta_usuario, dataframe):
 planilha_conectada = conectar_planilha()
 
 # --- NAVEGAÇÃO E PÁGINAS ---
+st.sidebar.title("Navegação")
+pagina_selecionada = st.sidebar.radio(
+    "Escolha uma página:",
+    ["Coletar Fichas", "Dashboard"]
+)
+
+# --- PÁGINA 1: COLETAR FICHAS ---
+if pagina_selecionada == "Coletar Fichas":
+    # (Esta página permanece a mesma da versão anterior)
+    st.header("Envie a imagem da ficha")
+    uploaded_file = st.file_uploader("Escolha uma imagem", type=['jpg', 'jpeg', 'png'])
+
+    if 'dados_extraidos' not in st.session_state:
+        st.session_state.dados_extraidos = None
+
+    if uploaded_file is not None:
+        st.image(uploaded_file, caption="Imagem Carregada.", use_column_width=True)
+        if st.button("🔎 Extrair e Validar Dados"):
+            with st.spinner("A IA está a analisar a imagem..."):
+                st.session_state.dados_extraidos = extrair_dados_com_gemini(uploaded_file)
+            if st.session_state.dados_extraidos:
+                st.success("Dados extraídos!")
+                with st.spinner("A IA está a verificar a qualidade dos dados..."):
+                    resultado_validacao = validar_dados_com_gemini(st.session_state.dados_extraidos)
+                if resultado_validacao and resultado_validacao.get("avisos"):
+                    st.warning("Atenção! A IA encontrou os seguintes possíveis problemas:")
+                    for aviso in resultado_validacao["avisos"]: st.write(f"- {aviso}")
+            else:
+                st.error("Não foi possível extrair dados da imagem.")
+
+    if st.session_state.dados_extraidos:
+        st.markdown("---")
+        st.header("Confirme e corrija os dados antes de enviar")
+        with st.form("formulario_de_correcao"):
+            dados = st.session_state.dados_extraidos
+            id_familia = st.text_input("ID Família", value=dados.get("ID Família", ""))
+            nome_completo = st.text_input("Nome Completo", value=dados.get("Nome Completo", ""))
+            data_nascimento = st.text_input("Data de Nascimento", value=dados.get("Data de Nascimento", ""))
+            telefone = st.text_input("Telefone", value=dados.get("Telefone", ""))
+            cpf = st.text_input("CPF", value=dados.get("CPF", ""))
+            nome_mae = st.text_input("Nome da Mãe", value=dados.get("Nome da Mãe", ""))
+            nome_pai = st.text_input("Nome do Pai", value=dados.get("Nome do Pai", ""))
+            sexo = st.text_input("Sexo", value=dados.get("Sexo", ""))
+            cns = st.text_input("CNS", value=dados.get("CNS", ""))
+            municipio_nascimento = st.text_input("Município de Nascimento", value=dados.get("Município de Nascimento", ""))
+            submitted = st.form_submit_button("✅ Enviar para a Planilha")
+            if submitted:
+                with st.spinner("A enviar os dados..."):
+                    try:
+                        nova_linha = [id_familia, nome_completo, data_nascimento, telefone, cpf, nome_mae, nome_pai, sexo, cns, municipio_nascimento, datetime.now().strftime('%d/%m/%Y %H:%M:%S')]
+                        planilha_conectada.append_row(nova_linha)
+                        st.success("🎉 Dados enviados para a planilha com sucesso!")
+                        st.balloons()
+                        st.session_state.dados_extraidos = None
+                        st.experimental_rerun()
+                    except Exception as e:
+                        st.error(f"Ocorreu um erro ao enviar os dados para a planilha. Erro: {e}")
+
+# --- PÁGINA 2: DASHBOARD (AGORA COM IA!) ---
+elif pagina_selecionada == "Dashboard":
+    st.header("📊 Dashboard de Dados Coletados")
+    df = ler_dados_da_planilha(planilha_conectada)
+    
+    if not df.empty:
+        st.info(f"Total de Fichas na Planilha: **{len(df)}**")
+        
+        # --- NOVA SEÇÃO DE PESQUISA COM IA ---
+        st.markdown("---")
+        st.subheader("🤖 Converse com seus Dados")
+        pergunta = st.text_area("Faça uma pergunta em português sobre os dados da planilha abaixo:")
+        
+        if st.button("Analisar com IA"):
+            if pergunta:
+                with st.spinner("A IA está a pensar..."):
+                    resposta = analisar_dados_com_gemini(pergunta, df)
+                    st.markdown(resposta)
+            else:
+                st.warning("Por favor, escreva uma pergunta.")
+
+        st.markdown("---")
+        st.subheader("Dados Completos")
+        st.dataframe(df, use_container_width=True)
+
+    else:
+        st.warning("Ainda não há dados na planilha para exibir.")
