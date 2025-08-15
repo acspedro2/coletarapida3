@@ -53,9 +53,23 @@ def ler_dados_da_planilha(_planilha):
         st.error(f"Não foi possível ler os dados da planilha para o dashboard. Erro: {e}")
         return pd.DataFrame()
 
+# --- NOVA FUNÇÃO PARA APAGAR LINHA ---
+def apagar_linha_por_timestamp(planilha, timestamp):
+    """Encontra uma linha pelo timestamp e a apaga."""
+    try:
+        # Encontra a célula que contém o timestamp
+        cell = planilha.find(timestamp)
+        if cell:
+            # Apaga a linha inteira onde a célula foi encontrada
+            planilha.delete_rows(cell.row)
+            return True
+        return False
+    except Exception as e:
+        st.error(f"Ocorreu um erro ao tentar apagar a linha. Erro: {e}")
+        return False
 
 def extrair_dados_com_gemini(image_bytes):
-    """Extrai dados da imagem usando a API do Google Gemini."""
+    # (Esta função permanece a mesma da versão anterior)
     try:
         genai.configure(api_key=gemini_api_key)
         model = genai.GenerativeModel('gemini-pro-vision')
@@ -64,8 +78,7 @@ def extrair_dados_com_gemini(image_bytes):
         prompt = """
         Analise esta imagem de um formulário e extraia as seguintes informações:
         - ID Família, Nome Completo, Data de Nascimento (DD/MM/AAAA), Telefone, CPF, Nome da Mãe, Nome do Pai, Sexo, CNS, Município de Nascimento.
-        Se um dado não for encontrado, retorne um campo vazio.
-        Retorne os dados estritamente como um objeto JSON.
+        Se um dado não for encontrado, retorne um campo vazio. Retorne os dados estritamente como um objeto JSON.
         Exemplo: {"ID Família": "FAM001", "Nome Completo": "NOME COMPLETO", ...}
         """
         response = model.generate_content([prompt, image])
@@ -76,7 +89,7 @@ def extrair_dados_com_gemini(image_bytes):
         return None
 
 def validar_dados_com_gemini(dados_para_validar):
-    """Envia os dados extraídos para o Gemini para uma verificação de qualidade."""
+    # (Esta função permanece a mesma da versão anterior)
     try:
         model = genai.GenerativeModel('gemini-pro')
         prompt_validacao = f"""
@@ -92,20 +105,16 @@ def validar_dados_com_gemini(dados_para_validar):
         return {"avisos": []}
 
 def analisar_dados_com_gemini(pergunta_usuario, dataframe):
-    """Usa o Gemini para responder perguntas sobre os dados da planilha."""
+    # (Esta função permanece a mesma da versão anterior)
     if dataframe.empty:
         return "Não há dados na planilha para analisar."
-    
     dados_string = dataframe.to_string()
     model = genai.GenerativeModel('gemini-pro')
     prompt_analise = f"""
     Você é um assistente de análise de dados. Sua tarefa é responder à pergunta do utilizador com base nos dados da tabela fornecida.
     Seja claro, direto e responda apenas com base nos dados.
-
     Pergunta do utilizador: "{pergunta_usuario}"
-
-    Dados da Tabela:
-    {dados_string}
+    Dados da Tabela: {dados_string}
     """
     try:
         response = model.generate_content(prompt_analise)
@@ -118,40 +127,32 @@ planilha_conectada = conectar_planilha()
 
 # --- NAVEGAÇÃO E PÁGINAS ---
 st.sidebar.title("Navegação")
-pagina_selecionada = st.sidebar.radio(
-    "Escolha uma página:",
-    ["Coletar Fichas", "Dashboard"]
-)
+pagina_selecionada = st.sidebar.radio("Escolha uma página:", ["Coletar Fichas", "Dashboard"])
 
 # --- PÁGINA 1: COLETAR FICHAS ---
 if pagina_selecionada == "Coletar Fichas":
+    # (Esta página permanece a mesma da versão anterior)
     st.header("Envie a imagem da ficha")
     uploaded_file = st.file_uploader("Escolha uma imagem", type=['jpg', 'jpeg', 'png'])
-
     if 'dados_extraidos' not in st.session_state:
         st.session_state.dados_extraidos = None
-
     if uploaded_file is not None:
         st.image(uploaded_file, caption="Imagem Carregada.", use_column_width=True)
         if st.button("🔎 Extrair e Validar Dados"):
             with st.spinner("A IA está a analisar a imagem..."):
                 st.session_state.dados_extraidos = extrair_dados_com_gemini(uploaded_file)
-            
             if st.session_state.dados_extraidos:
                 st.success("Dados extraídos!")
                 with st.spinner("A IA está a verificar a qualidade dos dados..."):
                     resultado_validacao = validar_dados_com_gemini(st.session_state.dados_extraidos)
-                
                 if resultado_validacao and resultado_validacao.get("avisos"):
                     st.warning("Atenção! A IA encontrou os seguintes possíveis problemas:")
                     for aviso in resultado_validacao["avisos"]: st.write(f"- {aviso}")
             else:
                 st.error("Não foi possível extrair dados da imagem.")
-
     if st.session_state.dados_extraidos:
         st.markdown("---")
         st.header("Confirme e corrija os dados antes de enviar")
-        
         with st.form("formulario_de_correcao"):
             dados = st.session_state.dados_extraidos
             id_familia = st.text_input("ID Família", value=dados.get("ID Família", ""))
@@ -164,13 +165,12 @@ if pagina_selecionada == "Coletar Fichas":
             sexo = st.text_input("Sexo", value=dados.get("Sexo", ""))
             cns = st.text_input("CNS", value=dados.get("CNS", ""))
             municipio_nascimento = st.text_input("Município de Nascimento", value=dados.get("Município de Nascimento", ""))
-            
             submitted = st.form_submit_button("✅ Enviar para a Planilha")
-            
             if submitted:
                 with st.spinner("A enviar os dados..."):
                     try:
-                        nova_linha = [id_familia, nome_completo, data_nascimento, telefone, cpf, nome_mae, nome_pai, sexo, cns, municipio_nascimento, datetime.now().strftime('%d/%m/%Y %H:%M:%S')]
+                        timestamp_envio = datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+                        nova_linha = [id_familia, nome_completo, data_nascimento, telefone, cpf, nome_mae, nome_pai, sexo, cns, municipio_nascimento, timestamp_envio]
                         planilha_conectada.append_row(nova_linha)
                         st.success("🎉 Dados enviados para a planilha com sucesso!")
                         st.balloons()
@@ -179,45 +179,74 @@ if pagina_selecionada == "Coletar Fichas":
                     except Exception as e:
                         st.error(f"Ocorreu um erro ao enviar os dados para a planilha. Erro: {e}")
 
-# --- PÁGINA 2: DASHBOARD ---
+# --- PÁGINA 2: DASHBOARD (COM GESTÃO DE DADOS) ---
 elif pagina_selecionada == "Dashboard":
     st.header("📊 Dashboard de Dados Coletados")
-    
     df = ler_dados_da_planilha(planilha_conectada)
     
     if not df.empty:
-        # --- NOVA SEÇÃO DE MÉTRICAS ---
+        # (Seção de Métricas e Gráficos permanece a mesma)
         st.subheader("Resumo Geral")
         col1, col2, col3 = st.columns(3)
         col1.metric("Total de Fichas", len(df))
-        
-        # Tenta calcular as métricas de sexo, tratando possíveis erros se a coluna não existir
         try:
             fichas_masculinas = df[df['Sexo'].str.strip().str.upper() == 'MASCULINO'].shape[0]
             col2.metric("Pacientes Masculinos", fichas_masculinas)
-            
             fichas_femininas = df[df['Sexo'].str.strip().str.upper() == 'FEMININO'].shape[0]
             col3.metric("Pacientes Femininos", fichas_femininas)
         except (KeyError, AttributeError):
             col2.metric("Pacientes Masculinos", "N/A")
             col3.metric("Pacientes Femininos", "N/A")
-            st.warning("A coluna 'Sexo' não foi encontrada ou está vazia na planilha. As métricas de género não podem ser calculadas.")
-
-        # --- NOVA SEÇÃO DE GRÁFICO ---
         st.markdown("---")
         st.subheader("Fichas por Município de Nascimento")
         try:
             municipio_counts = df['Município de Nascimento'].value_counts()
             st.bar_chart(municipio_counts)
         except (KeyError, AttributeError):
-            st.warning("A coluna 'Município de Nascimento' não foi encontrada ou está vazia. O gráfico não pode ser gerado.")
+            st.warning("A coluna 'Município de Nascimento' não foi encontrada ou está vazia.")
 
-        
-        # --- SEÇÃO DE PESQUISA E DADOS ---
+        # --- NOVA SEÇÃO DE GESTÃO DE REGISTOS ---
+        st.markdown("---")
+        st.subheader("⚙️ Gerir Registos")
+
+        # Usamos um expander para não poluir a tela
+        with st.expander("Apagar um registo"):
+            try:
+                # Criamos uma lista de opções para o selectbox, combinando nome e timestamp
+                opcoes = [f"{nome} ({timestamp})" for nome, timestamp in zip(df['Nome Completo'], df['Timestamp de Envio'])]
+                registo_para_apagar = st.selectbox("Selecione o registo a apagar:", options=opcoes)
+
+                if st.button("Apagar Registo Selecionado"):
+                    if registo_para_apagar:
+                        # Extrai o timestamp da opção selecionada
+                        timestamp_selecionado = registo_para_apagar.split('(')[-1].replace(')', '')
+                        
+                        st.warning(f"Tem a CERTEZA de que quer apagar o registo de **{registo_para_apagar.split(' (')[0]}**?")
+                        
+                        # Botões de confirmação
+                        col_confirm, col_cancel = st.columns(2)
+                        with col_confirm:
+                            if st.button("Sim, apagar"):
+                                with st.spinner("A apagar..."):
+                                    sucesso = apagar_linha_por_timestamp(planilha_conectada, timestamp_selecionado)
+                                    if sucesso:
+                                        st.success("Registo apagado com sucesso!")
+                                        # Limpa o cache para forçar a releitura dos dados
+                                        st.cache_data.clear()
+                                        st.experimental_rerun()
+                                    else:
+                                        st.error("Não foi possível apagar o registo. O timestamp pode não ter sido encontrado.")
+                        with col_cancel:
+                            if st.button("Não, cancelar"):
+                                st.info("Ação cancelada.")
+
+            except (KeyError, AttributeError):
+                st.error("As colunas 'Nome Completo' ou 'Timestamp de Envio' não foram encontradas na planilha. A função de apagar está desativada.")
+
+
+        # (Seção de Pesquisa e Dados permanece a mesma)
         st.markdown("---")
         st.subheader("Pesquisar e Analisar Dados")
-        
-        # Pesquisa com IA
         pergunta = st.text_area("Faça uma pergunta em português sobre os dados da planilha abaixo:")
         if st.button("Analisar com IA"):
             if pergunta:
@@ -226,10 +255,9 @@ elif pagina_selecionada == "Dashboard":
                     st.markdown(resposta)
             else:
                 st.warning("Por favor, escreva uma pergunta.")
-
         st.markdown("---")
         st.subheader("Dados Completos")
         st.dataframe(df, use_container_width=True)
-
     else:
         st.warning("Ainda não há dados na planilha para exibir.")
+
