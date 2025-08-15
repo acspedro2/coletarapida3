@@ -69,7 +69,7 @@ def extrair_dados_com_gemini(image_bytes):
     """Extrai dados da imagem usando a API do Google Gemini."""
     try:
         genai.configure(api_key=gemini_api_key)
-        model = genai.GenerativeModel('gemini-1.5-pro-latest')
+        model = genai.GenerativeModel('gemini-1.5-pro-latest') # Nome do modelo de visão
         image_bytes.seek(0)
         image = Image.open(image_bytes)
         prompt = """
@@ -88,7 +88,8 @@ def extrair_dados_com_gemini(image_bytes):
 def validar_dados_com_gemini(dados_para_validar):
     """Envia os dados extraídos para o Gemini para uma verificação de qualidade."""
     try:
-        model = genai.GenerativeModel('gemini-pro')
+        # --- LINHA CORRIGIDA ---
+        model = genai.GenerativeModel('gemini-1.5-pro-latest')
         prompt_validacao = f"""
         Você é um auditor de qualidade de dados de saúde do Brasil. Analise o seguinte JSON e verifique se há inconsistências óbvias (CPF, Data de Nascimento, CNS).
         Responda APENAS com um objeto JSON com uma chave "avisos" que é uma lista de strings em português com os problemas encontrados. Se não houver problemas, a lista deve ser vazia.
@@ -105,12 +106,16 @@ def analisar_dados_com_gemini(pergunta_usuario, dataframe):
     """Usa o Gemini para responder perguntas sobre os dados da planilha."""
     if dataframe.empty:
         return "Não há dados na planilha para analisar."
+    
     dados_string = dataframe.to_string()
-    model = genai.GenerativeModel('gemini-pro')
+    # --- LINHA CORRIGIDA ---
+    model = genai.GenerativeModel('gemini-1.5-pro-latest')
     prompt_analise = f"""
     Você é um assistente de análise de dados. Sua tarefa é responder à pergunta do utilizador com base nos dados da tabela fornecida.
     Seja claro, direto e responda apenas com base nos dados.
+
     Pergunta do utilizador: "{pergunta_usuario}"
+
     Dados da Tabela:
     {dados_string}
     """
@@ -125,10 +130,7 @@ planilha_conectada = conectar_planilha()
 
 # --- NAVEGAÇÃO E PÁGINAS ---
 st.sidebar.title("Navegação")
-pagina_selecionada = st.sidebar.radio(
-    "Escolha uma página:",
-    ["Coletar Fichas", "Dashboard"]
-)
+pagina_selecionada = st.sidebar.radio("Escolha uma página:", ["Coletar Fichas", "Dashboard"])
 
 # --- PÁGINA 1: COLETAR FICHAS ---
 if pagina_selecionada == "Coletar Fichas":
@@ -210,22 +212,26 @@ elif pagina_selecionada == "Dashboard":
         with st.expander("Apagar um registo"):
             try:
                 opcoes = [f"{nome} ({timestamp})" for nome, timestamp in zip(df['Nome Completo'], df['Timestamp de Envio'])]
-                registo_para_apagar = st.selectbox("Selecione o registo a apagar:", options=opcoes, index=None)
+                registo_para_apagar = st.selectbox("Selecione o registo a apagar:", options=opcoes, index=None, placeholder="Escolha um registo...")
+                
+                if 'confirmacao_apagar' not in st.session_state:
+                    st.session_state.confirmacao_apagar = None
+
                 if st.button("Apagar Registo Selecionado"):
                     if registo_para_apagar:
-                        timestamp_selecionado = registo_para_apagar.split('(')[-1].replace(')', '')
-                        if st.session_state.get('confirmacao_apagar') == timestamp_selecionado:
+                        if st.session_state.confirmacao_apagar == registo_para_apagar:
                             with st.spinner("A apagar..."):
+                                timestamp_selecionado = registo_para_apagar.split('(')[-1].replace(')', '')
                                 sucesso = apagar_linha_por_timestamp(planilha_conectada, timestamp_selecionado)
                                 if sucesso:
                                     st.success("Registo apagado com sucesso!")
                                     st.cache_data.clear()
-                                    del st.session_state['confirmacao_apagar']
+                                    st.session_state.confirmacao_apagar = None
                                     st.experimental_rerun()
                                 else:
                                     st.error("Não foi possível apagar o registo.")
                         else:
-                            st.session_state.confirmacao_apagar = timestamp_selecionado
+                            st.session_state.confirmacao_apagar = registo_para_apagar
                             st.warning(f"Tem a CERTEZA de que quer apagar o registo de **{registo_para_apagar.split(' (')[0]}**? Clique novamente em 'Apagar' para confirmar.")
                     else:
                         st.warning("Por favor, selecione um registo para apagar.")
