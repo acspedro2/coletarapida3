@@ -43,6 +43,17 @@ def conectar_planilha():
         st.error(f"Não foi possível conectar à planilha. Verifique a ID, as permissões de partilha e o formato das credenciais. Erro: {e}")
         st.stop()
 
+@st.cache_data(ttl=60) # Cache de 1 minuto para os dados do dashboard
+def ler_dados_da_planilha(_planilha):
+    """Lê todos os dados da planilha e retorna como DataFrame do Pandas."""
+    try:
+        dados = _planilha.get_all_records()
+        return pd.DataFrame(dados)
+    except Exception as e:
+        st.error(f"Não foi possível ler os dados da planilha para o dashboard. Erro: {e}")
+        return pd.DataFrame()
+
+
 def extrair_dados_com_gemini(image_bytes):
     """Extrai dados da imagem usando a API do Google Gemini."""
     try:
@@ -70,11 +81,7 @@ def validar_dados_com_gemini(dados_para_validar):
         model = genai.GenerativeModel('gemini-pro')
         prompt_validacao = f"""
         Você é um auditor de qualidade de dados de saúde do Brasil. Analise o seguinte JSON de uma ficha de paciente e verifique se há inconsistências óbvias.
-        Especificamente, verifique:
-        1. Se o CPF tem um formato que parece válido (11 dígitos, com ou sem pontuação).
-        2. Se a Data de Nascimento é uma data que existe (ex: não é 30/02/2023) e está no passado.
-        3. Se o CNS (Cartão Nacional de Saúde) tem 15 dígitos.
-        Responda APENAS com um objeto JSON. O JSON deve ter uma chave "status_geral" ('Válido' ou 'Inválido com avisos') e uma chave "avisos" que é uma lista de strings em português com os problemas encontrados. Se não houver problemas, a lista de avisos deve ser vazia.
+        Responda APENAS com um objeto JSON com uma chave "avisos" que é uma lista de strings em português com os problemas encontrados. Se não houver problemas, a lista de avisos deve ser vazia.
         Dados para validar: {json.dumps(dados_para_validar)}
         """
         response = model.generate_content(prompt_validacao)
@@ -82,73 +89,100 @@ def validar_dados_com_gemini(dados_para_validar):
         return json.loads(json_string)
     except Exception as e:
         print(f"Erro na validação com Gemini: {e}")
-        return {"status_geral": "Válido", "avisos": []}
+        return {"avisos": []}
 
-# --- INICIALIZAÇÃO E INTERFACE DO APP ---
+# --- INICIALIZAÇÃO ---
 planilha_conectada = conectar_planilha()
 
-st.header("Envie a imagem da ficha")
-uploaded_file = st.file_uploader("Escolha uma imagem", type=['jpg', 'jpeg', 'png'])
+# --- NAVEGAÇÃO E PÁGINAS ---
+st.sidebar.title("Navegação")
+pagina_selecionada = st.sidebar.radio(
+    "Escolha uma página:",
+    ["Coletar Fichas", "Dashboard"]
+)
 
-if 'dados_extraidos' not in st.session_state:
-    st.session_state.dados_extraidos = None
+# --- PÁGINA 1: COLETAR FICHAS ---
+if pagina_selecionada == "Coletar Fichas":
+    st.header("Envie a imagem da ficha")
+    uploaded_file = st.file_uploader("Escolha uma imagem", type=['jpg', 'jpeg', 'png'])
 
-if uploaded_file is not None:
-    st.image(uploaded_file, caption="Imagem Carregada.", use_column_width=True)
-    
-    if st.button("🔎 Extrair e Validar Dados"):
-        with st.spinner("A IA está a analisar a imagem..."):
-            st.session_state.dados_extraidos = extrair_dados_com_gemini(uploaded_file)
+    if 'dados_extraidos' not in st.session_state:
+        st.session_state.dados_extraidos = None
+
+    if uploaded_file is not None:
+        st.image(uploaded_file, caption="Imagem Carregada.", use_column_width=True)
         
-        if st.session_state.dados_extraidos:
-            st.success("Dados extraídos!")
-            with st.spinner("A IA está a verificar a qualidade dos dados..."):
-                resultado_validacao = validar_dados_com_gemini(st.session_state.dados_extraidos)
+        if st.button("🔎 Extrair e Validar Dados"):
+            with st.spinner("A IA está a analisar a imagem..."):
+                st.session_state.dados_extraidos = extrair_dados_com_gemini(uploaded_file)
             
-            if resultado_validacao and resultado_validacao.get("avisos"):
-                st.warning("Atenção! A IA encontrou os seguintes possíveis problemas:")
-                for aviso in resultado_validacao["avisos"]:
-                    st.write(f"- {aviso}")
-        else:
-            st.error("Não foi possível extrair dados da imagem.")
+            if st.session_state.dados_extraidos:
+                st.success("Dados extraídos!")
+                with st.spinner("A IA está a verificar a qualidade dos dados..."):
+                    resultado_validacao = validar_dados_com_gemini(st.session_state.dados_extraidos)
+                
+                if resultado_validacao and resultado_validacao.get("avisos"):
+                    st.warning("Atenção! A IA encontrou os seguintes possíveis problemas:")
+                    for aviso in resultado_validacao["avisos"]:
+                        st.write(f"- {aviso}")
+            else:
+                st.error("Não foi possível extrair dados da imagem.")
 
-if st.session_state.dados_extraidos:
-    st.markdown("---")
-    st.header("Confirme e corrija os dados antes de enviar")
+    if st.session_state.dados_extraidos:
+        st.markdown("---")
+        st.header("Confirme e corrija os dados antes de enviar")
+        
+        with st.form("formulario_de_correcao"):
+            dados = st.session_state.dados_extraidos
+            
+            id_familia = st.text_input("ID Família", value=dados.get("ID Família", ""))
+            nome_completo = st.text_input("Nome Completo", value=dados.get("Nome Completo", ""))
+            data_nascimento = st.text_input("Data de Nascimento", value=dados.get("Data de Nascimento", ""))
+            telefone = st.text_input("Telefone", value=dados.get("Telefone", ""))
+            cpf = st.text_input("CPF", value=dados.get("CPF", ""))
+            nome_mae = st.text_input("Nome da Mãe", value=dados.get("Nome da Mãe", ""))
+            nome_pai = st.text_input("Nome do Pai", value=dados.get("Nome do Pai", ""))
+            sexo = st.text_input("Sexo", value=dados.get("Sexo", ""))
+            cns = st.text_input("CNS", value=dados.get("CNS", ""))
+            municipio_nascimento = st.text_input("Município de Nascimento", value=dados.get("Município de Nascimento", ""))
+
+            submitted = st.form_submit_button("✅ Enviar para a Planilha")
+            
+            if submitted:
+                with st.spinner("A enviar os dados..."):
+                    try:
+                        nova_linha = [
+                            id_familia, nome_completo, data_nascimento, telefone, cpf,
+                            nome_mae, nome_pai, sexo, cns, municipio_nascimento,
+                            datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+                        ]
+                        planilha_conectada.append_row(nova_linha)
+                        st.success("🎉 Dados enviados para a planilha com sucesso!")
+                        st.balloons()
+                        st.session_state.dados_extraidos = None
+                        st.experimental_rerun() # Limpa o formulário e a página
+                    except Exception as e:
+                        st.error(f"Ocorreu um erro ao enviar os dados para a planilha. Erro: {e}")
+
+# --- PÁGINA 2: DASHBOARD ---
+elif pagina_selecionada == "Dashboard":
+    st.header("📊 Dashboard de Dados Coletados")
     
-    # Usamos um formulário para agrupar os campos e o botão de envio
-    with st.form("formulario_de_correcao"):
-        dados = st.session_state.dados_extraidos
+    df = ler_dados_da_planilha(planilha_conectada)
+    
+    if not df.empty:
+        st.info(f"Total de Fichas na Planilha: **{len(df)}**")
         
-        # Criamos campos de texto editáveis, pré-preenchidos com os dados extraídos
-        id_familia = st.text_input("ID Família", value=dados.get("ID Família", ""))
-        nome_completo = st.text_input("Nome Completo", value=dados.get("Nome Completo", ""))
-        data_nascimento = st.text_input("Data de Nascimento", value=dados.get("Data de Nascimento", ""))
-        telefone = st.text_input("Telefone", value=dados.get("Telefone", ""))
-        cpf = st.text_input("CPF", value=dados.get("CPF", ""))
-        nome_mae = st.text_input("Nome da Mãe", value=dados.get("Nome da Mãe", ""))
-        nome_pai = st.text_input("Nome do Pai", value=dados.get("Nome do Pai", ""))
-        sexo = st.text_input("Sexo", value=dados.get("Sexo", ""))
-        cns = st.text_input("CNS", value=dados.get("CNS", ""))
-        municipio_nascimento = st.text_input("Município de Nascimento", value=dados.get("Município de Nascimento", ""))
+        # Barra de pesquisa para filtrar o DataFrame
+        termo_pesquisa = st.text_input("Pesquisar por Nome Completo:")
+        
+        if termo_pesquisa:
+            # Filtra o dataframe. A opção `case=False` ignora maiúsculas/minúsculas
+            df_filtrado = df[df['Nome Completo'].str.contains(termo_pesquisa, case=False, na=False)]
+            st.dataframe(df_filtrado, use_container_width=True)
+        else:
+            # Mostra o dataframe completo se a pesquisa estiver vazia
+            st.dataframe(df, use_container_width=True)
 
-        # O botão de envio fica dentro do formulário
-        submitted = st.form_submit_button("✅ Enviar para a Planilha")
-        
-        if submitted:
-            with st.spinner("A enviar os dados..."):
-                try:
-                    # Prepara a linha com os dados ATUALIZADOS do formulário
-                    nova_linha = [
-                        id_familia, nome_completo, data_nascimento, telefone, cpf,
-                        nome_mae, nome_pai, sexo, cns, municipio_nascimento,
-                        datetime.now().strftime('%d/%m/%Y %H:%M:%S')
-                    ]
-                    
-                    planilha_conectada.append_row(nova_linha)
-                    st.success("🎉 Dados enviados para a planilha com sucesso!")
-                    st.balloons()
-                    # Limpa o estado para permitir um novo envio
-                    st.session_state.dados_extraidos = None
-                except Exception as e:
-                    st.error(f"Ocorreu um erro ao enviar os dados para a planilha. Erro: {e}")
+    else:
+        st.warning("Ainda não há dados na planilha para exibir.")
