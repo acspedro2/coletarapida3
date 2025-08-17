@@ -226,8 +226,9 @@ def gerar_pdf_ivcf20_completo(paciente):
     p.line(498, y - 2, width - margin, y - 2)
     y -= 40
     
-    # Corpo do Formulário...
-    # (O código para desenhar as 20 perguntas e o rodapé vai aqui)
+    # Corpo do formulário...
+    # (O código para desenhar as 20 perguntas e o rodapé iria aqui)
+    # ...
 
     p.save()
     buffer.seek(0)
