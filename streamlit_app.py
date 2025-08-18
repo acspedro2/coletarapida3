@@ -27,7 +27,6 @@ try:
     google_sheets_id = st.secrets["SHEETSID"]
     google_credentials_dict = st.secrets["gcp_service_account"]
 
-    # --- CORREÇÃO APLICADA AQUI ---
     # Configura a API do Gemini uma única vez para todo o app
     genai.configure(api_key=gemini_api_key)
 
@@ -120,7 +119,7 @@ def extrair_dados_com_gemini(image_bytes):
 def validar_dados_com_gemini(dados_para_validar):
     """Envia os dados extraídos para o Gemini para uma verificação de qualidade."""
     try:
-        model = genai.GenerativeModel('gem-1.5-pro-latest')
+        model = genai.GenerativeModel('gemini-1.5-pro-latest')
         prompt_validacao = f'Você é um auditor de qualidade de dados de saúde do Brasil. Analise o seguinte JSON e verifique se há inconsistências óbvias (CPF, Data de Nascimento, CNS). Responda APENAS com um objeto JSON com uma chave "avisos" que é uma lista de strings em português com os problemas encontrados. Se não houver problemas, a lista deve ser vazia. Dados para validar: {json.dumps(dados_para_validar)}'
         response = model.generate_content(prompt_validacao)
         json_string = response.text.replace('```json', '').replace('```', '').strip()
@@ -140,7 +139,6 @@ def analisar_dados_com_gemini(pergunta_usuario, dataframe):
         response = model.generate_content(prompt_analise)
         return response.text
     except Exception as e:
-        # Retorna a mensagem de erro da API diretamente para o usuário para depuração
         return f"Ocorreu um erro ao analisar os dados com a IA. Erro: {e}"
 
 def gerar_pdf_relatorio(dataframe, titulo):
@@ -275,7 +273,7 @@ def pagina_coleta(planilha):
                         planilha_conectada.append_row(nova_linha)
                         st.success("🎉 Dados enviados para a planilha com sucesso!"); st.balloons()
                         st.session_state.dados_extraidos = None
-                        st.experimental_rerun()
+                        st.rerun()
                     except Exception as e:
                         st.error(f"Ocorreu um erro ao enviar os dados para a planilha. Erro: {e}")
 
@@ -318,7 +316,7 @@ def pagina_dashboard(planilha):
                         with st.spinner("A apagar..."):
                             timestamp_selecionado = registo_para_apagar.split('(')[-1].replace(')', '')
                             if apagar_linha_por_timestamp(planilha, timestamp_selecionado):
-                                st.success("Registo apagado com sucesso!"); st.cache_data.clear(); st.session_state.confirmacao_apagar = None; st.experimental_rerun()
+                                st.success("Registo apagado com sucesso!"); st.cache_data.clear(); st.session_state.confirmacao_apagar = None; st.rerun()
             except (KeyError, AttributeError):
                 st.error("As colunas 'Nome Completo' ou 'Timestamp de Envio' não foram encontradas na planilha.")
 
@@ -337,7 +335,7 @@ def pagina_dashboard(planilha):
                             dados_atualizados = {"ID Família": id_familia_edit, "Nome Completo": nome_completo_edit, "Data de Nascimento": data_nascimento_edit, "Telefone": telefone_edit, "CPF": cpf_edit, "Nome da Mãe": nome_mae_edit, "Nome do Pai": nome_pai_edit, "Sexo": sexo_edit, "CNS": cns_edit, "Município de Nascimento": municipio_nascimento_edit, "Timestamp de Envio": timestamp_selecionado}
                             with st.spinner("A salvar alterações..."):
                                 if atualizar_linha(planilha, timestamp_selecionado, dados_atualizados):
-                                    st.success("Registo atualizado com sucesso!"); st.cache_data.clear(); st.experimental_rerun()
+                                    st.success("Registo atualizado com sucesso!"); st.cache_data.clear(); st.rerun()
             except (KeyError, AttributeError):
                 st.error("As colunas 'Nome Completo' ou 'Timestamp de Envio' não foram encontradas na planilha.")
 
@@ -375,12 +373,12 @@ def pagina_relatorios(planilha):
             if idade_min > 0:
                 df_filtrado = df_filtrado[df_filtrado['Idade'] > idade_min]
         with col2:
-            sexos = ["Todos"] + df_filtrado['Sexo'].unique().tolist()
+            sexos = ["Todos"] + df_completo['Sexo'].unique().tolist()
             sexo_selecionado = st.selectbox("Filtrar por Sexo:", sexos)
             if sexo_selecionado != "Todos":
                 df_filtrado = df_filtrado[df_filtrado['Sexo'] == sexo_selecionado]
         with col3:
-            municipios = ["Todos"] + df_filtrado['Município de Nascimento'].unique().tolist()
+            municipios = ["Todos"] + df_completo['Município de Nascimento'].unique().tolist()
             municipio_selecionado = st.selectbox("Filtrar por Município:", municipios)
             if municipio_selecionado != "Todos":
                 df_filtrado = df_filtrado[df_filtrado['Município de Nascimento'] == municipio_selecionado]
