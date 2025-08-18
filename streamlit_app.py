@@ -26,8 +26,13 @@ try:
     gemini_api_key = st.secrets["GEMINIKEY"]
     google_sheets_id = st.secrets["SHEETSID"]
     google_credentials_dict = st.secrets["gcp_service_account"]
+
+    # --- CORREÇÃO APLICADA AQUI ---
+    # Configura a API do Gemini uma única vez para todo o app
+    genai.configure(api_key=gemini_api_key)
+
 except KeyError as e:
-    st.error(f"Erro de configuração: A chave secreta '{e.args[0]}' não foi encontrada. Verifique o nome no painel de Secrets do Streamlit Cloud.")
+    st.error(f"Erro de configuração: A chave secreta '{e.args[0]}' não foi encontrada. Verifique o nome no painel de Secrets.")
     st.stop()
 except Exception as e:
     st.error(f"Erro inesperado ao carregar as chaves secretas. Verifique a formatação no painel de Secrets. Erro: {e}")
@@ -63,10 +68,10 @@ def ler_dados_da_planilha(_planilha):
         for col in colunas_esperadas:
             if col not in df.columns:
                 df[col] = ""
-        
+
         df['Data de Nascimento DT'] = pd.to_datetime(df['Data de Nascimento'], format='%d/%m/%Y', errors='coerce')
         df['Idade'] = df['Data de Nascimento DT'].apply(lambda dt: calcular_idade(dt) if pd.notnull(dt) else 0)
-        
+
         return df
     except Exception as e:
         st.error(f"Não foi possível ler os dados da planilha. Erro: {e}")
@@ -101,7 +106,6 @@ def atualizar_linha(planilha, timestamp, novos_dados):
 def extrair_dados_com_gemini(image_bytes):
     """Extrai dados da imagem usando a API do Google Gemini."""
     try:
-        genai.configure(api_key=gemini_api_key)
         model = genai.GenerativeModel('gemini-1.5-pro-latest')
         image_bytes.seek(0)
         image = Image.open(image_bytes)
@@ -116,7 +120,7 @@ def extrair_dados_com_gemini(image_bytes):
 def validar_dados_com_gemini(dados_para_validar):
     """Envia os dados extraídos para o Gemini para uma verificação de qualidade."""
     try:
-        model = genai.GenerativeModel('gemini-1.5-pro-latest')
+        model = genai.GenerativeModel('gem-1.5-pro-latest')
         prompt_validacao = f'Você é um auditor de qualidade de dados de saúde do Brasil. Analise o seguinte JSON e verifique se há inconsistências óbvias (CPF, Data de Nascimento, CNS). Responda APENAS com um objeto JSON com uma chave "avisos" que é uma lista de strings em português com os problemas encontrados. Se não houver problemas, a lista deve ser vazia. Dados para validar: {json.dumps(dados_para_validar)}'
         response = model.generate_content(prompt_validacao)
         json_string = response.text.replace('```json', '').replace('```', '').strip()
@@ -136,8 +140,9 @@ def analisar_dados_com_gemini(pergunta_usuario, dataframe):
         response = model.generate_content(prompt_analise)
         return response.text
     except Exception as e:
+        # Retorna a mensagem de erro da API diretamente para o usuário para depuração
         return f"Ocorreu um erro ao analisar os dados com a IA. Erro: {e}"
-        
+
 def gerar_pdf_relatorio(dataframe, titulo):
     """Gera um PDF a partir de um DataFrame do Pandas."""
     buffer = BytesIO()
@@ -171,7 +176,7 @@ def gerar_pdf_relatorio(dataframe, titulo):
                 p.drawString(x, y, str(value)[:30]) # Limita o texto
                 x += col_widths[i]
             y -= 0.2 * inch
-            
+
     p.save()
     buffer.seek(0)
     return buffer
@@ -191,15 +196,15 @@ def gerar_pdf_ivcf20_completo(paciente):
             p.setFont("Helvetica", 9)
             text_lines = simpleSplit(f"{q_num}. {q_text}", width - margin * 2 - 200, "Helvetica", 9)
             line_height = 12
-            
+
             text_y = y
             for line in text_lines:
                 p.drawString(margin, text_y, line)
                 text_y -= line_height
-            
+
             option_x = margin + width - margin*2 - 180
             option_y_start = y
-            
+
             for opt in q_opts:
                 p.rect(option_x, option_y_start - 2, 8, 8)
                 p.drawString(option_x + 12, option_y_start, opt)
@@ -225,7 +230,7 @@ def gerar_pdf_ivcf20_completo(paciente):
     p.setFont("Helvetica-Bold", 11); p.drawString(500, y, str(paciente.get("Data de Nascimento", "")))
     p.line(498, y - 2, width - margin, y - 2)
     y -= 40
-    
+
     # Corpo do formulário...
     # (O código para desenhar as 20 perguntas e o rodapé iria aqui)
     # ...
@@ -288,7 +293,7 @@ def pagina_dashboard(planilha):
             col3.metric("Pacientes Femininos", fichas_femininas)
         except (KeyError, AttributeError):
             col2.metric("Pacientes Masculinos", "N/A"); col3.metric("Pacientes Femininos", "N/A")
-        
+
         st.markdown("---")
         st.subheader("Fichas por Município de Nascimento")
         try:
@@ -346,7 +351,7 @@ def pagina_dashboard(planilha):
                     st.markdown(resposta)
             else:
                 st.warning("Por favor, escreva uma pergunta.")
-        
+
         st.markdown("---")
         st.subheader("Dados Completos e Exportação")
         st.dataframe(df, use_container_width=True)
