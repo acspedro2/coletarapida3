@@ -4,6 +4,7 @@ import json
 import pandas as pd
 import cohere
 import base64
+import requests # Importante para o método direto
 from io import BytesIO
 from datetime import datetime
 from PIL import Image
@@ -19,7 +20,7 @@ st.title("🤖 Coleta Inteligente")
 # --- CONEXÃO E VARIÁVEIS DE AMBIENTE ---
 try:
     cohere_api_key = st.secrets["COHEREKEY"]
-    co = cohere.Client(cohere_api_key)
+    co = cohere.Client(cohere_api_key) # Mantemos para a função de chat de texto
     
     google_sheets_id = st.secrets["SHEETSID"]
     google_credentials_dict = st.secrets["gcp_service_account"]
@@ -63,29 +64,41 @@ def ler_dados_da_planilha(_planilha):
         st.error(f"Não foi possível ler os dados da planilha. Erro: {e}")
         return pd.DataFrame()
 
-# --- FUNÇÕES DE IA COM A BIBLIOTECA OFICIAL COHERE (CORRIGIDO) ---
+# --- FUNÇÕES DE IA (VERSÃO FINAL E MISTA) ---
 
 def extrair_dados_com_cohere(image_bytes):
-    """Extrai dados da imagem usando a biblioteca oficial do Cohere."""
+    """Extrai dados da imagem usando a API REST (método direto) do Cohere."""
     try:
-        # O SDK do Cohere lida com a conversão da imagem
-        image_file = {"file": image_bytes.getvalue()}
-
-        response = co.chat(
-            model="command-r-plus",
-            message="Analise a imagem em anexo de um formulário e extraia as seguintes informações: ID Família, Nome Completo, Data de Nascimento (DD/MM/AAAA), Telefone, CPF, Nome da Mãe, Nome do Pai, Sexo, CNS, Município de Nascimento. Se um dado não for encontrado, retorne um campo vazio. Retorne os dados estritamente como um objeto JSON.",
-            attachments=[image_file] # CORREÇÃO: a linha 'attachment_mode' foi removida.
-        )
+        # Prepara a mensagem para a API com o prompt
+        prompt = "Analise esta imagem de um formulário e extraia as seguintes informações: ID Família, Nome Completo, Data de Nascimento (DD/MM/AAAA), Telefone, CPF, Nome da Mãe, Nome do Pai, Sexo, CNS, Município de Nascimento. Se um dado não for encontrado, retorne um campo vazio. Retorne os dados estritamente como um objeto JSON, sem nenhum texto ou formatação adicional como ```json."
         
-        json_string = response.text.replace('```json', '').replace('```', '').strip()
+        # Prepara os arquivos para upload
+        files = {
+            "prompt": (None, prompt),
+            "model": (None, "command-r-plus"),
+            "attachment": ("image.jpg", image_bytes.getvalue(), "image/jpeg")
+        }
+
+        # Prepara os cabeçalhos com a autenticação
+        headers = { "Authorization": f"Bearer {cohere_api_key}" }
+
+        # Faz a chamada direta para o servidor da Cohere
+        response = requests.post("[https://api.cohere.com/v1/chat](https://api.cohere.com/v1/chat)", headers=headers, files=files)
+        response.raise_for_status()
+        
+        response_json = response.json()
+        json_string = response_json['text'].strip()
         return json.loads(json_string)
 
+    except requests.exceptions.HTTPError as http_err:
+        st.error(f"Erro de HTTP ao chamar a API Cohere: {http_err} - {response.text}")
+        return None
     except Exception as e:
-        st.error(f"Erro ao extrair dados com a IA. Erro: {e}")
+        st.error(f"Erro ao extrair dados com a IA (Método Direto). Erro: {e}")
         return None
 
 def analisar_dados_com_cohere(pergunta_usuario, dataframe):
-    """Usa o Cohere para responder perguntas sobre os dados da planilha."""
+    """Usa a biblioteca Cohere para responder perguntas sobre texto."""
     try:
         if dataframe.empty:
             return "Não há dados na planilha para analisar."
@@ -97,7 +110,6 @@ def analisar_dados_com_cohere(pergunta_usuario, dataframe):
         return f"Ocorreu um erro ao analisar os dados com a IA (Cohere). Erro: {e}"
 
 # --- PÁGINAS DO APP ---
-
 def pagina_coleta(planilha):
     st.header("1. Envie a imagem da ficha")
     uploaded_file = st.file_uploader("Escolha uma imagem", type=['jpg', 'jpeg', 'png'], key="uploader_coleta")
