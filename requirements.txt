@@ -1,9 +1,9 @@
 streamlit
 pandas
-google-generativeai
 Pillow
 gspread
 google-auth-oauthlib
 google-auth-httplib2
 opencv-python-headless
 reportlab
+cohere
