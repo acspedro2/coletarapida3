@@ -4,3 +4,10 @@ pandas==2.2.2
 cohere==5.5.8
 requests==2.32.3
 reportlab==4.2.2
+streamlit
+requests
+cohere
+gspread
+oauth2client
+pandas
+Pillow
