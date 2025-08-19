@@ -7,3 +7,4 @@ google-auth-httplib2
 opencv-python-headless
 reportlab
 requests
+cohere>=5.5.8
