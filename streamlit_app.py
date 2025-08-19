@@ -2,8 +2,9 @@ import streamlit as st
 import gspread
 import json
 import pandas as pd
-import cohere # Nova biblioteca de IA
-import base64 # Necessário para processar imagens
+import cohere
+import base64
+import requests # Biblioteca para comunicação direta
 from io import BytesIO
 from datetime import datetime
 from PIL import Image
@@ -18,7 +19,6 @@ st.title("🤖 Coleta Inteligente")
 
 # --- CONEXÃO E VARIÁVEIS DE AMBIENTE ---
 try:
-    # Pega a chave do Cohere dos segredos e inicializa o cliente
     cohere_api_key = st.secrets["COHEREKEY"]
     co = cohere.Client(cohere_api_key)
     
@@ -26,7 +26,7 @@ try:
     google_credentials_dict = st.secrets["gcp_service_account"]
 
 except KeyError as e:
-    st.error(f"Erro de configuração: A chave secreta '{e.args[0]}' não foi encontrada. Verifique os seus segredos no Streamlit Cloud.")
+    st.error(f"Erro de configuração: A chave secreta '{e.args[0]}' não foi encontrada.")
     st.stop()
 except Exception as e:
     st.error(f"Erro inesperado ao carregar as chaves secretas. Erro: {e}")
@@ -36,7 +36,6 @@ except Exception as e:
 
 @st.cache_resource
 def conectar_planilha():
-    """Conecta com o Google Sheets usando as credenciais."""
     try:
         gc = gspread.service_account_from_dict(google_credentials_dict)
         planilha = gc.open_by_key(google_sheets_id).sheet1
@@ -46,14 +45,12 @@ def conectar_planilha():
         st.stop()
 
 def calcular_idade(data_nasc):
-    """Calcula a idade a partir de um objeto datetime."""
     if pd.isna(data_nasc): return 0
     hoje = datetime.now()
     return hoje.year - data_nasc.year - ((hoje.month, hoje.day) < (data_nasc.month, data_nasc.day))
 
 @st.cache_data(ttl=60)
 def ler_dados_da_planilha(_planilha):
-    """Lê os dados, garante colunas e calcula a idade."""
     try:
         dados = _planilha.get_all_records()
         df = pd.DataFrame(dados)
@@ -67,59 +64,58 @@ def ler_dados_da_planilha(_planilha):
         st.error(f"Não foi possível ler os dados da planilha. Erro: {e}")
         return pd.DataFrame()
 
-# --- FUNÇÕES DE IA ATUALIZADAS PARA USAR COHERE ---
-
+# --- FUNÇÃO DE IA PARA VISÃO (IMAGEM) USANDO MÉTODO DIRETO ---
 def extrair_dados_com_cohere(image_bytes):
-    """Extrai dados da imagem usando a API de visão do Cohere."""
+    """Extrai dados da imagem usando a API REST do Cohere."""
     try:
-        # Converte a imagem para o formato que a API precisa (base64)
-        encoded_string = base64.b64encode(image_bytes.getvalue()).decode('utf-8')
+        encoded_image = base64.b64encode(image_bytes.getvalue()).decode('utf-8')
         
-        # O SDK do Cohere ainda não suporta imagens diretamente, então usamos uma lista de documentos
-        # Esta é uma forma de "enviar" a imagem para o modelo de chat
-        documents = [{"title": "image.jpg", "snippet": f"data:image/jpeg;base64,{encoded_string}"}]
+        # Prepara a mensagem para a API
+        message_content = {
+            "model": "command-r-plus",
+            "message": "Analise esta imagem de um formulário e extraia as seguintes informações em formato JSON: ID Família, Nome Completo, Data de Nascimento (DD/MM/AAAA), Telefone, CPF, Nome da Mãe, Nome do Pai, Sexo, CNS, Município de Nascimento. Se um dado não for encontrado, o valor deve ser um campo vazio. Retorne apenas o objeto JSON, sem nenhum texto ou formatação adicional como ```json.",
+            "attachments": [{"file": encoded_image}]
+        }
 
-        response = co.chat(
-            model="command-r-plus",
-            message="Analise a imagem em anexo de um formulário e extraia as seguintes informações: ID Família, Nome Completo, Data de Nascimento (DD/MM/AAAA), Telefone, CPF, Nome da Mãe, Nome do Pai, Sexo, CNS, Município de Nascimento. Se um dado não for encontrado, retorne um campo vazio. Retorne os dados estritamente como um objeto JSON.",
-            attachment_mode="grounded", # Modo otimizado para usar documentos/imagens
-            attachments=[{'id': 'image.jpg'}]
-        )
+        # Prepara os cabeçalhos com a autenticação
+        headers = {
+            "Authorization": f"Bearer {cohere_api_key}",
+            "Content-Type": "application/json"
+        }
+
+        # Faz a chamada direta para o servidor da Cohere
+        response = requests.post("[https://api.cohere.com/v1/chat](https://api.cohere.com/v1/chat)", headers=headers, json=message_content)
+        response.raise_for_status() # Verifica se houve erros na chamada (como 4xx ou 5xx)
         
-        # Limpa a resposta para extrair apenas o JSON
-        json_string = response.text.replace('```json', '').replace('```', '').strip()
+        response_json = response.json()
+        
+        # Extrai o texto da resposta
+        json_string = response_json['text'].strip()
+        
+        # Garante que a resposta é um JSON válido
         return json.loads(json_string)
 
-    except Exception as e:
-        st.error(f"Erro ao extrair dados com a IA. Erro: {e}")
+    except requests.exceptions.HTTPError as http_err:
+        st.error(f"Erro de HTTP ao chamar a API Cohere: {http_err} - {response.text}")
         return None
+    except Exception as e:
+        st.error(f"Erro ao extrair dados com a IA (Método Direto). Erro: {e}")
+        return None
+
 
 def analisar_dados_com_cohere(pergunta_usuario, dataframe):
     """Usa o Cohere para responder perguntas sobre os dados da planilha."""
     try:
         if dataframe.empty:
             return "Não há dados na planilha para analisar."
-        
         dados_string = dataframe.to_string()
-        
-        preamble = f"""
-        Você é um assistente de análise de dados. Sua tarefa é responder à pergunta do utilizador com base nos dados da tabela fornecida.
-        Seja claro, direto e responda apenas com base nos dados. A data de hoje é {datetime.now().strftime('%d/%m/%Y')}.
-        Dados da Tabela:
-        {dados_string}
-        """
-
-        response = co.chat(
-            message=pergunta_usuario,
-            preamble=preamble,
-            model="command-r-plus"
-        )
+        preamble = f"Você é um assistente de análise de dados. Responda à pergunta do utilizador com base nos dados da tabela fornecida. Dados da Tabela:\n{dados_string}"
+        response = co.chat(message=pergunta_usuario, preamble=preamble, model="command-r-plus")
         return response.text
     except Exception as e:
         return f"Ocorreu um erro ao analisar os dados com a IA (Cohere). Erro: {e}"
 
 # --- PÁGINAS DO APP ---
-
 def pagina_coleta(planilha):
     st.header("1. Envie a imagem da ficha")
     uploaded_file = st.file_uploader("Escolha uma imagem", type=['jpg', 'jpeg', 'png'], key="uploader_coleta")
@@ -141,7 +137,6 @@ def pagina_coleta(planilha):
         with st.form("formulario_de_correcao"):
             dados = st.session_state.dados_extraidos
             id_familia = st.text_input("ID Família", value=dados.get("ID Família", "")); nome_completo = st.text_input("Nome Completo", value=dados.get("Nome Completo", "")); data_nascimento = st.text_input("Data de Nascimento", value=dados.get("Data de Nascimento", "")); telefone = st.text_input("Telefone", value=dados.get("Telefone", "")); cpf = st.text_input("CPF", value=dados.get("CPF", "")); nome_mae = st.text_input("Nome da Mãe", value=dados.get("Nome da Mãe", "")); nome_pai = st.text_input("Nome do Pai", value=dados.get("Nome do Pai", "")); sexo = st.text_input("Sexo", value=dados.get("Sexo", "")); cns = st.text_input("CNS", value=dados.get("CNS", "")); municipio_nascimento = st.text_input("Município de Nascimento", value=dados.get("Município de Nascimento", ""))
-            
             submitted = st.form_submit_button("✅ Enviar para a Planilha")
             if submitted:
                 with st.spinner("A enviar os dados..."):
@@ -158,7 +153,6 @@ def pagina_coleta(planilha):
 def pagina_dashboard(planilha):
     st.header("📊 Dashboard e Análise com IA")
     df = ler_dados_da_planilha(planilha)
-    
     if not df.empty:
         st.subheader("🤖 Converse com seus Dados")
         pergunta = st.text_area("Faça uma pergunta em português sobre os dados da planilha:")
@@ -169,7 +163,6 @@ def pagina_dashboard(planilha):
                     st.markdown(resposta)
             else:
                 st.warning("Por favor, escreva uma pergunta.")
-        
         st.markdown("---")
         st.subheader("Dados Completos na Planilha")
         st.dataframe(df, use_container_width=True)
@@ -178,7 +171,6 @@ def pagina_dashboard(planilha):
 
 # --- LÓGICA PRINCIPAL DE EXECUÇÃO ---
 def main():
-    """Função principal que organiza e executa o aplicativo."""
     planilha_conectada = conectar_planilha()
     st.sidebar.title("Navegação")
     paginas = {
