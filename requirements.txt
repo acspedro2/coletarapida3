@@ -1,10 +1,5 @@
-streamlit
-pandas
-Pillow
-gspread
-google-auth-oauthlib
-google-auth-httplib2
-opencv-python-headless
-reportlab
-requests
+streamlit>=1.33.0
+gspread>=6.1.2
+pandas>=2.2.2
 cohere>=5.5.8
+requests>=2.32.3
