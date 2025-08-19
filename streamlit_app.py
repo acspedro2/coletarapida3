@@ -11,6 +11,21 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
 from reportlab.lib.utils import simpleSplit
+import streamlit as st
+import gspread
+import json
+import pandas as pd
+import cohere
+import base64
+from io import BytesIO
+# ... (outros imports) ...
+
+st.write(f"Versão da biblioteca Cohere: {cohere.__version__}") # LINHA DE DIAGNÓSTICO
+
+# --- Configuração da Página e Título ---
+st.set_page_config(page_title="Coleta Inteligente", page_icon="🤖", layout="wide")
+st.title("🤖 Coleta Inteligente")
+# ... (resto do código) ...
 
 # --- Configuração da Página e Título ---
 st.set_page_config(page_title="Coleta Inteligente", page_icon="🤖", layout="wide")
