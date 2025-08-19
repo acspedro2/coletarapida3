@@ -1,6 +1,6 @@
 streamlit>=1.33.0
 gspread>=6.1.2
 pandas>=2.2.2
-cohere>=5.5.8   # ← aqui está
+cohere>=5.5.8   
 requests>=2.32.3
 reportlab>=4.2.2
