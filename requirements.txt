@@ -7,3 +7,4 @@ google-auth-httplib2
 opencv-python-headless
 reportlab
 cohere
+requests
