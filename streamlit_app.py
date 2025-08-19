@@ -1,7 +1,9 @@
 import streamlit as st
 import gspread
+import json
 import pandas as pd
 import cohere # Nova biblioteca de IA
+import base64 # Necessário para processar imagens
 from io import BytesIO
 from datetime import datetime
 from PIL import Image
@@ -16,10 +18,10 @@ st.title("🤖 Coleta Inteligente")
 
 # --- CONEXÃO E VARIÁVEIS DE AMBIENTE ---
 try:
-    # Pega a chave do Cohere dos segredos
+    # Pega a chave do Cohere dos segredos e inicializa o cliente
     cohere_api_key = st.secrets["COHEREKEY"]
     co = cohere.Client(cohere_api_key)
-
+    
     google_sheets_id = st.secrets["SHEETSID"]
     google_credentials_dict = st.secrets["gcp_service_account"]
 
@@ -65,15 +67,41 @@ def ler_dados_da_planilha(_planilha):
         st.error(f"Não foi possível ler os dados da planilha. Erro: {e}")
         return pd.DataFrame()
 
-# --- FUNÇÃO DE IA ATUALIZADA PARA USAR COHERE ---
+# --- FUNÇÕES DE IA ATUALIZADAS PARA USAR COHERE ---
+
+def extrair_dados_com_cohere(image_bytes):
+    """Extrai dados da imagem usando a API de visão do Cohere."""
+    try:
+        # Converte a imagem para o formato que a API precisa (base64)
+        encoded_string = base64.b64encode(image_bytes.getvalue()).decode('utf-8')
+        
+        # O SDK do Cohere ainda não suporta imagens diretamente, então usamos uma lista de documentos
+        # Esta é uma forma de "enviar" a imagem para o modelo de chat
+        documents = [{"title": "image.jpg", "snippet": f"data:image/jpeg;base64,{encoded_string}"}]
+
+        response = co.chat(
+            model="command-r-plus",
+            message="Analise a imagem em anexo de um formulário e extraia as seguintes informações: ID Família, Nome Completo, Data de Nascimento (DD/MM/AAAA), Telefone, CPF, Nome da Mãe, Nome do Pai, Sexo, CNS, Município de Nascimento. Se um dado não for encontrado, retorne um campo vazio. Retorne os dados estritamente como um objeto JSON.",
+            attachment_mode="grounded", # Modo otimizado para usar documentos/imagens
+            attachments=[{'id': 'image.jpg'}]
+        )
+        
+        # Limpa a resposta para extrair apenas o JSON
+        json_string = response.text.replace('```json', '').replace('```', '').strip()
+        return json.loads(json_string)
+
+    except Exception as e:
+        st.error(f"Erro ao extrair dados com a IA. Erro: {e}")
+        return None
+
 def analisar_dados_com_cohere(pergunta_usuario, dataframe):
     """Usa o Cohere para responder perguntas sobre os dados da planilha."""
     try:
         if dataframe.empty:
             return "Não há dados na planilha para analisar."
-
+        
         dados_string = dataframe.to_string()
-
+        
         preamble = f"""
         Você é um assistente de análise de dados. Sua tarefa é responder à pergunta do utilizador com base nos dados da tabela fornecida.
         Seja claro, direto e responda apenas com base nos dados. A data de hoje é {datetime.now().strftime('%d/%m/%Y')}.
@@ -83,7 +111,8 @@ def analisar_dados_com_cohere(pergunta_usuario, dataframe):
 
         response = co.chat(
             message=pergunta_usuario,
-            preamble=preamble
+            preamble=preamble,
+            model="command-r-plus"
         )
         return response.text
     except Exception as e:
@@ -91,31 +120,47 @@ def analisar_dados_com_cohere(pergunta_usuario, dataframe):
 
 # --- PÁGINAS DO APP ---
 
-def pagina_coleta_manual(planilha):
-    st.header("1. Coleta Manual de Ficha")
-    st.info("A extração de dados por imagem foi temporariamente desativada. Por favor, insira os dados manualmente.")
-
-    with st.form("formulario_manual"):
-        id_familia = st.text_input("ID Família"); nome_completo = st.text_input("Nome Completo"); data_nascimento = st.text_input("Data de Nascimento (DD/MM/AAAA)"); telefone = st.text_input("Telefone"); cpf = st.text_input("CPF"); nome_mae = st.text_input("Nome da Mãe"); nome_pai = st.text_input("Nome do Pai"); sexo = st.selectbox("Sexo", ["Masculino", "Feminino", "Outro"]); cns = st.text_input("CNS"); municipio_nascimento = st.text_input("Município de Nascimento")
-
-        submitted = st.form_submit_button("✅ Enviar para a Planilha")
-        if submitted:
-            with st.spinner("A enviar os dados..."):
-                try:
-                    timestamp_envio = datetime.now().strftime('%d/%m/%Y %H:%M:%S')
-                    nova_linha = [id_familia, nome_completo, data_nascimento, telefone, cpf, nome_mae, nome_pai, sexo, cns, municipio_nascimento, timestamp_envio]
-                    planilha.append_row(nova_linha)
-                    st.success("🎉 Dados enviados para a planilha com sucesso!"); st.balloons()
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Ocorreu um erro ao enviar os dados para a planilha. Erro: {e}")
+def pagina_coleta(planilha):
+    st.header("1. Envie a imagem da ficha")
+    uploaded_file = st.file_uploader("Escolha uma imagem", type=['jpg', 'jpeg', 'png'], key="uploader_coleta")
+    if 'dados_extraidos' not in st.session_state:
+        st.session_state.dados_extraidos = None
+    if uploaded_file is not None:
+        st.image(uploaded_file, caption="Imagem Carregada.", use_container_width=True)
+        if st.button("🔎 Extrair Dados da Imagem"):
+            with st.spinner("A IA está a analisar a imagem..."):
+                st.session_state.dados_extraidos = extrair_dados_com_cohere(uploaded_file)
+            if st.session_state.dados_extraidos:
+                st.success("Dados extraídos!")
+            else:
+                st.error("Não foi possível extrair dados da imagem.")
+    
+    if st.session_state.dados_extraidos:
+        st.markdown("---")
+        st.header("2. Confirme e corrija os dados antes de enviar")
+        with st.form("formulario_de_correcao"):
+            dados = st.session_state.dados_extraidos
+            id_familia = st.text_input("ID Família", value=dados.get("ID Família", "")); nome_completo = st.text_input("Nome Completo", value=dados.get("Nome Completo", "")); data_nascimento = st.text_input("Data de Nascimento", value=dados.get("Data de Nascimento", "")); telefone = st.text_input("Telefone", value=dados.get("Telefone", "")); cpf = st.text_input("CPF", value=dados.get("CPF", "")); nome_mae = st.text_input("Nome da Mãe", value=dados.get("Nome da Mãe", "")); nome_pai = st.text_input("Nome do Pai", value=dados.get("Nome do Pai", "")); sexo = st.text_input("Sexo", value=dados.get("Sexo", "")); cns = st.text_input("CNS", value=dados.get("CNS", "")); municipio_nascimento = st.text_input("Município de Nascimento", value=dados.get("Município de Nascimento", ""))
+            
+            submitted = st.form_submit_button("✅ Enviar para a Planilha")
+            if submitted:
+                with st.spinner("A enviar os dados..."):
+                    try:
+                        timestamp_envio = datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+                        nova_linha = [id_familia, nome_completo, data_nascimento, telefone, cpf, nome_mae, nome_pai, sexo, cns, municipio_nascimento, timestamp_envio]
+                        planilha.append_row(nova_linha)
+                        st.success("🎉 Dados enviados para a planilha com sucesso!"); st.balloons()
+                        st.session_state.dados_extraidos = None
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Ocorreu um erro ao enviar os dados para a planilha. Erro: {e}")
 
 def pagina_dashboard(planilha):
-    st.header("📊 Dashboard de Dados Coletados")
+    st.header("📊 Dashboard e Análise com IA")
     df = ler_dados_da_planilha(planilha)
-
+    
     if not df.empty:
-        st.subheader("🤖 Converse com seus Dados (usando a IA da Cohere)")
+        st.subheader("🤖 Converse com seus Dados")
         pergunta = st.text_area("Faça uma pergunta em português sobre os dados da planilha:")
         if st.button("Analisar com IA"):
             if pergunta:
@@ -124,9 +169,9 @@ def pagina_dashboard(planilha):
                     st.markdown(resposta)
             else:
                 st.warning("Por favor, escreva uma pergunta.")
-
+        
         st.markdown("---")
-        st.subheader("Dados Completos")
+        st.subheader("Dados Completos na Planilha")
         st.dataframe(df, use_container_width=True)
     else:
         st.warning("Ainda não há dados na planilha para exibir.")
@@ -137,7 +182,7 @@ def main():
     planilha_conectada = conectar_planilha()
     st.sidebar.title("Navegação")
     paginas = {
-        "Coletar Fichas (Manual)": pagina_coleta_manual,
+        "Coletar Fichas por Imagem": pagina_coleta,
         "Dashboard e Análise IA": pagina_dashboard,
     }
     pagina_selecionada = st.sidebar.radio("Escolha uma página:", paginas.keys())
