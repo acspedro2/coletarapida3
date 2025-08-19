@@ -11,21 +11,6 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
 from reportlab.lib.utils import simpleSplit
-import streamlit as st
-import gspread
-import json
-import pandas as pd
-import cohere
-import base64
-from io import BytesIO
-# ... (outros imports) ...
-
-st.write(f"Versão da biblioteca Cohere: {cohere.__version__}") # LINHA DE DIAGNÓSTICO
-
-# --- Configuração da Página e Título ---
-st.set_page_config(page_title="Coleta Inteligente", page_icon="🤖", layout="wide")
-st.title("🤖 Coleta Inteligente")
-# ... (resto do código) ...
 
 # --- Configuração da Página e Título ---
 st.set_page_config(page_title="Coleta Inteligente", page_icon="🤖", layout="wide")
@@ -61,7 +46,7 @@ def conectar_planilha():
 def calcular_idade(data_nasc):
     if pd.isna(data_nasc): return 0
     hoje = datetime.now()
-    return hoje.year - data_nasc.year - ((hoje.month, hoje.day) < (data_nasc.month, data_nasc.day))
+    return hoje.year - data_nasc.year - ((hoje.month, hoje.day) < (hoje.month, hoje.day))
 
 @st.cache_data(ttl=60)
 def ler_dados_da_planilha(_planilha):
@@ -78,7 +63,7 @@ def ler_dados_da_planilha(_planilha):
         st.error(f"Não foi possível ler os dados da planilha. Erro: {e}")
         return pd.DataFrame()
 
-# --- FUNÇÕES DE IA COM A BIBLIOTECA OFICIAL COHERE ---
+# --- FUNÇÕES DE IA COM A BIBLIOTECA OFICIAL COHERE (CORRIGIDO) ---
 
 def extrair_dados_com_cohere(image_bytes):
     """Extrai dados da imagem usando a biblioteca oficial do Cohere."""
@@ -89,8 +74,7 @@ def extrair_dados_com_cohere(image_bytes):
         response = co.chat(
             model="command-r-plus",
             message="Analise a imagem em anexo de um formulário e extraia as seguintes informações: ID Família, Nome Completo, Data de Nascimento (DD/MM/AAAA), Telefone, CPF, Nome da Mãe, Nome do Pai, Sexo, CNS, Município de Nascimento. Se um dado não for encontrado, retorne um campo vazio. Retorne os dados estritamente como um objeto JSON.",
-            attachment_mode="grounded", # Instrução para a versão mais nova da biblioteca
-            attachments=[image_file]
+            attachments=[image_file] # CORREÇÃO: a linha 'attachment_mode' foi removida.
         )
         
         json_string = response.text.replace('```json', '').replace('```', '').strip()
@@ -112,7 +96,7 @@ def analisar_dados_com_cohere(pergunta_usuario, dataframe):
     except Exception as e:
         return f"Ocorreu um erro ao analisar os dados com a IA (Cohere). Erro: {e}"
 
-# --- PÁGINAS DO APP (código simplificado para focar na funcionalidade principal) ---
+# --- PÁGINAS DO APP ---
 
 def pagina_coleta(planilha):
     st.header("1. Envie a imagem da ficha")
