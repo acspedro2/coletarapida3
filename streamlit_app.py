@@ -1,3 +1,14 @@
+import os
+import sys
+import subprocess
+
+# Força instalação de pacotes que podem falhar no deploy do Streamlit Cloud
+packages = ["gspread", "oauth2client", "pandas", "Pillow", "reportlab", "cohere", "requests"]
+for pkg in packages:
+    try:
+        __import__(pkg)
+    except ImportError:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", pkg])
 import streamlit as st
 import gspread
 import json
