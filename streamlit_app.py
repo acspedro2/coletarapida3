@@ -2,26 +2,25 @@ import streamlit as st
 import requests
 import json
 import cohere
-from cohere.responses.chat import ChatResponse
-from google.oauth2.service_account import Credentials
 import gspread
+from google.oauth2.service_account import Credentials
 import pandas as pd
 from PIL import Image
-from io import BytesIO
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 
-# --- CONFIGURAÇÕES ---
+# --- Configurações de API e credenciais ---
 COHEREKEY = "sua_chave_cohere_aqui"
 OCRSPACEKEY = "sua_chave_ocrspace_aqui"
 SHEETSID = "id_da_planilha_google_aqui"
 
+# Credenciais do Google Service Account (JSON copiado do GCP)
 gcp_service_account = """
 {
   "type": "service_account",
   "project_id": "seu_projeto_id",
   "private_key_id": "xxxxxxxxxxxxxxxxxxxx",
-  "private_key": "-----BEGIN PRIVATE KEY-----\\nxxxxxxxxxxxxxxxxxxxxxxxxxxxx\\n-----END PRIVATE KEY-----\\n",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n-----END PRIVATE KEY-----\n",
   "client_email": "seu_email@seuprojeto.iam.gserviceaccount.com",
   "client_id": "xxxxxxxxxxxxxxxxxxxx",
   "auth_uri": "https://accounts.google.com/o/oauth2/auth",
@@ -31,26 +30,27 @@ gcp_service_account = """
 }
 """
 
-# --- INICIALIZA CLIENTES ---
-co = cohere.Client(COHEREKEY)
+# --- Inicializar cliente Cohere ---
+co = cohere.Client(api_key=COHEREKEY)
 
-# --- FUNÇÕES ---
-def extrair_texto_ocr(image_file):
-    url_api = "https://api.ocr.space/parse/image"
-    result = requests.post(
-        url_api,
-        files={"filename": image_file},
-        data={"apikey": OCRSPACEKEY, "language": "por"}
-    )
-    result = result.json()
-    if result["IsErroredOnProcessing"]:
-        return None
-    return result["ParsedResults"][0]["ParsedText"]
+# --- Função: OCR com OCR.Space ---
+def ocr_space_api(file):
+    url = "https://api.ocr.space/parse/image"
+    payload = {"language": "por", "isOverlayRequired": False}
+    files = {"file": file}
+    headers = {"apikey": OCRSPACEKEY}
 
+    response = requests.post(url, data=payload, files=files, headers=headers)
+    result = response.json()
+    try:
+        return result["ParsedResults"][0]["ParsedText"]
+    except:
+        return "Erro no OCR"
 
+# --- Função: Extração com Cohere ---
 def extrair_dados_com_cohere(texto_extraido: str) -> str:
     try:
-        response: ChatResponse = co.chat(
+        response = co.chat(
             model="command-r-plus",
             message=f"Extraia os principais dados estruturados desta ficha SUS:\n{texto_extraido}"
         )
@@ -58,7 +58,7 @@ def extrair_dados_com_cohere(texto_extraido: str) -> str:
     except Exception as e:
         return f"Erro ao chamar Cohere: {e}"
 
-
+# --- Função: Salvar no Google Sheets ---
 def salvar_no_sheets(dados):
     try:
         creds_dict = json.loads(gcp_service_account)
@@ -66,59 +66,30 @@ def salvar_no_sheets(dados):
         client = gspread.authorize(creds)
         sheet = client.open_by_key(SHEETSID).sheet1
 
-        # se dados for string, transforma em lista para salvar
-        if isinstance(dados, dict):
-            valores = list(dados.values())
-        else:
-            valores = [dados]
-
+        # Adiciona como linha única (pode ajustar conforme estrutura)
+        valores = [dados]
         sheet.append_row(valores)
         return "✅ Dados salvos com sucesso no Google Sheets!"
     except Exception as e:
         return f"Erro ao salvar no Sheets: {e}"
 
+# --- Interface Streamlit ---
+st.title("📑 Coleta Rápida SUS")
 
-def exportar_pdf(nome_arquivo, texto):
-    buffer = BytesIO()
-    c = canvas.Canvas(buffer, pagesize=A4)
-    c.drawString(100, 800, "Ficha SUS - Dados Extraídos")
-    c.drawString(100, 780, texto[:4000])  # limita para não estourar
-    c.save()
-    buffer.seek(0)
-    return buffer
+uploaded_file = st.file_uploader("Envie a ficha SUS (imagem)", type=["jpg", "jpeg", "png"])
 
+if uploaded_file is not None:
+    st.image(Image.open(uploaded_file), caption="Imagem enviada", use_column_width=True)
 
-# --- INTERFACE STREAMLIT ---
-st.title("📄 Coleta Inteligente - Fichas SUS")
+    if st.button("Processar"):
+        with st.spinner("Fazendo OCR..."):
+            texto_extraido = ocr_space_api(uploaded_file)
+            st.text_area("📄 Texto OCR:", texto_extraido, height=200)
 
-uploaded_file = st.file_uploader("Envie a imagem da ficha SUS", type=["jpg", "jpeg", "png", "pdf"])
+        with st.spinner("Extraindo dados com Cohere..."):
+            dados_extraidos = extrair_dados_com_cohere(texto_extraido)
+            st.text_area("📊 Dados Estruturados:", dados_extraidos, height=200)
 
-if uploaded_file:
-    st.image(uploaded_file, caption="Imagem Carregada.", use_column_width=True)
-
-    if st.button("🔎 Extrair Dados da Imagem"):
-        with st.spinner("Processando imagem..."):
-            texto_extraido = extrair_texto_ocr(uploaded_file)
-
-            if texto_extraido:
-                st.subheader("📜 Texto OCR Extraído")
-                st.text(texto_extraido)
-
-                st.subheader("🤖 Dados Estruturados (Cohere)")
-                dados = extrair_dados_com_cohere(texto_extraido)
-                st.success(dados)
-
-                # salvar no Google Sheets
-                resultado = salvar_no_sheets(dados)
-                st.info(resultado)
-
-                # exportar para PDF
-                pdf_buffer = exportar_pdf("ficha.pdf", dados)
-                st.download_button(
-                    label="📥 Baixar PDF com Dados",
-                    data=pdf_buffer,
-                    file_name="ficha_extraida.pdf",
-                    mime="application/pdf"
-                )
-            else:
-                st.error("❌ Não foi possível extrair texto da imagem.")
+        if st.button("Salvar no Google Sheets"):
+            resultado = salvar_no_sheets(dados_extraidos)
+            st.success(resultado)
