@@ -1,16 +1,17 @@
 import streamlit as st
 import requests
-import pandas as pd
+import json
 import cohere
-from PIL import Image
+from cohere.responses.chat import ChatResponse
+from google.oauth2.service_account import Credentials
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
+import pandas as pd
+from PIL import Image
+from io import BytesIO
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
-import io
-import json
 
-# --- Configurações de API e credenciais ---
+# --- CONFIGURAÇÕES ---
 COHEREKEY = "sua_chave_cohere_aqui"
 OCRSPACEKEY = "sua_chave_ocrspace_aqui"
 SHEETSID = "id_da_planilha_google_aqui"
@@ -30,113 +31,94 @@ gcp_service_account = """
 }
 """
 
-# --- Inicializa Cohere ---
+# --- INICIALIZA CLIENTES ---
 co = cohere.Client(COHEREKEY)
 
-# --- Função para OCR com OCR.Space ---
-def ocr_space_file(filename, api_key):
-    payload = {'isOverlayRequired': False, 'apikey': api_key, 'language': 'por'}
-    with open(filename, 'rb') as f:
-        r = requests.post('https://api.ocr.space/parse/image',
-                          files={filename: f},
-                          data=payload)
-    return r.json()
+# --- FUNÇÕES ---
+def extrair_texto_ocr(image_file):
+    url_api = "https://api.ocr.space/parse/image"
+    result = requests.post(
+        url_api,
+        files={"filename": image_file},
+        data={"apikey": OCRSPACEKEY, "language": "por"}
+    )
+    result = result.json()
+    if result["IsErroredOnProcessing"]:
+        return None
+    return result["ParsedResults"][0]["ParsedText"]
 
-# --- Função para extrair dados com Cohere ---
+
 def extrair_dados_com_cohere(texto_extraido: str) -> str:
     try:
-        response = co.chat(
+        response: ChatResponse = co.chat(
             model="command-r-plus",
-            message=f"Extraia os dados estruturados deste texto em formato JSON com campos claros (nome, cpf, data_nascimento, endereco, telefone, etc): {texto_extraido}"
+            message=f"Extraia os principais dados estruturados desta ficha SUS:\n{texto_extraido}"
         )
         return response.text
     except Exception as e:
         return f"Erro ao chamar Cohere: {e}"
 
-# --- Função para salvar no Google Sheets ---
+
 def salvar_no_sheets(dados):
     try:
         creds_dict = json.loads(gcp_service_account)
-        scope = ["https://spreadsheets.google.com/feeds",
-                 "https://www.googleapis.com/auth/drive"]
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        creds = Credentials.from_service_account_info(creds_dict)
         client = gspread.authorize(creds)
         sheet = client.open_by_key(SHEETSID).sheet1
 
-        valores = list(dados.values())
+        # se dados for string, transforma em lista para salvar
+        if isinstance(dados, dict):
+            valores = list(dados.values())
+        else:
+            valores = [dados]
+
         sheet.append_row(valores)
         return "✅ Dados salvos com sucesso no Google Sheets!"
     except Exception as e:
         return f"Erro ao salvar no Sheets: {e}"
 
-# --- Função para gerar PDF ---
-def gerar_pdf(dados: dict) -> bytes:
-    buffer = io.BytesIO()
+
+def exportar_pdf(nome_arquivo, texto):
+    buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
-    largura, altura = A4
-
-    c.setFont("Helvetica-Bold", 14)
-    c.drawString(50, altura - 50, "Ficha SUS - Dados Estruturados")
-
-    c.setFont("Helvetica", 12)
-    y = altura - 100
-    for chave, valor in dados.items():
-        c.drawString(50, y, f"{chave}: {valor}")
-        y -= 20
-        if y < 50:
-            c.showPage()
-            y = altura - 50
-
+    c.drawString(100, 800, "Ficha SUS - Dados Extraídos")
+    c.drawString(100, 780, texto[:4000])  # limita para não estourar
     c.save()
     buffer.seek(0)
     return buffer
 
-# --- Interface Streamlit ---
-st.title("📄 Coleta Inteligente de Fichas")
 
-uploaded_file = st.file_uploader("Faça upload de uma imagem da ficha", type=["jpg", "png", "jpeg"])
+# --- INTERFACE STREAMLIT ---
+st.title("📄 Coleta Inteligente - Fichas SUS")
 
-if uploaded_file is not None:
-    image = Image.open(uploaded_file)
-    st.image(image, caption='Imagem Carregada.', use_column_width=True)
+uploaded_file = st.file_uploader("Envie a imagem da ficha SUS", type=["jpg", "jpeg", "png", "pdf"])
+
+if uploaded_file:
+    st.image(uploaded_file, caption="Imagem Carregada.", use_column_width=True)
 
     if st.button("🔎 Extrair Dados da Imagem"):
-        with st.spinner("📖 Executando OCR..."):
-            with open("temp_img.png", "wb") as f:
-                f.write(uploaded_file.getbuffer())
+        with st.spinner("Processando imagem..."):
+            texto_extraido = extrair_texto_ocr(uploaded_file)
 
-            ocr_result = ocr_space_file("temp_img.png", OCRSPACEKEY)
-
-            if ocr_result and "ParsedResults" in ocr_result:
-                texto_extraido = ocr_result["ParsedResults"][0]["ParsedText"]
-
-                st.subheader("📌 Texto Bruto do OCR")
+            if texto_extraido:
+                st.subheader("📜 Texto OCR Extraído")
                 st.text(texto_extraido)
 
-                with st.spinner("🤖 Organizando dados com Cohere..."):
-                    dados_extraidos = extrair_dados_com_cohere(texto_extraido)
+                st.subheader("🤖 Dados Estruturados (Cohere)")
+                dados = extrair_dados_com_cohere(texto_extraido)
+                st.success(dados)
 
-                st.subheader("📊 Dados Estruturados pela IA")
-                st.write(dados_extraidos)
+                # salvar no Google Sheets
+                resultado = salvar_no_sheets(dados)
+                st.info(resultado)
 
-                try:
-                    dados_dict = json.loads(dados_extraidos)
-
-                    # Botão salvar no Sheets
-                    if st.button("💾 Salvar no Google Sheets"):
-                        msg = salvar_no_sheets(dados_dict)
-                        st.success(msg)
-
-                    # Geração de PDF
-                    pdf_bytes = gerar_pdf(dados_dict)
-                    st.download_button(
-                        label="📥 Baixar Ficha em PDF",
-                        data=pdf_bytes,
-                        file_name=f"ficha_{dados_dict.get('nome','paciente')}.pdf",
-                        mime="application/pdf"
-                    )
-
-                except Exception as e:
-                    st.error(f"Erro ao converter dados em JSON: {e}")
+                # exportar para PDF
+                pdf_buffer = exportar_pdf("ficha.pdf", dados)
+                st.download_button(
+                    label="📥 Baixar PDF com Dados",
+                    data=pdf_buffer,
+                    file_name="ficha_extraida.pdf",
+                    mime="application/pdf"
+                )
             else:
-                st.error("❌ Não foi possível extrair texto via OCR.")
+                st.error("❌ Não foi possível extrair texto da imagem.")
