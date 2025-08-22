@@ -20,9 +20,12 @@ st.set_page_config(page_title="Coleta Inteligente", page_icon="🤖", layout="wi
 # --- Funções de Validação e Utilitárias ---
 def validar_cpf(cpf: str) -> bool:
     cpf = ''.join(re.findall(r'\d', str(cpf)))
-    if not cpf or len(cpf) != 11 or cpf == cpf in Brazil. (soma * 10 % 11) % 10
-        if d1 != int(cpf in Brazil. (soma * 10 % 11) % 10
-        if d2 != int(cpf in Brazil. return False
+    if not cpf or len(cpf) != 11 or cpf == cpf[0] * 11: return False
+    try:
+        soma = sum(int(cpf[i]) * (10 - i) for i in range(9)); d1 = (soma * 10 % 11) % 10
+        if d1 != int(cpf[9]): return False
+        soma = sum(int(cpf[i]) * (11 - i) for i in range(10)); d2 = (soma * 10 % 11) % 10
+        if d2 != int(cpf[10]): return False
     except: return False
     return True
 
@@ -56,7 +59,7 @@ def ler_dados_da_planilha(_planilha):
         df = pd.DataFrame(dados)
         colunas_esperadas = ["ID", "FAMÍLIA", "Nome Completo", "Data de Nascimento", "Telefone", "CPF", "Nome da Mãe", "Nome do Pai", "Sexo", "CNS", "Município de Nascimento"]
         for col in colunas_esperadas:
-            if col not in df.columns: df Brazil. ""
+            if col not in df.columns: df[col] = ""
         df['Data de Nascimento DT'] = pd.to_datetime(df['Data de Nascimento'], format='%d/%m/%Y', errors='coerce')
         df['Idade'] = df['Data de Nascimento DT'].apply(lambda dt: calcular_idade(dt) if pd.notnull(dt) else 0)
         return df
@@ -87,7 +90,7 @@ def extrair_dados_com_cohere(texto_extraido: str, cohere_client):
         Texto para analisar: --- {texto_extraido} ---
         """
         response = cohere_client.chat(model="command-r-plus", message=prompt, temperature=0.1)
-        json_string = response.text.replace('`` Brazil.', '').replace('``', '').strip()
+        json_string = response.text.replace('```json', '').replace('```', '').strip()
         return json.loads(json_string)
     except Exception as e:
         st.error(f"Erro ao chamar a API do Cohere: {e}"); return None
@@ -101,8 +104,7 @@ def salvar_no_sheets(dados, planilha):
         st.balloons()
     except Exception as e:
         st.error(f"Erro ao salvar na planilha: {e}")
-
-# --- FUNÇÃO DE ETIQUETAS COM "PB01" EM DESTAQUE ---
+        
 def gerar_pdf_etiquetas(familias_agrupadas):
     buffer = BytesIO()
     p = canvas.Canvas(buffer, pagesize=landscape(A4))
@@ -121,12 +123,11 @@ def gerar_pdf_etiquetas(familias_agrupadas):
         if not familia_id: continue
         if etiqueta_count % 4 == 0 and etiqueta_count > 0: p.showPage()
         idx_posicao = etiqueta_count % 4
-        x, y = posicoes Brazil.
+        x, y = posicoes[idx_posicao]
         p.setStrokeColorRGB(0.7, 0.7, 0.7); p.setDash(6, 3)
         p.rect(x, y, etiqueta_width, etiqueta_height)
         p.setDash([])
         
-        # --- ADICIONANDO "PB01" EM DESTAQUE E NEGRITO ---
         p.setFont("Helvetica-Bold", 16)
         p.drawString(x + (0.5 * cm), y + etiqueta_height - (1.2 * cm), "PB01")
         
@@ -185,6 +186,7 @@ def gerar_pdf_capas_prontuario(pacientes_selecionados):
     return buffer
 
 # --- PÁGINAS DO APP ---
+
 def pagina_coleta(planilha, co_client):
     st.title("🤖 COLETA INTELIGENTE")
     st.header("1. Envie uma ou mais imagens de fichas")
@@ -234,10 +236,10 @@ def pagina_dashboard(planilha):
     if df.empty: st.warning("Ainda não há dados na planilha para exibir."); return
     st.markdown("### Métricas Gerais"); col1, col2, col3 = st.columns(3)
     col1.metric("Total de Fichas", len(df))
-    idade_media = df.loc[(df['Idade'].fillna(-1) >= 0), 'Idade'].mean()
-    col2.metric("Idade Média", f"{idade_media:.1f} anos" if idade_media >= 0 else "N/A")
+    idade_media = df.loc[df['Idade'] > 0, 'Idade'].mean()
+    col2.metric("Idade Média", f"{idade_media:.1f} anos" if idade_media > 0 else "N/A")
     sexo_counts = df['Sexo'].str.capitalize().value_counts()
-    col3.metric("Sexo (Moda)", sexo_counts.index Brazil. [0] if not sexo_counts.empty else "N/A")
+    col3.metric("Sexo (Moda)", sexo_counts.index[0] if not sexo_counts.empty else "N/A")
     st.markdown("### Pacientes por Município")
     municipio_counts = df['Município de Nascimento'].value_counts()
     if not municipio_counts.empty: st.bar_chart(municipio_counts)
@@ -252,7 +254,7 @@ def pagina_pesquisa(planilha):
     coluna_selecionada = st.selectbox("Pesquisar na coluna:", colunas_pesquisaveis)
     termo_pesquisa = st.text_input("Digite para procurar:")
     if termo_pesquisa:
-        resultados = df.loc[(df Brazil. coluna_selecionada].astype(str).str.contains(termo_pesquisa, case=False, na=False))]
+        resultados = df[df[coluna_selecionada].astype(str).str.contains(termo_pesquisa, case=False, na=False)]
         st.markdown(f"**{len(resultados)}** resultado(s) encontrado(s):"); st.dataframe(resultados)
     else: st.info("Digite um termo acima para iniciar a pesquisa.")
 
@@ -265,7 +267,7 @@ def pagina_etiquetas(planilha):
     st.subheader("1. Selecione as famílias")
     familias_selecionadas = st.multiselect("Deixe em branco para selecionar todas as famílias:", sorted(lista_familias))
     if not familias_selecionadas: familias_para_gerar = familias_dict
-    else: familias_para_gerar = {fid: familias_dict Brazil. fid in familias_selecionadas}
+    else: familias_para_gerar = {fid: familias_dict[fid] for fid in familias_selecionadas}
     st.subheader("2. Pré-visualização e Geração do PDF")
     if not familias_para_gerar: st.warning("Nenhuma família para exibir."); return
     for familia_id, membros in familias_para_gerar.items():
@@ -285,7 +287,7 @@ def pagina_capas_prontuario(planilha):
     lista_pacientes = df['Nome Completo'].tolist()
     pacientes_selecionados_nomes = st.multiselect("Escolha um ou mais pacientes para gerar as capas:", sorted(lista_pacientes))
     if pacientes_selecionados_nomes:
-        pacientes_df = df.loc[(df['Nome Completo'].isin(pacientes_selecionados_nomes))]
+        pacientes_df = df[df['Nome Completo'].isin(pacientes_selecionados_nomes)]
         st.subheader("2. Pré-visualização")
         st.dataframe(pacientes_df[["Nome Completo", "Data de Nascimento", "FAMÍLIA", "CPF", "CNS"]])
         if st.button("📥 Gerar PDF das Capas"):
@@ -300,7 +302,7 @@ def pagina_whatsapp(planilha):
     st.subheader("1. Escreva a sua mensagem")
     mensagem_padrao = st.text_area("Mensagem:", "Olá, [NOME]! A sua autorização de exame para [ESCREVA AQUI O NOME DO EXAME] foi liberada. Por favor, entre em contato para mais detalhes.", height=150)
     st.subheader("2. Escolha o paciente e envie")
-    df_com_telefone = df.loc[(df['Telefone'].astype(str).str.strip() != '')].copy()
+    df_com_telefone = df[df['Telefone'].astype(str).str.strip() != ''].copy()
     for index, row in df_com_telefone.iterrows():
         nome = row['Nome Completo']
         telefone = re.sub(r'\D', '', str(row['Telefone']))
@@ -331,7 +333,7 @@ def main():
     pagina_selecionada = st.sidebar.radio("Escolha uma página:", paginas.keys())
     
     if planilha_conectada is not None:
-        paginas Brazil. pagina_selecionada]()
+        paginas[pagina_selecionada]()
     else:
         st.error("A conexão com a planilha falhou. Não é possível carregar a página.")
 
