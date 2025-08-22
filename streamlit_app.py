@@ -8,12 +8,15 @@ import time
 import re
 import pandas as pd
 from datetime import datetime
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.units import inch
+from io import BytesIO
 
 # --- Interface Streamlit ---
 st.set_page_config(page_title="Coleta Inteligente", page_icon="🤖", layout="wide")
-# O título principal será definido dentro de cada página
 
-# --- Funções de Validação ---
+# --- Funções de Validação e Utilitárias ---
 def validar_cpf(cpf: str) -> bool:
     cpf = ''.join(re.findall(r'\d', str(cpf)))
     if not cpf or len(cpf) != 11 or cpf == cpf[0] * 11: return False
@@ -31,6 +34,11 @@ def validar_data_nascimento(data_str: str) -> (bool, str):
         if data_obj > datetime.now().date(): return False, "A data de nascimento está no futuro."
         return True, ""
     except ValueError: return False, "O formato da data deve ser DD/MM/AAAA."
+
+def calcular_idade(data_nasc):
+    if pd.isna(data_nasc): return 0
+    hoje = datetime.now()
+    return hoje.year - data_nasc.year - ((hoje.month, hoje.day) < (hoje.month, hoje.day))
 
 # --- Funções de Conexão e API ---
 @st.cache_resource
@@ -56,11 +64,6 @@ def ler_dados_da_planilha(_planilha):
         return df
     except Exception as e:
         st.error(f"Erro ao ler os dados da planilha: {e}"); return pd.DataFrame()
-
-def calcular_idade(data_nasc):
-    if pd.isna(data_nasc): return 0
-    hoje = datetime.now()
-    return hoje.year - data_nasc.year - ((hoje.month, hoje.day) < (data_nasc.month, data_nasc.day))
 
 def ocr_space_api(file_bytes, ocr_api_key):
     try:
@@ -100,13 +103,57 @@ def salvar_no_sheets(dados, planilha):
         st.balloons()
     except Exception as e:
         st.error(f"Erro ao salvar na planilha: {e}")
+        
+# --- NOVA FUNÇÃO PARA GERAR O PDF DAS ETIQUETAS ---
+def gerar_pdf_etiquetas(familias_agrupadas):
+    buffer = BytesIO()
+    p = canvas.Canvas(buffer, pagesize=letter)
+    width, height = letter
+    
+    x_pos = inch
+    y_pos = height - inch
+    line_height = 20
+    
+    for familia_id, membros in familias_agrupadas.items():
+        # Desenha o cabeçalho da família
+        p.setFont("Helvetica-Bold", 14)
+        p.drawString(x_pos, y_pos, f"Família: {familia_id}")
+        y_pos -= line_height
+        
+        # Lista os membros
+        p.setFont("Helvetica", 12)
+        for membro in membros:
+            p.drawString(x_pos + 20, y_pos, f"- {membro}")
+            y_pos -= line_height
+            
+            # Se chegar ao fim da página, cria uma nova
+            if y_pos < inch:
+                p.showPage()
+                y_pos = height - inch
+
+        # Adiciona um espaço entre as famílias
+        y_pos -= line_height * 1.5
+        
+        # Se chegar ao fim da página, cria uma nova
+        if y_pos < inch:
+            p.showPage()
+            y_pos = height - inch
+            
+    p.save()
+    buffer.seek(0)
+    return buffer
 
 # --- PÁGINAS DO APP ---
 
 def pagina_coleta(planilha, co_client):
     st.title("🤖 COLETA INTELIGENTE")
     st.header("1. Envie uma ou mais imagens de fichas")
-    uploaded_files = st.file_uploader("Pode selecionar vários arquivos de uma vez", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
+    # ... (código da página de coleta continua igual)
+    uploaded_files = st.file_uploader(
+        "Pode selecionar vários arquivos de uma vez", 
+        type=["jpg", "jpeg", "png"], 
+        accept_multiple_files=True
+    )
 
     if 'processados' not in st.session_state:
         st.session_state.processados = []
@@ -165,6 +212,7 @@ def pagina_coleta(planilha, co_client):
 
 def pagina_dashboard(planilha):
     st.title("📊 Dashboard de Dados")
+    # ... (código da página de dashboard continua igual) ...
     df = ler_dados_da_planilha(planilha)
 
     if df.empty:
@@ -186,9 +234,9 @@ def pagina_dashboard(planilha):
     st.markdown("### Tabela de Dados Completa")
     st.dataframe(df)
 
-
 def pagina_pesquisa(planilha):
     st.title("🔎 Ferramenta de Pesquisa")
+    # ... (código da página de pesquisa continua igual) ...
     df = ler_dados_da_planilha(planilha)
 
     if df.empty:
@@ -206,8 +254,36 @@ def pagina_pesquisa(planilha):
     else:
         st.info("Digite um termo acima para iniciar a pesquisa.")
 
+# --- NOVA PÁGINA: GERAR ETIQUETAS ---
+def pagina_etiquetas(planilha):
+    st.title("🏷️ Gerador de Etiquetas por Família")
+    df = ler_dados_da_planilha(planilha)
 
-# --- LÓGICA PRINCIPAL DE EXECUÇÃO (com menu) ---
+    if df.empty:
+        st.warning("Ainda não há dados na planilha para gerar etiquetas."); return
+        
+    # Agrupa os dados por família e lista os nomes
+    familias = df.groupby('FAMÍLIA')['Nome Completo'].apply(list).to_dict()
+
+    st.markdown("### Pré-visualização das Etiquetas")
+    for familia_id, membros in familias.items():
+        if familia_id: # Ignora famílias em branco
+            with st.expander(f"**Família: {familia_id}** ({len(membros)} membro(s))"):
+                for nome in membros:
+                    st.write(f"- {nome}")
+    
+    st.markdown("---")
+    if st.button("📥 Gerar PDF com Todas as Etiquetas"):
+        pdf_bytes = gerar_pdf_etiquetas(familias)
+        st.download_button(
+            label="Descarregar PDF",
+            data=pdf_bytes,
+            file_name=f"etiquetas_familias_{datetime.now().strftime('%Y%m%d')}.pdf",
+            mime="application/pdf"
+        )
+
+
+# --- LÓGICA PRINCIPAL DE EXECUÇÃO (com o novo menu) ---
 def main():
     try:
         co_client = cohere.Client(api_key=st.secrets["COHEREKEY"])
@@ -221,6 +297,7 @@ def main():
         "Coletar Fichas": lambda: pagina_coleta(planilha_conectada, co_client),
         "Dashboard": lambda: pagina_dashboard(planilha_conectada),
         "Pesquisar Paciente": lambda: pagina_pesquisa(planilha_conectada),
+        "Gerar Etiquetas": lambda: pagina_etiquetas(planilha_conectada)
     }
     pagina_selecionada = st.sidebar.radio("Escolha uma página:", paginas.keys())
     
