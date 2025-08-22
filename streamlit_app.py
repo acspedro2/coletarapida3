@@ -14,8 +14,7 @@ st.title("🤖 COLETA INTELIGENTE")
 @st.cache_resource
 def conectar_planilha():
     """Conecta com o Google Sheets usando as credenciais."""
-    try: # <-- CORREÇÃO: Os dois pontos (:) foram adicionados aqui.
-        # Puxa as credenciais diretamente do st.secrets, que já entende o formato de dicionário
+    try:
         creds = st.secrets["gcp_service_account"]
         client = gspread.service_account_from_dict(creds)
         sheet = client.open_by_key(st.secrets["SHEETSID"]).sheet1
@@ -32,7 +31,7 @@ def ocr_space_api(file_bytes, ocr_api_key):
         files = {"file": ("ficha.jpg", file_bytes, "image/jpeg")}
         
         response = requests.post(url, headers=headers, files=files)
-        response.raise_for_status() # Verifica se houve erros de HTTP
+        response.raise_for_status()
         
         result = response.json()
         if result.get("IsErroredOnProcessing"):
@@ -50,8 +49,10 @@ def ocr_space_api(file_bytes, ocr_api_key):
 def extrair_dados_com_cohere(texto_extraido: str, cohere_client):
     """Usa o Cohere para extrair dados estruturados do texto."""
     try:
+        # --- PROMPT MELHORADO AQUI ---
         prompt = f"""
-        Analise o texto extraído de um formulário de saúde e retorne APENAS um objeto JSON com as seguintes chaves: 'ID Familia', 'Nome Completo', 'Data de Nascimento', 'Telefone', 'CPF', 'Nome da Mae', 'Nome do Pai', 'Sexo', 'CNS', 'Municipio de Nascimento'.
+        Analise o texto extraído de um formulário de saúde. Preste atenção especial a qualquer texto escrito à mão, como anotações ou códigos. O campo 'ID Familia' é especialmente importante e pode estar escrito à mão.
+        Retorne APENAS um objeto JSON com as seguintes chaves: 'ID Familia', 'Nome Completo', 'Data de Nascimento', 'Telefone', 'CPF', 'Nome da Mae', 'Nome do Pai', 'Sexo', 'CNS', 'Municipio de Nascimento'.
         Se um valor não for encontrado, retorne uma string vazia "".
         Texto para analisar:
         ---
@@ -74,9 +75,7 @@ def extrair_dados_com_cohere(texto_extraido: str, cohere_client):
 def salvar_no_sheets(dados, planilha):
     """Salva os dados extraídos no Google Sheets."""
     try:
-        # Define a ordem correta das colunas
         colunas = ['ID Familia', 'Nome Completo', 'Data de Nascimento', 'Telefone', 'CPF', 'Nome da Mae', 'Nome do Pai', 'Sexo', 'CNS', 'Municipio de Nascimento']
-        # Pega os valores do dicionário na ordem correta
         nova_linha = [dados.get(col, "") for col in colunas]
         planilha.append_row(nova_linha)
         st.success("✅ Dados salvos com sucesso no Google Sheets!")
@@ -86,7 +85,6 @@ def salvar_no_sheets(dados, planilha):
 
 # --- Lógica Principal da Aplicação ---
 
-# Carrega recursos uma vez
 try:
     co_client = cohere.Client(api_key=st.secrets["COHEREKEY"])
     planilha = conectar_planilha()
@@ -94,11 +92,8 @@ except Exception as e:
     st.error(f"Não foi possível inicializar os serviços. Verifique seus segredos. Erro: {e}")
     st.stop()
 
-
-# Seletor de arquivos
 uploaded_file = st.file_uploader("Envie a imagem da ficha SUS", type=["jpg", "jpeg", "png"])
 
-# Inicializa o estado da sessão
 if 'dados_extraidos' not in st.session_state:
     st.session_state.dados_extraidos = None
 
@@ -121,12 +116,10 @@ if uploaded_file is not None:
                 st.success("Dados estruturados com sucesso!")
                 st.json(st.session_state.dados_extraidos)
 
-# Formulário para salvar os dados (só aparece se houver dados extraídos)
 if st.session_state.dados_extraidos:
     st.markdown("---")
     st.header("Confirme os dados antes de salvar")
     
-    # Cria campos de texto pré-preenchidos para edição
     dados = st.session_state.dados_extraidos
     id_familia = st.text_input("ID Família", value=dados.get("ID Familia", ""))
     nome_completo = st.text_input("Nome Completo", value=dados.get("Nome Completo", ""))
@@ -141,7 +134,6 @@ if st.session_state.dados_extraidos:
     
     if st.button("✅ Salvar Dados na Planilha"):
         if planilha is not None:
-            # Recompila os dados a partir dos campos de texto
             dados_para_salvar = {
                 'ID Familia': id_familia,
                 'Nome Completo': nome_completo,
@@ -155,5 +147,5 @@ if st.session_state.dados_extraidos:
                 'Municipio de Nascimento': municipio_nascimento
             }
             salvar_no_sheets(dados_para_salvar, planilha)
-            st.session_state.dados_extraidos = None # Limpa o estado para a próxima imagem
-            st.rerun() # Recarrega a página para limpar os campos
+            st.session_state.dados_extraidos = None
+            st.rerun()
