@@ -23,14 +23,17 @@ def conectar_planilha():
         st.error(f"Erro ao conectar com o Google Sheets: {e}")
         return None
 
+# --- FUNÇÃO DE OCR OTIMIZADA ---
 def ocr_space_api(file_bytes, ocr_api_key):
-    """Faz OCR na imagem usando a API do OCR.space"""
+    """Faz OCR na imagem usando a API do OCR.space com o motor otimizado."""
     try:
         url = "https://api.ocr.space/parse/image"
-        headers = {"apikey": ocr_api_key}
+        # ADICIONADO O MOTOR DE OCR 2 para melhor reconhecimento
+        payload = {"language": "por", "isOverlayRequired": False, "OCREngine": 2}
         files = {"file": ("ficha.jpg", file_bytes, "image/jpeg")}
+        headers = {"apikey": ocr_api_key}
         
-        response = requests.post(url, headers=headers, files=files)
+        response = requests.post(url, data=payload, files=files, headers=headers)
         response.raise_for_status()
         
         result = response.json()
@@ -46,13 +49,14 @@ def ocr_space_api(file_bytes, ocr_api_key):
         st.error(f"Erro inesperado no OCR: {e}")
         return None
 
-# --- FUNÇÃO DE EXTRAÇÃO COM PROMPT MELHORADO ---
+# --- FUNÇÃO DE EXTRAÇÃO COM PROMPT AINDA MAIS DETALHADO ---
 def extrair_dados_com_cohere(texto_extraido: str, cohere_client):
-    """Usa o Cohere para extrair dados estruturados do texto, usando a técnica Few-Shot."""
+    """Usa o Cohere para extrair dados estruturados do texto, com foco em anotações."""
     try:
-        # Prompt melhorado com instruções claras e um exemplo de alta qualidade.
         prompt = f"""
-        Sua tarefa é extrair informações de um texto obtido por OCR de um formulário de saúde e convertê-lo para um formato JSON. Preste atenção especial a textos escritos à mão.
+        Sua tarefa é extrair informações de um texto obtido por OCR de um formulário de saúde e convertê-lo para um formato JSON.
+
+        **Instrução Crítica:** Primeiro, procure em todo o texto por uma anotação escrita à mão que se pareça com um código de família (ex: 'FAM111', 'Familia 02', 'F-123'). Este código é a informação mais importante e deve ser atribuído à chave "FAMÍLIA". Frequentemente, ele está num dos cantos do documento. Depois de encontrar o código da família, processe o resto do texto para preencher os outros campos.
 
         **EXEMPLO:**
 
@@ -88,12 +92,12 @@ def extrair_dados_com_cohere(texto_extraido: str, cohere_client):
         response = cohere_client.chat(
             model="command-r-plus",
             message=prompt,
-            temperature=0.1  # Baixa a temperatura para respostas mais focadas e menos "criativas"
+            temperature=0.1
         )
         json_string = response.text.replace('```json', '').replace('```', '').strip()
         return json.loads(json_string)
     except json.JSONDecodeError:
-        st.error("A IA não retornou um JSON válido após o prompt melhorado. Verifique o texto do OCR.")
+        st.error("A IA não retornou um JSON válido após o prompt melhorado.")
         return None
     except Exception as e:
         st.error(f"Erro ao chamar a API do Cohere: {e}")
@@ -130,13 +134,13 @@ if uploaded_file is not None:
     if st.button("Processar Imagem"):
         file_bytes = uploaded_file.getvalue()
         
-        with st.spinner("Lendo o texto da imagem (OCR)..."):
+        with st.spinner("Lendo o texto da imagem (OCR Otimizado)..."):
             texto_extraido = ocr_space_api(file_bytes, st.secrets["OCRSPACEKEY"])
         
         if texto_extraido:
             st.text_area("📄 Texto Extraído (OCR):", texto_extraido, height=200)
             
-            with st.spinner("Estruturando os dados com a IA (com novas instruções)..."):
+            with st.spinner("Estruturando os dados com a IA (Instruções Avançadas)..."):
                 st.session_state.dados_extraidos = extrair_dados_com_cohere(texto_extraido, co_client)
             
             if st.session_state.dados_extraidos:
