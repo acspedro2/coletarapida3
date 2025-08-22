@@ -49,10 +49,8 @@ def ocr_space_api(file_bytes, ocr_api_key):
 def extrair_dados_com_cohere(texto_extraido: str, cohere_client):
     """Usa o Cohere para extrair dados estruturados do texto."""
     try:
-        # --- PROMPT MELHORADO AQUI ---
         prompt = f"""
-        Analise o texto extraído de um formulário de saúde. Preste atenção especial a qualquer texto escrito à mão, como anotações ou códigos. O campo 'ID Familia' é especialmente importante e pode estar escrito à mão.
-        Retorne APENAS um objeto JSON com as seguintes chaves: 'ID Familia', 'Nome Completo', 'Data de Nascimento', 'Telefone', 'CPF', 'Nome da Mae', 'Nome do Pai', 'Sexo', 'CNS', 'Municipio de Nascimento'.
+        Analise o texto extraído de um formulário de saúde e retorne APENAS um objeto JSON com as seguintes chaves: 'ID', 'FAMÍLIA', 'Nome Completo', 'Data de Nascimento', 'Telefone', 'CPF', 'Nome da Mãe', 'Nome do Pai', 'Sexo', 'CNS', 'Município de Nascimento'.
         Se um valor não for encontrado, retorne uma string vazia "".
         Texto para analisar:
         ---
@@ -72,11 +70,17 @@ def extrair_dados_com_cohere(texto_extraido: str, cohere_client):
         st.error(f"Erro ao chamar a API do Cohere: {e}")
         return None
 
+# --- FUNÇÃO DE SALVAR CORRIGIDA ---
 def salvar_no_sheets(dados, planilha):
-    """Salva os dados extraídos no Google Sheets."""
+    """Salva os dados extraídos no Google Sheets, respeitando a ordem das colunas."""
     try:
-        colunas = ['ID Familia', 'Nome Completo', 'Data de Nascimento', 'Telefone', 'CPF', 'Nome da Mae', 'Nome do Pai', 'Sexo', 'CNS', 'Municipio de Nascimento']
-        nova_linha = [dados.get(col, "") for col in colunas]
+        # Passo 1: Lê os cabeçalhos da primeira linha da planilha
+        cabecalhos = planilha.row_values(1)
+        
+        # Passo 2: Cria uma lista de valores na ordem correta dos cabeçalhos
+        nova_linha = [dados.get(cabecalho, "") for cabecalho in cabecalhos]
+        
+        # Passo 3: Adiciona a nova linha
         planilha.append_row(nova_linha)
         st.success("✅ Dados salvos com sucesso no Google Sheets!")
         st.balloons()
@@ -121,30 +125,34 @@ if st.session_state.dados_extraidos:
     st.header("Confirme os dados antes de salvar")
     
     dados = st.session_state.dados_extraidos
-    id_familia = st.text_input("ID Família", value=dados.get("ID Familia", ""))
+    
+    # Adapta os campos de texto para usarem as chaves que a IA retorna
+    id_familia = st.text_input("ID", value=dados.get("ID", ""))
+    familia = st.text_input("FAMÍLIA", value=dados.get("FAMÍLIA", ""))
     nome_completo = st.text_input("Nome Completo", value=dados.get("Nome Completo", ""))
     data_nascimento = st.text_input("Data de Nascimento", value=dados.get("Data de Nascimento", ""))
     telefone = st.text_input("Telefone", value=dados.get("Telefone", ""))
     cpf = st.text_input("CPF", value=dados.get("CPF", ""))
-    nome_mae = st.text_input("Nome da Mãe", value=dados.get("Nome da Mae", ""))
+    nome_mae = st.text_input("Nome da Mãe", value=dados.get("Nome da Mãe", ""))
     nome_pai = st.text_input("Nome do Pai", value=dados.get("Nome do Pai", ""))
     sexo = st.text_input("Sexo", value=dados.get("Sexo", ""))
     cns = st.text_input("CNS", value=dados.get("CNS", ""))
-    municipio_nascimento = st.text_input("Município de Nascimento", value=dados.get("Municipio de Nascimento", ""))
+    municipio_nascimento = st.text_input("Município de Nascimento", value=dados.get("Município de Nascimento", ""))
     
     if st.button("✅ Salvar Dados na Planilha"):
         if planilha is not None:
             dados_para_salvar = {
-                'ID Familia': id_familia,
+                'ID': id_familia,
+                'FAMÍLIA': familia,
                 'Nome Completo': nome_completo,
                 'Data de Nascimento': data_nascimento,
                 'Telefone': telefone,
                 'CPF': cpf,
-                'Nome da Mae': nome_mae,
+                'Nome da Mãe': nome_mae,
                 'Nome do Pai': nome_pai,
                 'Sexo': sexo,
                 'CNS': cns,
-                'Municipio de Nascimento': municipio_nascimento
+                'Município de Nascimento': municipio_nascimento
             }
             salvar_no_sheets(dados_para_salvar, planilha)
             st.session_state.dados_extraidos = None
