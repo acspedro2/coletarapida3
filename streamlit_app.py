@@ -132,6 +132,42 @@ def gerar_pdf_etiquetas(familias_agrupadas):
     buffer.seek(0)
     return buffer
 
+def gerar_pdf_capas_prontuario(pacientes_selecionados):
+    buffer = BytesIO()
+    p = canvas.Canvas(buffer, pagesize=letter)
+    width, height = letter
+    
+    for index, paciente in pacientes_selecionados.iterrows():
+        p.setFont("Helvetica-Bold", 24)
+        p.drawCentredString(width / 2.0, height - 2 * inch, "PRONTUÁRIO DO PACIENTE")
+        p.line(inch, height - 2.2 * inch, width - inch, height - 2.2 * inch)
+        
+        y_pos = height - 3.5 * inch
+        p.setFont("Helvetica", 16)
+        
+        p.drawString(inch, y_pos, "Nome:")
+        p.setFont("Helvetica-Bold", 16)
+        p.drawString(inch + 100, y_pos, str(paciente.get("Nome Completo", "")))
+        y_pos -= 0.5 * inch
+        
+        p.setFont("Helvetica", 16)
+        p.drawString(inch, y_pos, "Data de Nasc.:")
+        p.setFont("Helvetica-Bold", 16)
+        p.drawString(inch + 100, y_pos, str(paciente.get("Data de Nascimento", "")))
+        y_pos -= 0.5 * inch
+        
+        p.setFont("Helvetica", 16)
+        p.drawString(inch, y_pos, "Família:")
+        p.setFont("Helvetica-Bold", 16)
+        p.drawString(inch + 100, y_pos, str(paciente.get("FAMÍLIA", "")))
+        
+        if not index == pacientes_selecionados.index[-1]:
+            p.showPage()
+            
+    p.save()
+    buffer.seek(0)
+    return buffer
+
 # --- PÁGINAS DO APP ---
 
 def pagina_coleta(planilha, co_client):
@@ -236,6 +272,27 @@ def pagina_etiquetas(planilha):
         pdf_bytes = gerar_pdf_etiquetas(familias_para_gerar)
         st.download_button(label="Descarregar PDF", data=pdf_bytes, file_name=f"etiquetas_{'selecionadas' if familias_selecionadas else 'todas'}_{datetime.now().strftime('%Y%m%d')}.pdf", mime="application/pdf")
 
+def pagina_capas_prontuario(planilha):
+    st.title("📇 Gerador de Capas de Prontuário")
+    df = ler_dados_da_planilha(planilha)
+    if df.empty: st.warning("Ainda não há dados na planilha para gerar capas."); return
+
+    st.subheader("1. Selecione os pacientes")
+    lista_pacientes = df['Nome Completo'].tolist()
+    pacientes_selecionados_nomes = st.multiselect("Escolha um ou mais pacientes:", sorted(lista_pacientes))
+
+    if pacientes_selecionados_nomes:
+        pacientes_df = df[df['Nome Completo'].isin(pacientes_selecionados_nomes)]
+        
+        st.subheader("2. Pré-visualização")
+        st.dataframe(pacientes_df[["Nome Completo", "Data de Nascimento", "FAMÍLIA"]])
+        
+        if st.button("📥 Gerar PDF das Capas"):
+            pdf_bytes = gerar_pdf_capas_prontuario(pacientes_df)
+            st.download_button(label="Descarregar PDF das Capas", data=pdf_bytes, file_name=f"capas_prontuario_{datetime.now().strftime('%Y%m%d')}.pdf", mime="application/pdf")
+    else:
+        st.info("Selecione pelo menos um paciente para gerar as capas.")
+
 def pagina_whatsapp(planilha):
     st.title("📱 Enviar Mensagens de WhatsApp")
     df = ler_dados_da_planilha(planilha)
@@ -273,6 +330,7 @@ def main():
         "Dashboard": lambda: pagina_dashboard(planilha_conectada),
         "Pesquisar Paciente": lambda: pagina_pesquisa(planilha_conectada),
         "Gerar Etiquetas": lambda: pagina_etiquetas(planilha_conectada),
+        "Gerar Capas de Prontuário": lambda: pagina_capas_prontuario(planilha_conectada),
         "Enviar WhatsApp": lambda: pagina_whatsapp(planilha_conectada),
     }
     pagina_selecionada = st.sidebar.radio("Escolha uma página:", paginas.keys())
