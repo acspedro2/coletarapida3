@@ -6,10 +6,7 @@ import gspread
 from PIL import Image
 
 # --- Interface Streamlit ---
-# O ícone da aba do navegador já é o robô
 st.set_page_config(page_title="Coleta Inteligente", page_icon="🤖", layout="centered")
-
-# --- ALTERAÇÃO DO TÍTULO DA PÁGINA AQUI ---
 st.title("🤖 COLETA INTELIGENTE")
 
 # --- Funções ---
@@ -17,7 +14,7 @@ st.title("🤖 COLETA INTELIGENTE")
 @st.cache_resource
 def conectar_planilha():
     """Conecta com o Google Sheets usando as credenciais."""
-    try
+    try: # <-- CORREÇÃO: Os dois pontos (:) foram adicionados aqui.
         # Puxa as credenciais diretamente do st.secrets, que já entende o formato de dicionário
         creds = st.secrets["gcp_service_account"]
         client = gspread.service_account_from_dict(creds)
