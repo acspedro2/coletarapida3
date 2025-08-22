@@ -205,7 +205,6 @@ def pagina_coleta(planilha, co_client):
                 if dados_extraidos:
                     with st.form(key=f"form_{proximo_arquivo.file_id}"):
                         st.subheader("2. Confirme e salve os dados")
-                        
                         id_val = st.text_input("ID", value=dados_extraidos.get("ID", "")); familia_val = st.text_input("FAMÍLIA", value=dados_extraidos.get("FAMÍLIA", ""))
                         nome_completo = st.text_input("Nome Completo", value=dados_extraidos.get("Nome Completo", ""))
                         data_nascimento = st.text_input("Data de Nascimento", value=dados_extraidos.get("Data de Nascimento", ""))
@@ -311,7 +310,12 @@ def pagina_whatsapp(planilha):
     if df.empty: st.warning("Ainda não há dados na planilha para enviar mensagens."); return
 
     st.subheader("1. Escreva a sua mensagem")
-    mensagem_padrao = st.text_area("Mensagem:", "Olá, [NOME]! Gostaríamos de lembrar sobre [ASSUNTO]. A sua saúde é a nossa prioridade!")
+    # --- MENSAGEM PADRÃO ATUALIZADA ---
+    mensagem_padrao = st.text_area(
+        "Mensagem:", 
+        "Olá, [NOME]! A sua autorização de exame para [ESCREVA AQUI O NOME DO EXAME] foi liberada. Por favor, entre em contato para mais detalhes.",
+        height=150
+    )
 
     st.subheader("2. Escolha o paciente e envie")
     df_com_telefone = df[df['Telefone'].astype(str).str.strip() != ''].copy()
