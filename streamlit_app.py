@@ -9,8 +9,8 @@ import re
 import pandas as pd
 from datetime import datetime
 from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import letter
-from reportlab.lib.units import inch
+from reportlab.lib.pagesizes import landscape, A4
+from reportlab.lib.units import inch, cm
 from io import BytesIO
 import urllib.parse
 
@@ -104,44 +104,77 @@ def salvar_no_sheets(dados, planilha):
         st.balloons()
     except Exception as e:
         st.error(f"Erro ao salvar na planilha: {e}")
-        
+
+# --- FUNÇÃO DE ETIQUETAS COM LINHA PONTILHADA ---
 def gerar_pdf_etiquetas(familias_agrupadas):
     buffer = BytesIO()
-    p = canvas.Canvas(buffer, pagesize=letter)
-    width, height = letter
-    x_pos = inch; y_pos = height - inch; line_height = 20
+    p = canvas.Canvas(buffer, pagesize=landscape(A4))
+    width, height = landscape(A4)
+
+    margin = 1 * cm
+    etiqueta_width = (width - 3 * margin) / 2
+    etiqueta_height = (height - 3 * margin) / 2
+    
+    posicoes = [
+        (margin, height - margin - etiqueta_height),
+        (margin * 2 + etiqueta_width, height - margin - etiqueta_height),
+        (margin, margin),
+        (margin * 2 + etiqueta_width, margin),
+    ]
+    
+    etiqueta_count = 0
     
     for familia_id, membros in familias_agrupadas.items():
         if not familia_id: continue
-        p.setFont("Helvetica-Bold", 14)
-        p.drawString(x_pos, y_pos, f"Família: {familia_id}")
-        y_pos -= line_height
-        p.setFont("Helvetica", 12)
-        for membro in membros:
-            p.drawString(x_pos + 20, y_pos, f"- {membro}")
-            y_pos -= line_height
-            if y_pos < inch:
-                p.showPage()
-                y_pos = height - inch
-        y_pos -= line_height * 1.5
-        if y_pos < inch:
+
+        if etiqueta_count % 4 == 0 and etiqueta_count > 0:
             p.showPage()
-            y_pos = height - inch
+        
+        idx_posicao = etiqueta_count % 4
+        x, y = posicoes[idx_posicao]
+        
+        # --- BORDA PONTILHADA ADICIONADA AQUI ---
+        p.setStrokeColorRGB(0.5, 0.5, 0.5)
+        p.setDash(6, 3) # Define o padrão do pontilhado: 6 pontos de linha, 3 pontos de espaço
+        p.rect(x, y, etiqueta_width, etiqueta_height)
+        p.setDash([]) # Remove o pontilhado para os textos seguintes
+        
+        y_pos = y + etiqueta_height - (0.7 * cm)
+        x_pos = x + (0.5 * cm)
+        
+        p.setFont("Helvetica-Bold", 12)
+        p.drawString(x_pos, y_pos, f"Família: {familia_id}")
+        y_pos -= 0.5 * cm
+        p.line(x_pos, y_pos, x + etiqueta_width - (0.5 * cm), y_pos)
+        y_pos -= 0.5 * cm
+
+        for membro in membros:
+            if y_pos < y + (1 * cm): break
+            
+            p.setFont("Helvetica-Bold", 9)
+            p.drawString(x_pos, y_pos, str(membro.get("Nome Completo", "")))
+            y_pos -= 0.4 * cm
+            
+            p.setFont("Helvetica", 8)
+            p.drawString(x_pos + (0.5*cm), y_pos, f"DN: {membro.get('Data de Nascimento', 'N/A')}  |  CNS: {membro.get('CNS', 'N/A')}")
+            y_pos -= 0.6 * cm
+            
+        etiqueta_count += 1
             
     p.save()
     buffer.seek(0)
     return buffer
-
+    
 def gerar_pdf_capas_prontuario(pacientes_selecionados):
     buffer = BytesIO()
     p = canvas.Canvas(buffer, pagesize=letter)
     width, height = letter
     
     for index, paciente in pacientes_selecionados.iterrows():
-        p.setFont("Helvetica-Bold", 14)
-        p.drawRightString(width - inch, height - 0.75 * inch, "PB01")
-        p.setFont("Helvetica-Bold", 24)
-        p.drawCentredString(width / 2.0, height - 1.5 * inch, "PRONTUÁRIO DO PACIENTE")
+        p.setFont("Helvetica-Bold", 14); p.drawRightString(width - inch, height - 0.75 * inch, "PB01")
+        p.setFont("Helvetica-Bold", 24); p.drawCentredString(width / 2.0, height - 1.5 * inch, "PRONTUÁRIO DO PACIENTE")
+        
+        p.line(inch, height - 2.2 * inch, width - inch, height - 2.2 * inch)
         
         box_x = inch; box_y = height - 6 * inch
         box_width = width - 2 * inch; box_height = 4 * inch
@@ -173,97 +206,32 @@ def gerar_pdf_capas_prontuario(pacientes_selecionados):
         p.setFont("Helvetica", 12); p.drawString(x_col2_label, y_pos, "CNS:")
         p.setFont("Helvetica-Bold", 12); p.drawString(x_col2_value, y_pos, str(paciente.get("CNS", "")))
         
-        if not index == pacientes_selecionados.index[-1]:
-            p.showPage()
+        if not index == pacientes_selecionados.index[-1]: p.showPage()
             
     p.save()
     buffer.seek(0)
     return buffer
 
 # --- PÁGINAS DO APP ---
-
 def pagina_coleta(planilha, co_client):
     st.title("🤖 COLETA INTELIGENTE")
-    st.header("1. Envie uma ou mais imagens de fichas")
-    uploaded_files = st.file_uploader("Pode selecionar vários arquivos de uma vez", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
-
-    if 'processados' not in st.session_state: st.session_state.processados = []
-
-    if uploaded_files:
-        proximo_arquivo = next((f for f in uploaded_files if f.file_id not in st.session_state.processados), None)
-
-        if proximo_arquivo:
-            st.subheader(f"Processando Ficha: `{proximo_arquivo.name}`")
-            st.image(Image.open(proximo_arquivo), width=400)
-            
-            file_bytes = proximo_arquivo.getvalue()
-            texto_extraido = ocr_space_api(file_bytes, st.secrets["OCRSPACEKEY"])
-            
-            if texto_extraido:
-                dados_extraidos = extrair_dados_com_cohere(texto_extraido, co_client)
-                
-                if dados_extraidos:
-                    with st.form(key=f"form_{proximo_arquivo.file_id}"):
-                        st.subheader("2. Confirme e salve os dados")
-                        id_val = st.text_input("ID", value=dados_extraidos.get("ID", "")); familia_val = st.text_input("FAMÍLIA", value=dados_extraidos.get("FAMÍLIA", ""))
-                        nome_completo = st.text_input("Nome Completo", value=dados_extraidos.get("Nome Completo", ""))
-                        data_nascimento = st.text_input("Data de Nascimento", value=dados_extraidos.get("Data de Nascimento", ""))
-                        if not validar_data_nascimento(data_nascimento)[0] and data_nascimento: st.warning(f"⚠️ {validar_data_nascimento(data_nascimento)[1]}")
-                        cpf = st.text_input("CPF", value=dados_extraidos.get("CPF", ""))
-                        if not validar_cpf(cpf) and cpf: st.warning("⚠️ O CPF parece ser inválido.")
-                        telefone = st.text_input("Telefone", value=dados_extraidos.get("Telefone", "")); nome_mae = st.text_input("Nome da Mãe", value=dados_extraidos.get("Nome da Mãe", "")); nome_pai = st.text_input("Nome do Pai", value=dados_extraidos.get("Nome do Pai", "")); sexo = st.text_input("Sexo", value=dados_extraidos.get("Sexo", "")); cns = st.text_input("CNS", value=dados_extraidos.get("CNS", "")); municipio_nascimento = st.text_input("Município de Nascimento", value=dados_extraidos.get("Município de Nascimento", ""))
-                        
-                        if st.form_submit_button("✅ Salvar Dados Desta Ficha"):
-                            dados_para_salvar = {'ID': id_val, 'FAMÍLIA': familia_val, 'Nome Completo': nome_completo,'Data de Nascimento': data_nascimento, 'Telefone': telefone, 'CPF': cpf,'Nome da Mãe': nome_mae, 'Nome do Pai': nome_pai, 'Sexo': sexo, 'CNS': cns,'Município de Nascimento': municipio_nascimento}
-                            salvar_no_sheets(dados_para_salvar, planilha)
-                            st.session_state.processados.append(proximo_arquivo.file_id)
-                            st.rerun()
-                else: st.error("A IA não conseguiu extrair dados deste texto.")
-            else: st.error("Não foi possível extrair texto desta imagem.")
-        elif len(uploaded_files) > 0:
-            st.success("🎉 Todas as fichas enviadas foram processadas e salvas!")
-            if st.button("Limpar lista para enviar novas imagens"):
-                st.session_state.processados = []; st.rerun()
+    # ... (código inalterado) ...
 
 def pagina_dashboard(planilha):
     st.title("📊 Dashboard de Dados")
-    df = ler_dados_da_planilha(planilha)
-
-    if df.empty: st.warning("Ainda não há dados na planilha para exibir."); return
-
-    st.markdown("### Métricas Gerais"); col1, col2, col3 = st.columns(3)
-    col1.metric("Total de Fichas", len(df))
-    idade_media = df[df['Idade'] > 0]['Idade'].mean()
-    col2.metric("Idade Média", f"{idade_media:.1f} anos" if idade_media > 0 else "N/A")
-    sexo_counts = df['Sexo'].str.capitalize().value_counts()
-    col3.metric("Sexo (Moda)", sexo_counts.index[0] if not sexo_counts.empty else "N/A")
-
-    st.markdown("### Pacientes por Município")
-    municipio_counts = df['Município de Nascimento'].value_counts()
-    if not municipio_counts.empty: st.bar_chart(municipio_counts)
-    else: st.info("Não há dados de município para exibir.")
-    st.markdown("### Tabela de Dados Completa"); st.dataframe(df)
+    # ... (código inalterado) ...
 
 def pagina_pesquisa(planilha):
     st.title("🔎 Ferramenta de Pesquisa")
-    df = ler_dados_da_planilha(planilha)
-    if df.empty: st.warning("Ainda não há dados na planilha para pesquisar."); return
-
-    colunas_pesquisaveis = ["Nome Completo", "CPF", "CNS", "Nome da Mãe"]
-    coluna_selecionada = st.selectbox("Pesquisar na coluna:", colunas_pesquisaveis)
-    termo_pesquisa = st.text_input("Digite para procurar:")
-
-    if termo_pesquisa:
-        resultados = df[df[coluna_selecionada].astype(str).str.contains(termo_pesquisa, case=False, na=False)]
-        st.markdown(f"**{len(resultados)}** resultado(s) encontrado(s):"); st.dataframe(resultados)
-    else: st.info("Digite um termo acima para iniciar a pesquisa.")
+    # ... (código inalterado) ...
 
 def pagina_etiquetas(planilha):
     st.title("🏷️ Gerador de Etiquetas por Família")
     df = ler_dados_da_planilha(planilha)
     if df.empty: st.warning("Ainda não há dados na planilha para gerar etiquetas."); return
         
-    familias_dict = df.groupby('FAMÍLIA')['Nome Completo'].apply(list).to_dict()
+    familias_dict = df.groupby('FAMÍLIA')[['Nome Completo', 'Data de Nascimento', 'CNS']].apply(lambda x: x.to_dict('records')).to_dict()
+    
     lista_familias = [f for f in familias_dict.keys() if f]
     st.subheader("1. Selecione as famílias")
     familias_selecionadas = st.multiselect("Deixe em branco para selecionar todas as famílias:", sorted(lista_familias))
@@ -277,7 +245,9 @@ def pagina_etiquetas(planilha):
     for familia_id, membros in familias_para_gerar.items():
         if familia_id:
             with st.expander(f"**Família: {familia_id}** ({len(membros)} membro(s))"):
-                for nome in membros: st.write(f"- {nome}")
+                for membro in membros:
+                    st.write(f"**{membro['Nome Completo']}**")
+                    st.caption(f"DN: {membro['Data de Nascimento']} | CNS: {membro['CNS']}")
     
     if st.button("📥 Gerar PDF das Etiquetas"):
         pdf_bytes = gerar_pdf_etiquetas(familias_para_gerar)
@@ -285,54 +255,13 @@ def pagina_etiquetas(planilha):
 
 def pagina_capas_prontuario(planilha):
     st.title("📇 Gerador de Capas de Prontuário")
-    df = ler_dados_da_planilha(planilha)
-    if df.empty: st.warning("Ainda não há dados na planilha para gerar capas."); return
-
-    st.subheader("1. Selecione os pacientes")
-    lista_pacientes = df['Nome Completo'].tolist()
-    pacientes_selecionados_nomes = st.multiselect("Escolha um ou mais pacientes para gerar as capas:", sorted(lista_pacientes))
-
-    if pacientes_selecionados_nomes:
-        pacientes_df = df[df['Nome Completo'].isin(pacientes_selecionados_nomes)]
-        
-        st.subheader("2. Pré-visualização")
-        st.dataframe(pacientes_df[["Nome Completo", "Data de Nascimento", "FAMÍLIA", "CPF", "CNS"]])
-        
-        if st.button("📥 Gerar PDF das Capas"):
-            pdf_bytes = gerar_pdf_capas_prontuario(pacientes_df)
-            st.download_button(label="Descarregar PDF das Capas", data=pdf_bytes, file_name=f"capas_prontuario_{datetime.now().strftime('%Y%m%d')}.pdf", mime="application/pdf")
-    else:
-        st.info("Selecione pelo menos um paciente para gerar as capas.")
+    # ... (código inalterado) ...
 
 def pagina_whatsapp(planilha):
     st.title("📱 Enviar Mensagens de WhatsApp")
-    df = ler_dados_da_planilha(planilha)
-    if df.empty: st.warning("Ainda não há dados na planilha para enviar mensagens."); return
-
-    st.subheader("1. Escreva a sua mensagem")
-    # --- MENSAGEM PADRÃO ATUALIZADA ---
-    mensagem_padrao = st.text_area(
-        "Mensagem:", 
-        "Olá, [NOME]! A sua autorização de exame para [ESCREVA AQUI O NOME DO EXAME] foi liberada. Por favor, entre em contato para mais detalhes.",
-        height=150
-    )
-
-    st.subheader("2. Escolha o paciente e envie")
-    df_com_telefone = df[df['Telefone'].astype(str).str.strip() != ''].copy()
-
-    for index, row in df_com_telefone.iterrows():
-        nome = row['Nome Completo']
-        telefone = re.sub(r'\D', '', str(row['Telefone']))
-        if len(telefone) < 10: continue
-
-        mensagem_personalizada = mensagem_padrao.replace("[NOME]", nome.split()[0])
-        whatsapp_url = f"https://wa.me/55{telefone}?text={urllib.parse.quote(mensagem_personalizada)}"
-        
-        col1, col2 = st.columns([3, 1])
-        col1.text(f"{nome} - ({row['Telefone']})")
-        col2.link_button("Enviar Mensagem ↗️", whatsapp_url, use_container_width=True)
+    # ... (código inalterado) ...
             
-# --- LÓGICA PRINCIPAL DE EXECUÇÃO (com menu) ---
+# --- LÓGICA PRINCIPAL DE EXECUÇÃO (com menu completo) ---
 def main():
     try:
         st.session_state.co_client = cohere.Client(api_key=st.secrets["COHEREKEY"])
@@ -357,4 +286,7 @@ def main():
         st.error("A conexão com a planilha falhou. Não é possível carregar a página.")
 
 if __name__ == "__main__":
+    # O código das páginas que não foram mostradas em detalhe permanece o mesmo das versões anteriores
+    # Por favor, copie e cole o código completo para garantir que todas as funções estejam presentes.
     main()
+
