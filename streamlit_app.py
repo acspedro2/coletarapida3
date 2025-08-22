@@ -4,7 +4,7 @@ import json
 import cohere
 import gspread
 from PIL import Image
-import time # Importa a biblioteca para o atraso (delay)
+import time
 import re
 from datetime import datetime
 
@@ -43,7 +43,6 @@ def validar_data_nascimento(data_str: str) -> (bool, str):
 
 @st.cache_resource
 def conectar_planilha():
-    """Conecta com o Google Sheets."""
     try:
         creds = st.secrets["gcp_service_account"]
         client = gspread.service_account_from_dict(creds)
@@ -54,7 +53,6 @@ def conectar_planilha():
         return None
 
 def ocr_space_api(file_bytes, ocr_api_key):
-    """Faz OCR na imagem usando o motor otimizado."""
     try:
         url = "https://api.ocr.space/parse/image"
         payload = {"language": "por", "isOverlayRequired": False, "OCREngine": 2}
@@ -72,7 +70,6 @@ def ocr_space_api(file_bytes, ocr_api_key):
         return None
 
 def extrair_dados_com_cohere(texto_extraido: str, cohere_client):
-    """Usa o Cohere para extrair dados estruturados do texto."""
     try:
         prompt = f"""
         Sua tarefa é extrair informações de um texto de formulário de saúde e convertê-lo para um JSON.
@@ -92,7 +89,6 @@ def extrair_dados_com_cohere(texto_extraido: str, cohere_client):
         return None
 
 def salvar_no_sheets(dados, planilha):
-    """Salva os dados no Google Sheets, respeitando a ordem das colunas."""
     try:
         cabecalhos = planilha.row_values(1)
         nova_linha = [dados.get(cabecalho, "") for cabecalho in cabecalhos]
@@ -111,9 +107,7 @@ except Exception as e:
     st.error(f"Não foi possível inicializar os serviços. Verifique seus segredos. Erro: {e}")
     st.stop()
 
-# --- NOVA LÓGICA PARA PROCESSAMENTO EM LOTE ---
 st.header("1. Envie uma ou mais imagens de fichas")
-# Altera o uploader para aceitar múltiplos arquivos
 uploaded_files = st.file_uploader(
     "Pode selecionar vários arquivos de uma vez", 
     type=["jpg", "jpeg", "png"], 
@@ -125,22 +119,21 @@ if 'processados' not in st.session_state:
 
 if uploaded_files:
     for uploaded_file in uploaded_files:
-        # Verifica se o arquivo já foi processado e salvo
-        if uploaded_file.id in st.session_state.processados:
+        # --- CORREÇÃO APLICADA AQUI ---
+        if uploaded_file.file_id in st.session_state.processados:
             continue
 
         st.markdown("---")
         st.subheader(f"Processando Ficha: `{uploaded_file.name}`")
         st.image(Image.open(uploaded_file), caption="Imagem Carregada.", width=400)
         
-        # Processa a imagem atual
         file_bytes = uploaded_file.getvalue()
         with st.spinner("Lendo o texto da imagem (OCR Otimizado)..."):
             texto_extraido = ocr_space_api(file_bytes, st.secrets["OCRSPACEKEY"])
         
         if texto_extraido:
             with st.expander("Ver texto extraído pelo OCR"):
-                st.text_area("Texto", texto_extraido, height=150, key=f"ocr_{uploaded_file.id}")
+                st.text_area("Texto", texto_extraido, height=150, key=f"ocr_{uploaded_file.file_id}")
             
             with st.spinner("Estruturando os dados com a IA..."):
                 dados_extraidos = extrair_dados_com_cohere(texto_extraido, co_client)
@@ -148,31 +141,29 @@ if uploaded_files:
             if dados_extraidos:
                 st.success("Dados estruturados com sucesso!")
                 
-                # Cria um formulário único para cada imagem
-                with st.form(key=f"form_{uploaded_file.id}"):
+                with st.form(key=f"form_{uploaded_file.file_id}"):
                     st.subheader("2. Confirme e salve os dados")
                     
                     dados = dados_extraidos
-                    id_val = st.text_input("ID", value=dados.get("ID", ""), key=f"id_{uploaded_file.id}")
-                    familia_val = st.text_input("FAMÍLIA", value=dados.get("FAMÍLIA", ""), key=f"fam_{uploaded_file.id}")
-                    nome_completo = st.text_input("Nome Completo", value=dados.get("Nome Completo", ""), key=f"nome_{uploaded_file.id}")
+                    id_val = st.text_input("ID", value=dados.get("ID", ""), key=f"id_{uploaded_file.file_id}")
+                    familia_val = st.text_input("FAMÍLIA", value=dados.get("FAMÍLIA", ""), key=f"fam_{uploaded_file.file_id}")
+                    nome_completo = st.text_input("Nome Completo", value=dados.get("Nome Completo", ""), key=f"nome_{uploaded_file.file_id}")
                     
-                    data_nascimento = st.text_input("Data de Nascimento", value=dados.get("Data de Nascimento", ""), key=f"data_{uploaded_file.id}")
+                    data_nascimento = st.text_input("Data de Nascimento", value=dados.get("Data de Nascimento", ""), key=f"data_{uploaded_file.file_id}")
                     is_data_valida, erro_data = validar_data_nascimento(data_nascimento)
                     if not is_data_valida and data_nascimento:
                         st.warning(f"⚠️ {erro_data}")
                     
-                    cpf = st.text_input("CPF", value=dados.get("CPF", ""), key=f"cpf_{uploaded_file.id}")
+                    cpf = st.text_input("CPF", value=dados.get("CPF", ""), key=f"cpf_{uploaded_file.file_id}")
                     if not validar_cpf(cpf) and cpf:
                         st.warning("⚠️ O CPF parece ser inválido.")
                     
-                    # Restante dos campos...
-                    telefone = st.text_input("Telefone", value=dados.get("Telefone", ""), key=f"tel_{uploaded_file.id}")
-                    nome_mae = st.text_input("Nome da Mãe", value=dados.get("Nome da Mãe", ""), key=f"mae_{uploaded_file.id}")
-                    nome_pai = st.text_input("Nome do Pai", value=dados.get("Nome do Pai", ""), key=f"pai_{uploaded_file.id}")
-                    sexo = st.text_input("Sexo", value=dados.get("Sexo", ""), key=f"sexo_{uploaded_file.id}")
-                    cns = st.text_input("CNS", value=dados.get("CNS", ""), key=f"cns_{uploaded_file.id}")
-                    municipio_nascimento = st.text_input("Município de Nascimento", value=dados.get("Município de Nascimento", ""), key=f"mun_{uploaded_file.id}")
+                    telefone = st.text_input("Telefone", value=dados.get("Telefone", ""), key=f"tel_{uploaded_file.file_id}")
+                    nome_mae = st.text_input("Nome da Mãe", value=dados.get("Nome da Mãe", ""), key=f"mae_{uploaded_file.file_id}")
+                    nome_pai = st.text_input("Nome do Pai", value=dados.get("Nome do Pai", ""), key=f"pai_{uploaded_file.file_id}")
+                    sexo = st.text_input("Sexo", value=dados.get("Sexo", ""), key=f"sexo_{uploaded_file.file_id}")
+                    cns = st.text_input("CNS", value=dados.get("CNS", ""), key=f"cns_{uploaded_file.file_id}")
+                    municipio_nascimento = st.text_input("Município de Nascimento", value=dados.get("Município de Nascimento", ""), key=f"mun_{uploaded_file.file_id}")
                     
                     submitted = st.form_submit_button("✅ Salvar Dados Desta Ficha na Planilha")
                     
@@ -185,17 +176,15 @@ if uploaded_files:
                                 'Município de Nascimento': municipio_nascimento
                             }
                             salvar_no_sheets(dados_para_salvar, planilha)
-                            # Marca o arquivo como processado
-                            st.session_state.processados.append(uploaded_file.id)
+                            # --- CORREÇÃO APLICADA AQUI ---
+                            st.session_state.processados.append(uploaded_file.file_id)
                             st.rerun()
                         else:
                             st.error("Não foi possível conectar à planilha para salvar.")
         else:
             st.error("Não foi possível extrair texto desta imagem.")
 
-        # Pausa para respeitar os limites da API antes de processar a próxima imagem
         with st.spinner("Aguardando 20 segundos antes de processar a próxima ficha..."):
             time.sleep(20)
         
-        # Para o loop para processar uma de cada vez
         break
