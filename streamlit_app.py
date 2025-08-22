@@ -46,41 +46,64 @@ def ocr_space_api(file_bytes, ocr_api_key):
         st.error(f"Erro inesperado no OCR: {e}")
         return None
 
+# --- FUNÇÃO DE EXTRAÇÃO COM PROMPT MELHORADO ---
 def extrair_dados_com_cohere(texto_extraido: str, cohere_client):
-    """Usa o Cohere para extrair dados estruturados do texto."""
+    """Usa o Cohere para extrair dados estruturados do texto, usando a técnica Few-Shot."""
     try:
+        # Prompt melhorado com instruções claras e um exemplo de alta qualidade.
         prompt = f"""
-        Analise o texto extraído de um formulário de saúde e retorne APENAS um objeto JSON com as seguintes chaves: 'ID', 'FAMÍLIA', 'Nome Completo', 'Data de Nascimento', 'Telefone', 'CPF', 'Nome da Mãe', 'Nome do Pai', 'Sexo', 'CNS', 'Município de Nascimento'.
-        Se um valor não for encontrado, retorne uma string vazia "".
-        Texto para analisar:
+        Sua tarefa é extrair informações de um texto obtido por OCR de um formulário de saúde e convertê-lo para um formato JSON. Preste atenção especial a textos escritos à mão.
+
+        **EXEMPLO:**
+
+        **Texto de Entrada (OCR):**
+        "CONSULTA AO CADASTRO DE PACIENTES SUS FAM111 NOME JHENIFER DA SILVA COSTA DOS SANTOS 19/07/2004 CNS 700004848298395 Endereco RUA JOAQUIM DA SILVA COSTA Mãe: MARIA APARECIDA COSTA Pai: JOÃO BATISTA DOS SANTOS CPF: 123.456.789-00 Telefone: (22) 99999-8888 Sexo: Feminino Município de Nascimento: BOM JARDIM"
+
+        **Saída JSON Esperada:**
+        ```json
+        {{
+            "ID": "",
+            "FAMÍLIA": "FAM111",
+            "Nome Completo": "JHENIFER DA SILVA COSTA DOS SANTOS",
+            "Data de Nascimento": "19/07/2004",
+            "Telefone": "(22) 99999-8888",
+            "CPF": "123.456.789-00",
+            "Nome da Mãe": "MARIA APARECIDA COSTA",
+            "Nome do Pai": "JOÃO BATISTA DOS SANTOS",
+            "Sexo": "Feminino",
+            "CNS": "700004848298395",
+            "Município de Nascimento": "BOM JARDIM"
+        }}
+        ```
+
+        **FIM DO EXEMPLO.**
+
+        Agora, analise o seguinte texto e retorne APENAS o objeto JSON correspondente. Se um valor não for encontrado, retorne uma string vazia "".
+
+        **Texto para analisar:**
         ---
         {texto_extraido}
         ---
         """
         response = cohere_client.chat(
             model="command-r-plus",
-            message=prompt
+            message=prompt,
+            temperature=0.1  # Baixa a temperatura para respostas mais focadas e menos "criativas"
         )
         json_string = response.text.replace('```json', '').replace('```', '').strip()
         return json.loads(json_string)
     except json.JSONDecodeError:
-        st.error("A IA não retornou um JSON válido. Tente novamente.")
+        st.error("A IA não retornou um JSON válido após o prompt melhorado. Verifique o texto do OCR.")
         return None
     except Exception as e:
         st.error(f"Erro ao chamar a API do Cohere: {e}")
         return None
 
-# --- FUNÇÃO DE SALVAR CORRIGIDA ---
 def salvar_no_sheets(dados, planilha):
     """Salva os dados extraídos no Google Sheets, respeitando a ordem das colunas."""
     try:
-        # Passo 1: Lê os cabeçalhos da primeira linha da planilha
         cabecalhos = planilha.row_values(1)
-        
-        # Passo 2: Cria uma lista de valores na ordem correta dos cabeçalhos
         nova_linha = [dados.get(cabecalho, "") for cabecalho in cabecalhos]
-        
-        # Passo 3: Adiciona a nova linha
         planilha.append_row(nova_linha)
         st.success("✅ Dados salvos com sucesso no Google Sheets!")
         st.balloons()
@@ -113,7 +136,7 @@ if uploaded_file is not None:
         if texto_extraido:
             st.text_area("📄 Texto Extraído (OCR):", texto_extraido, height=200)
             
-            with st.spinner("Estruturando os dados com a IA..."):
+            with st.spinner("Estruturando os dados com a IA (com novas instruções)..."):
                 st.session_state.dados_extraidos = extrair_dados_com_cohere(texto_extraido, co_client)
             
             if st.session_state.dados_extraidos:
@@ -126,9 +149,8 @@ if st.session_state.dados_extraidos:
     
     dados = st.session_state.dados_extraidos
     
-    # Adapta os campos de texto para usarem as chaves que a IA retorna
-    id_familia = st.text_input("ID", value=dados.get("ID", ""))
-    familia = st.text_input("FAMÍLIA", value=dados.get("FAMÍLIA", ""))
+    id_val = st.text_input("ID", value=dados.get("ID", ""))
+    familia_val = st.text_input("FAMÍLIA", value=dados.get("FAMÍLIA", ""))
     nome_completo = st.text_input("Nome Completo", value=dados.get("Nome Completo", ""))
     data_nascimento = st.text_input("Data de Nascimento", value=dados.get("Data de Nascimento", ""))
     telefone = st.text_input("Telefone", value=dados.get("Telefone", ""))
@@ -142,8 +164,8 @@ if st.session_state.dados_extraidos:
     if st.button("✅ Salvar Dados na Planilha"):
         if planilha is not None:
             dados_para_salvar = {
-                'ID': id_familia,
-                'FAMÍLIA': familia,
+                'ID': id_val,
+                'FAMÍLIA': familia_val,
                 'Nome Completo': nome_completo,
                 'Data de Nascimento': data_nascimento,
                 'Telefone': telefone,
