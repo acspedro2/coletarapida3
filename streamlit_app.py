@@ -131,17 +131,26 @@ def gerar_pdf_etiquetas(familias_agrupadas):
     p.save()
     buffer.seek(0)
     return buffer
-
+    
+# --- FUNÇÃO DE GERAR CAPAS ATUALIZADA ---
 def gerar_pdf_capas_prontuario(pacientes_selecionados):
     buffer = BytesIO()
     p = canvas.Canvas(buffer, pagesize=letter)
     width, height = letter
     
     for index, paciente in pacientes_selecionados.iterrows():
+        # --- CABEÇALHO "PB01" ADICIONADO AQUI ---
+        p.setFont("Helvetica", 12)
+        p.drawString(inch, height - 0.5 * inch, "PB01")
+        
+        # Título
         p.setFont("Helvetica-Bold", 24)
         p.drawCentredString(width / 2.0, height - 2 * inch, "PRONTUÁRIO DO PACIENTE")
+        
+        # Linha divisória
         p.line(inch, height - 2.2 * inch, width - inch, height - 2.2 * inch)
         
+        # Informações do Paciente
         y_pos = height - 3.5 * inch
         p.setFont("Helvetica", 16)
         
@@ -161,6 +170,7 @@ def gerar_pdf_capas_prontuario(pacientes_selecionados):
         p.setFont("Helvetica-Bold", 16)
         p.drawString(inch + 100, y_pos, str(paciente.get("FAMÍLIA", "")))
         
+        # Adiciona uma nova página para o próximo paciente (se houver)
         if not index == pacientes_selecionados.index[-1]:
             p.showPage()
             
@@ -193,7 +203,6 @@ def pagina_coleta(planilha, co_client):
                 if dados_extraidos:
                     with st.form(key=f"form_{proximo_arquivo.file_id}"):
                         st.subheader("2. Confirme e salve os dados")
-                        
                         id_val = st.text_input("ID", value=dados_extraidos.get("ID", "")); familia_val = st.text_input("FAMÍLIA", value=dados_extraidos.get("FAMÍLIA", ""))
                         nome_completo = st.text_input("Nome Completo", value=dados_extraidos.get("Nome Completo", ""))
                         data_nascimento = st.text_input("Data de Nascimento", value=dados_extraidos.get("Data de Nascimento", ""))
@@ -316,7 +325,7 @@ def pagina_whatsapp(planilha):
         col1.text(f"{nome} - ({row['Telefone']})")
         col2.link_button("Enviar Mensagem ↗️", whatsapp_url, use_container_width=True)
             
-# --- LÓGICA PRINCIPAL DE EXECUÇÃO (com menu) ---
+# --- LÓGICA PRINCIPAL DE EXECUÇÃO (com o menu completo) ---
 def main():
     try:
         st.session_state.co_client = cohere.Client(api_key=st.secrets["COHEREKEY"])
