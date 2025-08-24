@@ -13,6 +13,8 @@ from reportlab.lib.pagesizes import landscape, A4, letter
 from reportlab.lib.units import inch, cm
 from io import BytesIO
 import urllib.parse
+import qrcode
+from reportlab.lib.utils import ImageReader
 
 # --- Interface Streamlit ---
 st.set_page_config(page_title="Coleta Inteligente", page_icon="🤖", layout="wide")
@@ -57,7 +59,7 @@ def ler_dados_da_planilha(_planilha):
     try:
         dados = _planilha.get_all_records()
         df = pd.DataFrame(dados)
-        colunas_esperadas = ["ID", "FAMÍLIA", "Nome Completo", "Data de Nascimento", "Telefone", "CPF", "Nome da Mãe", "Nome do Pai", "Sexo", "CNS", "Município de Nascimento"]
+        colunas_esperadas = ["ID", "FAMÍLIA", "Nome Completo", "Data de Nascimento", "Telefone", "CPF", "Nome da Mãe", "Nome do Pai", "Sexo", "CNS", "Município de Nascimento", "Link do Prontuário", "Link da Pasta da Família"]
         for col in colunas_esperadas:
             if col not in df.columns: df[col] = ""
         df['Data de Nascimento DT'] = pd.to_datetime(df['Data de Nascimento'], format='%d/%m/%Y', errors='coerce')
@@ -104,7 +106,7 @@ def salvar_no_sheets(dados, planilha):
         st.balloons()
     except Exception as e:
         st.error(f"Erro ao salvar na planilha: {e}")
-        
+
 def gerar_pdf_etiquetas(familias_agrupadas):
     buffer = BytesIO()
     p = canvas.Canvas(buffer, pagesize=landscape(A4))
@@ -112,38 +114,57 @@ def gerar_pdf_etiquetas(familias_agrupadas):
     margin = 1 * cm
     etiqueta_width = (width - 3 * margin) / 2
     etiqueta_height = (height - 3 * margin) / 2
+    
     posicoes = [
         (margin, height - margin - etiqueta_height),
         (margin * 2 + etiqueta_width, height - margin - etiqueta_height),
         (margin, margin),
         (margin * 2 + etiqueta_width, margin),
     ]
+    
     etiqueta_count = 0
-    for familia_id, membros in familias_agrupadas.items():
+    
+    for familia_id, dados_familia in familias_agrupadas.items():
         if not familia_id: continue
+
         if etiqueta_count % 4 == 0 and etiqueta_count > 0: p.showPage()
+        
         idx_posicao = etiqueta_count % 4
         x, y = posicoes[idx_posicao]
+        
         p.setStrokeColorRGB(0.7, 0.7, 0.7); p.setDash(6, 3)
         p.rect(x, y, etiqueta_width, etiqueta_height)
         p.setDash([])
         
-        p.setFont("Helvetica-Bold", 16)
-        p.drawString(x + (0.5 * cm), y + etiqueta_height - (1.2 * cm), "PB01")
-        
-        y_pos = y + etiqueta_height - (1.7 * cm); x_pos = x + (0.5 * cm)
+        link_pasta = dados_familia.get("link_pasta", "")
+        if link_pasta:
+            qr = qrcode.QRCode(version=1, error_correction=qrcode.constants.ERROR_CORRECT_L, box_size=10, border=2)
+            qr.add_data(link_pasta)
+            qr.make(fit=True)
+            img_qr = qr.make_image(fill_color="black", back_color="white")
+            qr_buffer = BytesIO()
+            img_qr.save(qr_buffer, format="PNG")
+            qr_buffer.seek(0)
+            img_reader = ImageReader(qr_buffer)
+            qr_size = 2 * cm
+            p.drawImage(img_reader, x + etiqueta_width - qr_size - (0.3*cm), y + etiqueta_height - qr_size - (0.3*cm), width=qr_size, height=qr_size, mask='auto')
+
+        y_pos = y + etiqueta_height - (1.2 * cm); x_pos = x + (0.5 * cm)
         
         p.setFont("Helvetica-Bold", 12); p.drawString(x_pos, y_pos, f"Família: {familia_id}")
         y_pos -= 0.5 * cm
         p.line(x_pos, y_pos, x + etiqueta_width - (0.5 * cm), y_pos)
         y_pos -= 0.5 * cm
-        for membro in membros:
+        
+        for membro in dados_familia.get("membros", []):
             if y_pos < y + (1 * cm): break
             p.setFont("Helvetica-Bold", 9); p.drawString(x_pos, y_pos, str(membro.get("Nome Completo", "")))
             y_pos -= 0.4 * cm
             p.setFont("Helvetica", 8); p.drawString(x_pos + (0.5*cm), y_pos, f"DN: {membro.get('Data de Nascimento', 'N/A')}  |  CNS: {membro.get('CNS', 'N/A')}")
             y_pos -= 0.6 * cm
+            
         etiqueta_count += 1
+            
     p.save()
     buffer.seek(0)
     return buffer
@@ -262,7 +283,14 @@ def pagina_etiquetas(planilha):
     st.title("🏷️ Gerador de Etiquetas por Família")
     df = ler_dados_da_planilha(planilha)
     if df.empty: st.warning("Ainda não há dados na planilha para gerar etiquetas."); return
-    familias_dict = df.groupby('FAMÍLIA')[['Nome Completo', 'Data de Nascimento', 'CNS']].apply(lambda x: x.to_dict('records')).to_dict()
+        
+    def agregador(x):
+        return {
+            "membros": x[['Nome Completo', 'Data de Nascimento', 'CNS']].to_dict('records'),
+            "link_pasta": x['Link da Pasta da Família'].iloc[0]
+        }
+    familias_dict = df.groupby('FAMÍLIA').apply(agregador).to_dict()
+    
     lista_familias = [f for f in familias_dict.keys() if f]
     st.subheader("1. Selecione as famílias")
     familias_selecionadas = st.multiselect("Deixe em branco para selecionar todas as famílias:", sorted(lista_familias))
@@ -270,29 +298,32 @@ def pagina_etiquetas(planilha):
     else: familias_para_gerar = {fid: familias_dict[fid] for fid in familias_selecionadas}
     st.subheader("2. Pré-visualização e Geração do PDF")
     if not familias_para_gerar: st.warning("Nenhuma família para exibir."); return
-    for familia_id, membros in familias_para_gerar.items():
+    for familia_id, dados_familia in familias_para_gerar.items():
         if familia_id:
-            with st.expander(f"**Família: {familia_id}** ({len(membros)} membro(s))"):
-                for membro in membros:
+            with st.expander(f"**Família: {familia_id}** ({len(dados_familia['membros'])} membro(s))"):
+                for membro in dados_familia['membros']:
                     st.write(f"**{membro['Nome Completo']}**"); st.caption(f"DN: {membro['Data de Nascimento']} | CNS: {membro['CNS']}")
-    if st.button("📥 Gerar PDF das Etiquetas"):
+    if st.button("📥 Gerar PDF das Etiquetas com QR Code"):
         pdf_bytes = gerar_pdf_etiquetas(familias_para_gerar)
-        st.download_button(label="Descarregar PDF", data=pdf_bytes, file_name=f"etiquetas_{'selecionadas' if familias_selecionadas else 'todas'}_{datetime.now().strftime('%Y%m%d')}.pdf", mime="application/pdf")
+        st.download_button(label="Descarregar PDF", data=pdf_bytes, file_name=f"etiquetas_qrcode_{datetime.now().strftime('%Y%m%d')}.pdf", mime="application/pdf")
 
 def pagina_capas_prontuario(planilha):
     st.title("📇 Gerador de Capas de Prontuário")
     df = ler_dados_da_planilha(planilha)
     if df.empty: st.warning("Ainda não há dados na planilha para gerar capas."); return
+    if "Link do Prontuário" not in df.columns:
+        st.error("A sua planilha precisa de uma coluna chamada 'Link do Prontuário' para esta funcionalidade.")
+        return
     st.subheader("1. Selecione os pacientes")
     lista_pacientes = df['Nome Completo'].tolist()
     pacientes_selecionados_nomes = st.multiselect("Escolha um ou mais pacientes para gerar as capas:", sorted(lista_pacientes))
     if pacientes_selecionados_nomes:
         pacientes_df = df[df['Nome Completo'].isin(pacientes_selecionados_nomes)]
         st.subheader("2. Pré-visualização")
-        st.dataframe(pacientes_df[["Nome Completo", "Data de Nascimento", "FAMÍLIA", "CPF", "CNS"]])
-        if st.button("📥 Gerar PDF das Capas"):
+        st.dataframe(pacientes_df[["Nome Completo", "Data de Nascimento", "FAMÍLIA", "CPF", "CNS", "Link do Prontuário"]])
+        if st.button("📥 Gerar PDF das Capas com QR Code"):
             pdf_bytes = gerar_pdf_capas_prontuario(pacientes_df)
-            st.download_button(label="Descarregar PDF das Capas", data=pdf_bytes, file_name=f"capas_prontuario_{datetime.now().strftime('%Y%m%d')}.pdf", mime="application/pdf")
+            st.download_button(label="Descarregar PDF das Capas", data=pdf_bytes, file_name=f"capas_prontuario_qrcode_{datetime.now().strftime('%Y%m%d')}.pdf", mime="application/pdf")
     else: st.info("Selecione pelo menos um paciente para gerar as capas.")
 
 def pagina_whatsapp(planilha):
