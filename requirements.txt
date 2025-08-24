@@ -4,6 +4,5 @@ pandas
 Pillow
 reportlab
 cohere
-requests 
-google-auth
+requests
 qrcode
