@@ -6,3 +6,4 @@ reportlab
 cohere
 requests 
 google-auth
+qrcode
