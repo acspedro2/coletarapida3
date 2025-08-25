@@ -107,6 +107,7 @@ def salvar_no_sheets(dados, planilha):
     except Exception as e:
         st.error(f"Erro ao salvar na planilha: {e}")
 
+# --- FUNÇÃO DE ETIQUETAS COM FONTES MAIORES ---
 def gerar_pdf_etiquetas(familias_agrupadas):
     buffer = BytesIO()
     p = canvas.Canvas(buffer, pagesize=landscape(A4))
@@ -146,22 +147,22 @@ def gerar_pdf_etiquetas(familias_agrupadas):
             img_qr.save(qr_buffer, format="PNG")
             qr_buffer.seek(0)
             img_reader = ImageReader(qr_buffer)
-            qr_size = 2 * cm
+            qr_size = 2.5 * cm
             p.drawImage(img_reader, x + etiqueta_width - qr_size - (0.3*cm), y + etiqueta_height - qr_size - (0.3*cm), width=qr_size, height=qr_size, mask='auto')
 
-        y_pos = y + etiqueta_height - (1.2 * cm); x_pos = x + (0.5 * cm)
+        y_pos = y + etiqueta_height - (1.5 * cm); x_pos = x + (0.5 * cm)
         
-        p.setFont("Helvetica-Bold", 12); p.drawString(x_pos, y_pos, f"Família: {familia_id}")
-        y_pos -= 0.5 * cm
-        p.line(x_pos, y_pos, x + etiqueta_width - (0.5 * cm), y_pos)
-        y_pos -= 0.5 * cm
+        p.setFont("Helvetica-Bold", 14); p.drawString(x_pos, y_pos, f"Família: {familia_id}")
+        y_pos -= 0.7 * cm
+        p.line(x_pos, y_pos, x + etiqueta_width - qr_size - (0.5 * cm), y_pos)
+        y_pos -= 0.7 * cm
         
         for membro in dados_familia.get("membros", []):
-            if y_pos < y + (1 * cm): break
-            p.setFont("Helvetica-Bold", 9); p.drawString(x_pos, y_pos, str(membro.get("Nome Completo", "")))
-            y_pos -= 0.4 * cm
-            p.setFont("Helvetica", 8); p.drawString(x_pos + (0.5*cm), y_pos, f"DN: {membro.get('Data de Nascimento', 'N/A')}  |  CNS: {membro.get('CNS', 'N/A')}")
-            y_pos -= 0.6 * cm
+            if y_pos < y + (1.5 * cm): break
+            p.setFont("Helvetica-Bold", 11); p.drawString(x_pos, y_pos, str(membro.get("Nome Completo", "")))
+            y_pos -= 0.5 * cm
+            p.setFont("Helvetica", 9); p.drawString(x_pos + (0.5*cm), y_pos, f"DN: {membro.get('Data de Nascimento', 'N/A')}  |  CNS: {membro.get('CNS', 'N/A')}")
+            y_pos -= 0.8 * cm
             
         etiqueta_count += 1
             
@@ -287,7 +288,7 @@ def pagina_etiquetas(planilha):
     def agregador(x):
         return {
             "membros": x[['Nome Completo', 'Data de Nascimento', 'CNS']].to_dict('records'),
-            "link_pasta": x['Link da Pasta da Família'].iloc[0]
+            "link_pasta": x['Link da Pasta da Família'].iloc[0] if 'Link da Pasta da Família' in x.columns else ""
         }
     familias_dict = df.groupby('FAMÍLIA').apply(agregador).to_dict()
     
