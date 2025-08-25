@@ -107,7 +107,7 @@ def salvar_no_sheets(dados, planilha):
     except Exception as e:
         st.error(f"Erro ao salvar na planilha: {e}")
 
-# --- FUNÇÃO DE ETIQUETAS COM FONTES MAIORES ---
+# --- FUNÇÃO DE ETIQUETAS CORRIGIDA ---
 def gerar_pdf_etiquetas(familias_agrupadas):
     buffer = BytesIO()
     p = canvas.Canvas(buffer, pagesize=landscape(A4))
@@ -137,8 +137,16 @@ def gerar_pdf_etiquetas(familias_agrupadas):
         p.rect(x, y, etiqueta_width, etiqueta_height)
         p.setDash([])
         
+        y_pos = y + etiqueta_height - (1.5 * cm)
+        x_pos = x + (0.5 * cm)
+        
+        # Lógica corrigida para o QR Code e a linha
+        line_end_x = x + etiqueta_width - (0.5 * cm) # Linha de largura total por padrão
+        qr_size = 2.5 * cm
+
         link_pasta = dados_familia.get("link_pasta", "")
         if link_pasta:
+            line_end_x = x + etiqueta_width - qr_size - (0.5 * cm) # Encurta a linha se houver QR code
             qr = qrcode.QRCode(version=1, error_correction=qrcode.constants.ERROR_CORRECT_L, box_size=10, border=2)
             qr.add_data(link_pasta)
             qr.make(fit=True)
@@ -147,14 +155,11 @@ def gerar_pdf_etiquetas(familias_agrupadas):
             img_qr.save(qr_buffer, format="PNG")
             qr_buffer.seek(0)
             img_reader = ImageReader(qr_buffer)
-            qr_size = 2.5 * cm
             p.drawImage(img_reader, x + etiqueta_width - qr_size - (0.3*cm), y + etiqueta_height - qr_size - (0.3*cm), width=qr_size, height=qr_size, mask='auto')
 
-        y_pos = y + etiqueta_height - (1.5 * cm); x_pos = x + (0.5 * cm)
-        
         p.setFont("Helvetica-Bold", 14); p.drawString(x_pos, y_pos, f"Família: {familia_id}")
         y_pos -= 0.7 * cm
-        p.line(x_pos, y_pos, x + etiqueta_width - qr_size - (0.5 * cm), y_pos)
+        p.line(x_pos, y_pos, line_end_x, y_pos) # Desenha a linha com o comprimento correto
         y_pos -= 0.7 * cm
         
         for membro in dados_familia.get("membros", []):
@@ -290,7 +295,7 @@ def pagina_etiquetas(planilha):
             "membros": x[['Nome Completo', 'Data de Nascimento', 'CNS']].to_dict('records'),
             "link_pasta": x['Link da Pasta da Família'].iloc[0] if 'Link da Pasta da Família' in x.columns else ""
         }
-    familias_dict = df.groupby('FAMÍLIA').apply(agregador).to_dict()
+    familias_dict = df.groupby('FAMÍLIA').apply(agregator).to_dict()
     
     lista_familias = [f for f in familias_dict.keys() if f]
     st.subheader("1. Selecione as famílias")
