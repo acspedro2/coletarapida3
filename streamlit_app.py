@@ -107,7 +107,7 @@ def salvar_no_sheets(dados, planilha):
     except Exception as e:
         st.error(f"Erro ao salvar na planilha: {e}")
 
-# --- FUNÇÃO DE ETIQUETAS COM PB01 ---
+# --- FUNÇÃO DE ETIQUETAS COM "PB01" AO LADO DA FAMÍLIA ---
 def gerar_pdf_etiquetas(familias_agrupadas):
     buffer = BytesIO()
     p = canvas.Canvas(buffer, pagesize=landscape(A4))
@@ -137,19 +137,22 @@ def gerar_pdf_etiquetas(familias_agrupadas):
         p.rect(x, y, etiqueta_width, etiqueta_height)
         p.setDash([])
         
-        # Adicionando "PB01" em destaque no canto superior direito
-        p.setFont("Helvetica-Bold", 16)
-        p.drawRightString(x + etiqueta_width - (0.5 * cm), y + etiqueta_height - (1.2 * cm), "PB01")
-        
         y_pos = y + etiqueta_height - (1.5 * cm)
         x_pos = x + (0.5 * cm)
+        
+        # Define o texto da família com PB01
+        texto_familia = f"Família: {familia_id}    PB01"
+        p.setFont("Helvetica-Bold", 14)
+        p.drawString(x_pos, y_pos, texto_familia)
         
         line_end_x = x + etiqueta_width - (0.5 * cm)
         qr_size = 2.5 * cm
 
         link_pasta = dados_familia.get("link_pasta", "")
         if link_pasta:
-            line_end_x = x + etiqueta_width - qr_size - (0.7 * cm)
+            # Posição do QR Code no canto inferior esquerdo para não interferir
+            qr_x_pos = x + (0.3 * cm)
+            qr_y_pos = y + (0.3 * cm)
             qr = qrcode.QRCode(version=1, error_correction=qrcode.constants.ERROR_CORRECT_L, box_size=10, border=2)
             qr.add_data(link_pasta)
             qr.make(fit=True)
@@ -158,16 +161,14 @@ def gerar_pdf_etiquetas(familias_agrupadas):
             img_qr.save(qr_buffer, format="PNG")
             qr_buffer.seek(0)
             img_reader = ImageReader(qr_buffer)
-            # Ajuste na posição do QR Code para não sobrepor o PB01
-            p.drawImage(img_reader, x + margin, y + margin, width=qr_size, height=qr_size, mask='auto')
+            p.drawImage(img_reader, qr_x_pos, qr_y_pos, width=qr_size, height=qr_size, mask='auto')
 
-        p.setFont("Helvetica-Bold", 14); p.drawString(x_pos, y_pos, f"Família: {familia_id}")
         y_pos -= 0.7 * cm
-        p.line(x_pos, y_pos, x + etiqueta_width - (0.5 * cm), y_pos) # Linha ocupa a largura toda
+        p.line(x_pos, y_pos, line_end_x, y_pos)
         y_pos -= 0.7 * cm
         
         for membro in dados_familia.get("membros", []):
-            if y_pos < y + (1.5 * cm): break
+            if y_pos < y + qr_size + (0.5*cm): break # Garante que não escreve sobre o QR Code
             p.setFont("Helvetica-Bold", 11); p.drawString(x_pos, y_pos, str(membro.get("Nome Completo", "")))
             y_pos -= 0.5 * cm
             p.setFont("Helvetica", 9); p.drawString(x_pos + (0.5*cm), y_pos, f"DN: {membro.get('Data de Nascimento', 'N/A')}  |  CNS: {membro.get('CNS', 'N/A')}")
