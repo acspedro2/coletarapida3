@@ -107,7 +107,6 @@ def salvar_no_sheets(dados, planilha):
     except Exception as e:
         st.error(f"Erro ao salvar na planilha: {e}")
 
-# --- FUNÇÃO DE ETIQUETAS CORRIGIDA ---
 def gerar_pdf_etiquetas(familias_agrupadas):
     buffer = BytesIO()
     p = canvas.Canvas(buffer, pagesize=landscape(A4))
@@ -140,7 +139,6 @@ def gerar_pdf_etiquetas(familias_agrupadas):
         y_pos = y + etiqueta_height - (1.5 * cm)
         x_pos = x + (0.5 * cm)
         
-        # Lógica corrigida para o QR Code e a linha
         line_end_x = x + etiqueta_width - (0.5 * cm)
         qr_size = 2.5 * cm
 
@@ -293,13 +291,20 @@ def pagina_etiquetas(planilha):
     def agregador(x):
         return {
             "membros": x[['Nome Completo', 'Data de Nascimento', 'CNS']].to_dict('records'),
-            "link_pasta": x['Link da Pasta da Família'].iloc[0] if 'Link da Pasta da Família' in x.columns else ""
+            "link_pasta": x['Link da Pasta da Família'].iloc[0] if 'Link da Pasta da Família' in x.columns and not x['Link da Pasta da Família'].empty else ""
         }
-    familias_dict = df.groupby('FAMÍLIA').apply(agregator).to_dict()
     
-    lista_familias = [f for f in familias_dict.keys() if f]
+    # Filtra famílias que não têm um ID de família
+    df_familias = df[df['FAMÍLIA'].astype(str).str.strip() != '']
+    if df_familias.empty:
+        st.warning("Não há famílias para exibir. Verifique se os IDs das famílias estão preenchidos na planilha.")
+        return
+        
+    familias_dict = df_familias.groupby('FAMÍLIA').apply(agregador).to_dict()
+    
+    lista_familias = sorted([f for f in familias_dict.keys() if f])
     st.subheader("1. Selecione as famílias")
-    familias_selecionadas = st.multiselect("Deixe em branco para selecionar todas as famílias:", sorted(lista_familias))
+    familias_selecionadas = st.multiselect("Deixe em branco para selecionar todas as famílias:", lista_familias)
     if not familias_selecionadas: familias_para_gerar = familias_dict
     else: familias_para_gerar = {fid: familias_dict[fid] for fid in familias_selecionadas}
     st.subheader("2. Pré-visualização e Geração do PDF")
