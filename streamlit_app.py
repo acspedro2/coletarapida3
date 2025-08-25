@@ -141,12 +141,12 @@ def gerar_pdf_etiquetas(familias_agrupadas):
         x_pos = x + (0.5 * cm)
         
         # Lógica corrigida para o QR Code e a linha
-        line_end_x = x + etiqueta_width - (0.5 * cm) # Linha de largura total por padrão
+        line_end_x = x + etiqueta_width - (0.5 * cm)
         qr_size = 2.5 * cm
 
         link_pasta = dados_familia.get("link_pasta", "")
         if link_pasta:
-            line_end_x = x + etiqueta_width - qr_size - (0.5 * cm) # Encurta a linha se houver QR code
+            line_end_x = x + etiqueta_width - qr_size - (0.7 * cm)
             qr = qrcode.QRCode(version=1, error_correction=qrcode.constants.ERROR_CORRECT_L, box_size=10, border=2)
             qr.add_data(link_pasta)
             qr.make(fit=True)
@@ -159,7 +159,7 @@ def gerar_pdf_etiquetas(familias_agrupadas):
 
         p.setFont("Helvetica-Bold", 14); p.drawString(x_pos, y_pos, f"Família: {familia_id}")
         y_pos -= 0.7 * cm
-        p.line(x_pos, y_pos, line_end_x, y_pos) # Desenha a linha com o comprimento correto
+        p.line(x_pos, y_pos, line_end_x, y_pos)
         y_pos -= 0.7 * cm
         
         for membro in dados_familia.get("membros", []):
