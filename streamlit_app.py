@@ -22,12 +22,12 @@ st.set_page_config(page_title="Coleta Inteligente", page_icon="🤖", layout="wi
 # --- Funções de Validação e Utilitárias ---
 def validar_cpf(cpf: str) -> bool:
     cpf = ''.join(re.findall(r'\d', str(cpf)))
-    if not cpf or len(cpf) != 11 or cpf == cpf[0] * 11: return False
+    if not cpf or len(cpf) != 11 or cpf == cpf [0] * 11: return False
     try:
-        soma = sum(int(cpf[i]) * (10 - i) for i in range(9)); d1 = (soma * 10 % 11) % 10
-        if d1 != int(cpf[9]): return False
-        soma = sum(int(cpf[i]) * (11 - i) for i in range(10)); d2 = (soma * 10 % 11) % 10
-        if d2 != int(cpf[10]): return False
+        soma = sum(int(cpf [i]) * (10 - i) for i in range(9)); d1 = (soma * 10 % 11) % 10
+        if d1 != int(cpf [9]): return False
+        soma = sum(int(cpf [i]) * (11 - i) for i in range(10)); d2 = (soma * 10 % 11) % 10
+        if d2 != int(cpf [10]): return False
     except: return False
     return True
 
@@ -61,9 +61,9 @@ def ler_dados_da_planilha(_planilha):
         df = pd.DataFrame(dados)
         colunas_esperadas = ["ID", "FAMÍLIA", "Nome Completo", "Data de Nascimento", "Telefone", "CPF", "Nome da Mãe", "Nome do Pai", "Sexo", "CNS", "Município de Nascimento", "Link do Prontuário", "Link da Pasta da Família"]
         for col in colunas_esperadas:
-            if col not in df.columns: df[col] = ""
-        df['Data de Nascimento DT'] = pd.to_datetime(df['Data de Nascimento'], format='%d/%m/%Y', errors='coerce')
-        df['Idade'] = df['Data de Nascimento DT'].apply(lambda dt: calcular_idade(dt) if pd.notnull(dt) else 0)
+            if col not in df.columns: df [col] = ""
+        df ['Data de Nascimento DT'] = pd.to_datetime(df ['Data de Nascimento'], format='%d/%m/%Y', errors='coerce')
+        df ['Idade'] = df ['Data de Nascimento DT'].apply(lambda dt: calcular_idade(dt) if pd.notnull(dt) else 0)
         return df
     except Exception as e:
         st.error(f"Erro ao ler os dados da planilha: {e}"); return pd.DataFrame()
@@ -78,7 +78,7 @@ def ocr_space_api(file_bytes, ocr_api_key):
         response.raise_for_status()
         result = response.json()
         if result.get("IsErroredOnProcessing"): st.error(f"Erro no OCR: {result.get('ErrorMessage')}"); return None
-        return result["ParsedResults"][0]["ParsedText"]
+        return result ["ParsedResults"] [0] ["ParsedText"]
     except Exception as e:
         st.error(f"Erro inesperado no OCR: {e}"); return None
 
@@ -92,7 +92,7 @@ def extrair_dados_com_cohere(texto_extraido: str, cohere_client):
         Texto para analisar: --- {texto_extraido} ---
         """
         response = cohere_client.chat(model="command-r-plus", message=prompt, temperature=0.1)
-        json_string = response.text.replace('```json', '').replace('```', '').strip()
+        json_string = response.text.replace(' ```json', '').replace(' ```', '').strip()
         return json.loads(json_string)
     except Exception as e:
         st.error(f"Erro ao chamar a API do Cohere: {e}"); return None
@@ -114,31 +114,35 @@ def gerar_pdf_etiquetas(familias_agrupadas):
     margin = 1 * cm
     etiqueta_width = (width - 3 * margin) / 2
     etiqueta_height = (height - 3 * margin) / 2
-    
+
     posicoes = [
         (margin, height - margin - etiqueta_height),
         (margin * 2 + etiqueta_width, height - margin - etiqueta_height),
         (margin, margin),
         (margin * 2 + etiqueta_width, margin),
     ]
-    
+
     etiqueta_count = 0
-    
+
     for familia_id, dados_familia in familias_agrupadas.items():
         if not familia_id: continue
 
         if etiqueta_count % 4 == 0 and etiqueta_count > 0: p.showPage()
-        
+
         idx_posicao = etiqueta_count % 4
-        x, y = posicoes[idx_posicao]
-        
+        x, y = posicoes [idx_posicao]
+
         p.setStrokeColorRGB(0.7, 0.7, 0.7); p.setDash(6, 3)
         p.rect(x, y, etiqueta_width, etiqueta_height)
         p.setDash([])
-        
+
+        # Adicionando "PB01" em destaque no canto superior direito
+        p.setFont("Helvetica-Bold", 16)
+        p.drawRightString(x + etiqueta_width - (0.5 * cm), y + etiqueta_height - (1 * cm), "PB01")
+
         y_pos = y + etiqueta_height - (1.5 * cm)
         x_pos = x + (0.5 * cm)
-        
+
         line_end_x = x + etiqueta_width - (0.5 * cm)
         qr_size = 2.5 * cm
 
@@ -153,26 +157,26 @@ def gerar_pdf_etiquetas(familias_agrupadas):
             img_qr.save(qr_buffer, format="PNG")
             qr_buffer.seek(0)
             img_reader = ImageReader(qr_buffer)
-            p.drawImage(img_reader, x + etiqueta_width - qr_size - (0.3*cm), y + etiqueta_height - qr_size - (0.3*cm), width=qr_size, height=qr_size, mask='auto')
+            p.drawImage(img_reader, x + etiqueta_width - qr_size - (0.3 * cm), y + etiqueta_height - qr_size - (0.3 * cm), width=qr_size, height=qr_size, mask='auto')
 
         p.setFont("Helvetica-Bold", 14); p.drawString(x_pos, y_pos, f"Família: {familia_id}")
         y_pos -= 0.7 * cm
         p.line(x_pos, y_pos, line_end_x, y_pos)
         y_pos -= 0.7 * cm
-        
+
         for membro in dados_familia.get("membros", []):
             if y_pos < y + (1.5 * cm): break
             p.setFont("Helvetica-Bold", 11); p.drawString(x_pos, y_pos, str(membro.get("Nome Completo", "")))
             y_pos -= 0.5 * cm
-            p.setFont("Helvetica", 9); p.drawString(x_pos + (0.5*cm), y_pos, f"DN: {membro.get('Data de Nascimento', 'N/A')}  |  CNS: {membro.get('CNS', 'N/A')}")
+            p.setFont("Helvetica", 9); p.drawString(x_pos + (0.5 * cm), y_pos, f"DN: {membro.get('Data de Nascimento', 'N/A')}  |  CNS: {membro.get('CNS', 'N/A')}")
             y_pos -= 0.8 * cm
-            
+
         etiqueta_count += 1
-            
+
     p.save()
     buffer.seek(0)
     return buffer
-    
+
 def gerar_pdf_capas_prontuario(pacientes_selecionados):
     buffer = BytesIO()
     p = canvas.Canvas(buffer, pagesize=letter)
@@ -225,26 +229,26 @@ def pagina_coleta(planilha, co_client):
         if proximo_arquivo:
             st.subheader(f"Processando Ficha: `{proximo_arquivo.name}`")
             st.image(Image.open(proximo_arquivo), width=400)
-            
+
             file_bytes = proximo_arquivo.getvalue()
             texto_extraido = ocr_space_api(file_bytes, st.secrets["OCRSPACEKEY"])
-            
+
             if texto_extraido:
                 dados_extraidos = extrair_dados_com_cohere(texto_extraido, co_client)
-                
+
                 if dados_extraidos:
                     with st.form(key=f"form_{proximo_arquivo.file_id}"):
                         st.subheader("2. Confirme e salve os dados")
                         id_val = st.text_input("ID", value=dados_extraidos.get("ID", "")); familia_val = st.text_input("FAMÍLIA", value=dados_extraidos.get("FAMÍLIA", ""))
                         nome_completo = st.text_input("Nome Completo", value=dados_extraidos.get("Nome Completo", ""))
                         data_nascimento = st.text_input("Data de Nascimento", value=dados_extraidos.get("Data de Nascimento", ""))
-                        if not validar_data_nascimento(data_nascimento)[0] and data_nascimento: st.warning(f"⚠️ {validar_data_nascimento(data_nascimento)[1]}")
+                        if not validar_data_nascimento(data_nascimento) [0] and data_nascimento: st.warning(f"⚠️ {validar_data_nascimento(data_nascimento) [1]}")
                         cpf = st.text_input("CPF", value=dados_extraidos.get("CPF", ""))
                         if not validar_cpf(cpf) and cpf: st.warning("⚠️ O CPF parece ser inválido.")
                         telefone = st.text_input("Telefone", value=dados_extraidos.get("Telefone", "")); nome_mae = st.text_input("Nome da Mãe", value=dados_extraidos.get("Nome da Mãe", "")); nome_pai = st.text_input("Nome do Pai", value=dados_extraidos.get("Nome do Pai", "")); sexo = st.text_input("Sexo", value=dados_extraidos.get("Sexo", "")); cns = st.text_input("CNS", value=dados_extraidos.get("CNS", "")); municipio_nascimento = st.text_input("Município de Nascimento", value=dados_extraidos.get("Município de Nascimento", ""))
-                        
+
                         if st.form_submit_button("✅ Salvar Dados Desta Ficha"):
-                            dados_para_salvar = {'ID': id_val, 'FAMÍLIA': familia_val, 'Nome Completo': nome_completo,'Data de Nascimento': data_nascimento, 'Telefone': telefone, 'CPF': cpf,'Nome da Mãe': nome_mae, 'Nome do Pai': nome_pai, 'Sexo': sexo, 'CNS': cns,'Município de Nascimento': municipio_nascimento}
+                            dados_para_salvar = {'ID': id_val, 'FAMÍLIA': familia_val, 'Nome Completo': nome_completo, 'Data de Nascimento': data_nascimento, 'Telefone': telefone, 'CPF': cpf, 'Nome da Mãe': nome_mae, 'Nome do Pai': nome_pai, 'Sexo': sexo, 'CNS': cns, 'Município de Nascimento': municipio_nascimento}
                             salvar_no_sheets(dados_para_salvar, planilha)
                             st.session_state.processados.append(proximo_arquivo.file_id)
                             st.rerun()
@@ -261,12 +265,12 @@ def pagina_dashboard(planilha):
     if df.empty: st.warning("Ainda não há dados na planilha para exibir."); return
     st.markdown("### Métricas Gerais"); col1, col2, col3 = st.columns(3)
     col1.metric("Total de Fichas", len(df))
-    idade_media = df.loc[df['Idade'] > 0, 'Idade'].mean()
+    idade_media = df.loc [df ['Idade'] > 0, 'Idade'].mean()
     col2.metric("Idade Média", f"{idade_media:.1f} anos" if idade_media > 0 else "N/A")
-    sexo_counts = df['Sexo'].str.capitalize().value_counts()
-    col3.metric("Sexo (Moda)", sexo_counts.index[0] if not sexo_counts.empty else "N/A")
+    sexo_counts = df ['Sexo'].str.capitalize().value_counts()
+    col3.metric("Sexo (Moda)", sexo_counts.index [0] if not sexo_counts.empty else "N/A")
     st.markdown("### Pacientes por Município")
-    municipio_counts = df['Município de Nascimento'].value_counts()
+    municipio_counts = df ['Município de Nascimento'].value_counts()
     if not municipio_counts.empty: st.bar_chart(municipio_counts)
     else: st.info("Não há dados de município para exibir.")
     st.markdown("### Tabela de Dados Completa"); st.dataframe(df)
@@ -279,7 +283,7 @@ def pagina_pesquisa(planilha):
     coluna_selecionada = st.selectbox("Pesquisar na coluna:", colunas_pesquisaveis)
     termo_pesquisa = st.text_input("Digite para procurar:")
     if termo_pesquisa:
-        resultados = df[df[coluna_selecionada].astype(str).str.contains(termo_pesquisa, case=False, na=False)]
+        resultados = df [df [coluna_selecionada].astype(str).str.contains(termo_pesquisa, case=False, na=False)]
         st.markdown(f"**{len(resultados)}** resultado(s) encontrado(s):"); st.dataframe(resultados)
     else: st.info("Digite um termo acima para iniciar a pesquisa.")
 
@@ -287,33 +291,33 @@ def pagina_etiquetas(planilha):
     st.title("🏷️ Gerador de Etiquetas por Família")
     df = ler_dados_da_planilha(planilha)
     if df.empty: st.warning("Ainda não há dados na planilha para gerar etiquetas."); return
-        
+
     def agregador(x):
         return {
-            "membros": x[['Nome Completo', 'Data de Nascimento', 'CNS']].to_dict('records'),
-            "link_pasta": x['Link da Pasta da Família'].iloc[0] if 'Link da Pasta da Família' in x.columns and not x['Link da Pasta da Família'].empty else ""
+            "membros": x [['Nome Completo', 'Data de Nascimento', 'CNS']].to_dict('records'),
+            "link_pasta": x ['Link da Pasta da Família'].iloc [0] if 'Link da Pasta da Família' in x.columns and not x ['Link da Pasta da Família'].empty else ""
         }
-    
+
     # Filtra famílias que não têm um ID de família
-    df_familias = df[df['FAMÍLIA'].astype(str).str.strip() != '']
+    df_familias = df [df ['FAMÍLIA'].astype(str).str.strip() != '']
     if df_familias.empty:
         st.warning("Não há famílias para exibir. Verifique se os IDs das famílias estão preenchidos na planilha.")
         return
-        
+
     familias_dict = df_familias.groupby('FAMÍLIA').apply(agregador).to_dict()
-    
+
     lista_familias = sorted([f for f in familias_dict.keys() if f])
     st.subheader("1. Selecione as famílias")
     familias_selecionadas = st.multiselect("Deixe em branco para selecionar todas as famílias:", lista_familias)
     if not familias_selecionadas: familias_para_gerar = familias_dict
-    else: familias_para_gerar = {fid: familias_dict[fid] for fid in familias_selecionadas}
+    else: familias_para_gerar = {fid: familias_dict [fid] for fid in familias_selecionadas}
     st.subheader("2. Pré-visualização e Geração do PDF")
     if not familias_para_gerar: st.warning("Nenhuma família para exibir."); return
     for familia_id, dados_familia in familias_para_gerar.items():
         if familia_id:
-            with st.expander(f"**Família: {familia_id}** ({len(dados_familia['membros'])} membro(s))"):
-                for membro in dados_familia['membros']:
-                    st.write(f"**{membro['Nome Completo']}**"); st.caption(f"DN: {membro['Data de Nascimento']} | CNS: {membro['CNS']}")
+            with st.expander(f"**Família: {familia_id}** ({len(dados_familia ['membros'])} membro(s))"):
+                for membro in dados_familia ['membros']:
+                    st.write(f"**{membro ['Nome Completo']}**"); st.caption(f"DN: {membro ['Data de Nascimento']} | CNS: {membro ['CNS']}")
     if st.button("📥 Gerar PDF das Etiquetas com QR Code"):
         pdf_bytes = gerar_pdf_etiquetas(familias_para_gerar)
         st.download_button(label="Descarregar PDF", data=pdf_bytes, file_name=f"etiquetas_qrcode_{datetime.now().strftime('%Y%m%d')}.pdf", mime="application/pdf")
@@ -326,12 +330,12 @@ def pagina_capas_prontuario(planilha):
         st.error("A sua planilha precisa de uma coluna chamada 'Link do Prontuário' para esta funcionalidade.")
         return
     st.subheader("1. Selecione os pacientes")
-    lista_pacientes = df['Nome Completo'].tolist()
+    lista_pacientes = df ['Nome Completo'].tolist()
     pacientes_selecionados_nomes = st.multiselect("Escolha um ou mais pacientes para gerar as capas:", sorted(lista_pacientes))
     if pacientes_selecionados_nomes:
-        pacientes_df = df[df['Nome Completo'].isin(pacientes_selecionados_nomes)]
+        pacientes_df = df [df ['Nome Completo'].isin(pacientes_selecionados_nomes)]
         st.subheader("2. Pré-visualização")
-        st.dataframe(pacientes_df[["Nome Completo", "Data de Nascimento", "FAMÍLIA", "CPF", "CNS", "Link do Prontuário"]])
+        st.dataframe(pacientes_df [["Nome Completo", "Data de Nascimento", "FAMÍLIA", "CPF", "CNS", "Link do Prontuário"]])
         if st.button("📥 Gerar PDF das Capas com QR Code"):
             pdf_bytes = gerar_pdf_capas_prontuario(pacientes_df)
             st.download_button(label="Descarregar PDF das Capas", data=pdf_bytes, file_name=f"capas_prontuario_qrcode_{datetime.now().strftime('%Y%m%d')}.pdf", mime="application/pdf")
@@ -344,25 +348,25 @@ def pagina_whatsapp(planilha):
     st.subheader("1. Escreva a sua mensagem")
     mensagem_padrao = st.text_area("Mensagem:", "Olá, [NOME]! A sua autorização de exame para [ESCREVA AQUI O NOME DO EXAME] foi liberada. Por favor, entre em contato para mais detalhes.", height=150)
     st.subheader("2. Escolha o paciente e envie")
-    df_com_telefone = df[df['Telefone'].astype(str).str.strip() != ''].copy()
+    df_com_telefone = df [df ['Telefone'].astype(str).str.strip() != ''].copy()
     for index, row in df_com_telefone.iterrows():
-        nome = row['Nome Completo']
-        telefone = re.sub(r'\D', '', str(row['Telefone']))
+        nome = row ['Nome Completo']
+        telefone = re.sub(r'\D', '', str(row ['Telefone']))
         if len(telefone) < 10: continue
-        mensagem_personalizada = mensagem_padrao.replace("[NOME]", nome.split()[0])
+        mensagem_personalizada = mensagem_padrao.replace("[NOME]", nome.split() [0])
         whatsapp_url = f"https://wa.me/55{telefone}?text={urllib.parse.quote(mensagem_personalizada)}"
         col1, col2 = st.columns([3, 1])
-        col1.text(f"{nome} - ({row['Telefone']})")
+        col1.text(f"{nome} - ({row ['Telefone']})")
         col2.link_button("Enviar Mensagem ↗️", whatsapp_url, use_container_width=True)
-            
+
 # --- LÓGICA PRINCIPAL DE EXECUÇÃO (com menu) ---
 def main():
     try:
-        st.session_state.co_client = cohere.Client(api_key=st.secrets["COHEREKEY"])
+        st.session_state.co_client = cohere.Client(api_key=st.secrets ["COHEREKEY"])
         planilha_conectada = conectar_planilha()
     except Exception as e:
         st.error(f"Não foi possível inicializar os serviços. Verifique seus segredos. Erro: {e}"); st.stop()
-    
+
     st.sidebar.title("Navegação")
     paginas = {
         "Coletar Fichas": lambda: pagina_coleta(planilha_conectada, st.session_state.co_client),
@@ -373,9 +377,9 @@ def main():
         "Enviar WhatsApp": lambda: pagina_whatsapp(planilha_conectada),
     }
     pagina_selecionada = st.sidebar.radio("Escolha uma página:", paginas.keys())
-    
+
     if planilha_conectada is not None:
-        paginas[pagina_selecionada]()
+        paginas [pagina_selecionada]()
     else:
         st.error("A conexão com a planilha falhou. Não é possível carregar a página.")
 
