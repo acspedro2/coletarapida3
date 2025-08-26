@@ -126,18 +126,18 @@ def preencher_pdf_formulario(paciente_dados):
         # --- AQUI COMEÇA A NOSSA "CALIBRAÇÃO" ---
         # As coordenadas (0,0) são o canto INFERIOR esquerdo.
         # Ajustes baseados no feedback mais recente:
-        # Nome Civil: descer e um pouco mais a esquerda
-        # CPF: só descer um pouco
-        # Data de Nascimento: chegar um pouco a esquerda
+        # Nome Civil: descer um pouco mais e chegar mais a esquerda
+        # CPF: subir um pouquinho
+        # Data de Nascimento: mais a direita
 
         # Nome Civil (Nome Completo)
-        can.drawString(5 * cm, 24 * cm, str(paciente_dados.get("Nome Completo", "")))
+        can.drawString(4.5 * cm, 23.7 * cm, str(paciente_dados.get("Nome Completo", "")))
         
         # CPF
-        can.drawString(15 * cm, 23.5 * cm, str(paciente_dados.get("CPF", "")))
+        can.drawString(15 * cm, 23.8 * cm, str(paciente_dados.get("CPF", "")))
 
         # DATA DE NASCIMENTO
-        can.drawString(14 * cm, 23 * cm, str(paciente_dados.get("Data de Nascimento", "")))
+        can.drawString(14.5 * cm, 23 * cm, str(paciente_dados.get("Data de Nascimento", "")))
 
         # --- FIM DA CALIBRAÇÃO ---
         
@@ -243,15 +243,7 @@ def pagina_coleta(planilha, co_client):
 
                         if st.form_submit_button("✅ Salvar Dados Desta Ficha"):
                             cpf_a_verificar = ''.join(re.findall(r'\d', dados_para_salvar['CPF']))
-                            cns_a_verificar = ''.join(re.findall(r'\d', dados_para_salvar['CNS']))
-                            
-                            duplicado_cpf = False
-                            if cpf_a_verificar and not df_existente.empty:
-                                duplicado_cpf = df_existente['CPF'].astype(str).str.replace(r'\D', '', regex=True).str.contains(cpf_a_verificar).any()
-
-                            duplicado_cns = False
-                            if cns_a_verificar and not df_existente.empty:
-                                duplicado_cns = df_existente['CNS'].astype(str).str.replace(r'\D', '', regex=True).str.contains(cns_a_verificar).any()
+                            cns_a_verificar = ''.join(re.findall(r'\D', '', regex=True).str.contains(cns_a_verificar).any()
 
                             if duplicado_cpf or duplicado_cns:
                                 st.error("⚠️ Alerta de Duplicado: Já existe um paciente registado com este CPF ou CNS. O registo não foi salvo.")
@@ -529,15 +521,4 @@ def main():
         "Coletar Fichas": lambda: pagina_coleta(planilha_conectada, co_client),
         "Gestão de Pacientes": lambda: pagina_pesquisa(planilha_conectada),
         "Dashboard": lambda: pagina_dashboard(planilha_conectada),
-        "Gerar Etiquetas": lambda: pagina_etiquetas(planilha_conectada),
-        "Gerar Capas de Prontuário": lambda: pagina_capas_prontuario(planilha_conectada),
-        "Gerar Documentos": lambda: pagina_gerar_documentos(planilha_conectada),
-        "Enviar WhatsApp": lambda: pagina_whatsapp(planilha_conectada),
-    }
-    
-    pagina_selecionada = st.sidebar.radio("Escolha uma página:", paginas.keys())
-    
-    paginas[pagina_selecionada]()
-
-if __name__ == "__main__":
-    main()
+        "Ger
