@@ -103,7 +103,6 @@ def salvar_no_sheets(dados, planilha):
         cabecalhos = planilha.row_values(1)
         if 'ID' not in dados or not dados['ID']:
             dados['ID'] = f"ID-{int(time.time())}"
-        # Adiciona a data de registo automaticamente
         dados['Data de Registo'] = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         
         nova_linha = [dados.get(cabecalho, "") for cabecalho in cabecalhos]
@@ -177,12 +176,11 @@ def pagina_dashboard(planilha):
         else:
             st.info("Não há dados de sexo para exibir.")
             
-    # --- NOVO GRÁFICO DE HISTÓRICO ---
     st.markdown("---")
     st.markdown("### Evolução de Novos Registos por Mês")
     if 'Data de Registo' in df_filtrado.columns and df_filtrado['Data de Registo'].notna().any():
         df_filtrado['Data de Registo DT'] = pd.to_datetime(df_filtrado['Data de Registo'], format='%d/%m/%Y %H:%M:%S', errors='coerce')
-        df_filtrado.dropna(subset=['Data de Registo DT'], inplace=True) # Remove linhas onde a conversão falhou
+        df_filtrado.dropna(subset=['Data de Registo DT'], inplace=True)
         
         if not df_filtrado.empty:
             registos_por_mes = df_filtrado.set_index('Data de Registo DT').resample('M').size().rename('Novos Pacientes')
@@ -195,6 +193,19 @@ def pagina_dashboard(planilha):
     st.markdown("---")
     st.markdown("### Tabela de Dados (com filtros aplicados)")
     st.dataframe(df_filtrado)
+    
+    # --- BOTÃO DE EXPORTAÇÃO ---
+    @st.cache_data
+    def convert_df_to_csv(df):
+        return df.to_csv(index=False).encode('utf-8')
+
+    csv = convert_df_to_csv(df_filtrado)
+    st.download_button(
+        label="📥 Descarregar Dados Filtrados (CSV)",
+        data=csv,
+        file_name='dados_filtrados.csv',
+        mime='text/csv',
+    )
 
 # ... (todas as outras páginas e a função main continuam iguais) ...
 def pagina_coleta(planilha, co_client):
