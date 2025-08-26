@@ -16,11 +16,13 @@ import urllib.parse
 import qrcode
 from reportlab.lib.utils import ImageReader
 import matplotlib.pyplot as plt
+from pypdf import PdfReader, PdfWriter
 
 # --- Interface Streamlit ---
 st.set_page_config(page_title="Coleta Inteligente", page_icon="🤖", layout="wide")
 
 # --- Funções de Validação e Utilitárias ---
+# ... (todas as funções de validação e cálculo continuam aqui, sem alterações) ...
 def validar_cpf(cpf: str) -> bool:
     cpf = ''.join(re.findall(r'\d', str(cpf)))
     if not cpf or len(cpf) != 11 or cpf == cpf[0] * 11: return False
@@ -45,6 +47,7 @@ def calcular_idade(data_nasc):
     return hoje.year - data_nasc.year - ((hoje.month, hoje.day) < (data_nasc.month, data_nasc.day))
 
 # --- Funções de Conexão e API ---
+# ... (todas as funções de conexão e API continuam aqui, sem alterações) ...
 @st.cache_resource
 def conectar_planilha():
     try:
@@ -113,114 +116,91 @@ def salvar_no_sheets(dados, planilha):
     except Exception as e:
         st.error(f"Erro ao salvar na planilha: {e}")
 
-def gerar_pdf_etiquetas(familias_agrupadas):
-    buffer = BytesIO()
-    p = canvas.Canvas(buffer, pagesize=landscape(A4))
-    width, height = landscape(A4)
-    margin = 1 * cm
-    etiqueta_width = (width - 3 * margin) / 2
-    etiqueta_height = (height - 3 * margin) / 2
-    
-    posicoes = [
-        (margin, height - margin - etiqueta_height),
-        (margin * 2 + etiqueta_width, height - margin - etiqueta_height),
-        (margin, margin),
-        (margin * 2 + etiqueta_width, margin),
-    ]
-    
-    etiqueta_count = 0
-    
-    for familia_id, dados_familia in familias_agrupadas.items():
-        if not familia_id: continue
+# --- NOVA FUNÇÃO PARA PREENCHER O PDF ---
+def preencher_pdf_formulario(paciente_dados):
+    try:
+        template_pdf_path = "Formulario_2IndiceDeVulnerabilidadeClinicoSocial.pdf"
+        
+        # Buffer para criar o "carimbo" com os dados
+        packet = BytesIO()
+        can = canvas.Canvas(packet, pagesize=A4)
+        
+        # --- AQUI COMEÇA A NOSSA "CALIBRAÇÃO" ---
+        # Estas são as coordenadas de CHUTE INICIAL. Vamos ajustá-las juntos.
+        # As coordenadas (0,0) são o canto INFERIOR esquerdo.
+        
+        # NOME CIVIL
+        can.drawString(3 * cm, 25 * cm, str(paciente_dados.get("Nome Completo", "")))
+        
+        # CPF
+        can.drawString(3 * cm, 24 * cm, str(paciente_dados.get("CPF", "")))
 
-        if etiqueta_count % 4 == 0 and etiqueta_count > 0: p.showPage()
-        
-        idx_posicao = etiqueta_count % 4
-        x, y = posicoes[idx_posicao]
-        
-        p.setStrokeColorRGB(0.7, 0.7, 0.7); p.setDash(6, 3)
-        p.rect(x, y, etiqueta_width, etiqueta_height)
-        p.setDash([])
-        
-        y_pos = y + etiqueta_height - (1.5 * cm)
-        x_pos = x + (0.5 * cm)
-        
-        texto_familia = f"Família: {familia_id}    PB01"
-        p.setFont("Helvetica-Bold", 14)
-        p.drawString(x_pos, y_pos, texto_familia)
-        
-        line_end_x = x + etiqueta_width - (0.5 * cm)
-        qr_size = 2.5 * cm
+        # DATA DE NASCIMENTO
+        can.drawString(3 * cm, 23 * cm, str(paciente_dados.get("Data de Nascimento", "")))
 
-        link_pasta = dados_familia.get("link_pasta", "")
-        if link_pasta:
-            qr_x_pos = x + (0.3 * cm)
-            qr_y_pos = y + (0.3 * cm)
-            qr = qrcode.QRCode(version=1, error_correction=qrcode.constants.ERROR_CORRECT_L, box_size=10, border=2)
-            qr.add_data(link_pasta)
-            qr.make(fit=True)
-            img_qr = qr.make_image(fill_color="black", back_color="white")
-            qr_buffer = BytesIO()
-            img_qr.save(qr_buffer, format="PNG")
-            qr_buffer.seek(0)
-            img_reader = ImageReader(qr_buffer)
-            p.drawImage(img_reader, qr_x_pos, qr_y_pos, width=qr_size, height=qr_size, mask='auto')
-
-        y_pos -= 0.7 * cm
-        p.line(x_pos, y_pos, line_end_x, y_pos)
-        y_pos -= 0.7 * cm
+        # --- FIM DA CALIBRAÇÃO ---
         
-        for membro in dados_familia.get("membros", []):
-            if y_pos < y + qr_size + (0.5*cm): break
-            p.setFont("Helvetica-Bold", 11); p.drawString(x_pos, y_pos, str(membro.get("Nome Completo", "")))
-            y_pos -= 0.5 * cm
-            p.setFont("Helvetica", 9); p.drawString(x_pos + (0.5*cm), y_pos, f"DN: {membro.get('Data de Nascimento', 'N/A')}  |  CNS: {membro.get('CNS', 'N/A')}")
-            y_pos -= 0.8 * cm
-            
-        etiqueta_count += 1
-            
-    p.save()
-    buffer.seek(0)
-    return buffer
-    
-def gerar_pdf_capas_prontuario(pacientes_selecionados):
-    buffer = BytesIO()
-    p = canvas.Canvas(buffer, pagesize=letter)
-    width, height = letter
-    for index, paciente in pacientes_selecionados.iterrows():
-        p.setFont("Helvetica-Bold", 14); p.drawRightString(width - inch, height - 0.75 * inch, "PB01")
-        p.setFont("Helvetica-Bold", 24); p.drawCentredString(width / 2.0, height - 1.5 * inch, "PRONTUÁRIO DO PACIENTE")
-        p.line(inch, height - 2.2 * inch, width - inch, height - 2.2 * inch)
-        box_x = inch; box_y = height - 6 * inch
-        box_width = width - 2 * inch; box_height = 4 * inch
-        p.setStrokeColorRGB(0.2, 0.2, 0.2); p.setLineWidth(1)
-        p.roundRect(box_x, box_y, box_width, box_height, 10)
-        y_pos = box_y + box_height - 0.75 * inch
-        p.setFont("Helvetica-Bold", 22); p.setFillColorRGB(0, 0, 0)
-        p.drawString(box_x + 0.3 * inch, y_pos, str(paciente.get("Nome Completo", "")))
-        y_pos -= 0.25 * inch
-        p.line(box_x + 0.3 * inch, y_pos, box_x + box_width - 0.3 * inch, y_pos)
-        y_pos -= 0.6 * inch
-        x_col1_label = box_x + 0.3 * inch; x_col1_value = x_col1_label + 1.3 * inch
-        x_col2_label = box_x + box_width / 2; x_col2_value = x_col2_label + 0.8 * inch
-        line_height = 0.4 * inch
-        p.setFont("Helvetica", 12); p.drawString(x_col1_label, y_pos, "Data de Nasc.:")
-        p.setFont("Helvetica-Bold", 12); p.drawString(x_col1_value, y_pos, str(paciente.get("Data de Nascimento", "")))
-        y_pos -= line_height
-        p.setFont("Helvetica", 12); p.drawString(x_col1_label, y_pos, "CPF:")
-        p.setFont("Helvetica-Bold", 12); p.drawString(x_col1_value, y_pos, str(paciente.get("CPF", "")))
-        y_pos = box_y + box_height - 1.6 * inch
-        p.setFont("Helvetica", 12); p.drawString(x_col2_label, y_pos, "Família:")
-        p.setFont("Helvetica-Bold", 12); p.drawString(x_col2_value, y_pos, str(paciente.get("FAMÍLIA", "")))
-        y_pos -= line_height
-        p.setFont("Helvetica", 12); p.drawString(x_col2_label, y_pos, "CNS:")
-        p.setFont("Helvetica-Bold", 12); p.drawString(x_col2_value, y_pos, str(paciente.get("CNS", "")))
-        if not index == pacientes_selecionados.index[-1]: p.showPage()
-    p.save()
-    buffer.seek(0)
-    return buffer
+        can.save()
+        packet.seek(0)
+        
+        # Lê o PDF de "carimbo" que acabámos de criar
+        new_pdf = PdfReader(packet)
+        
+        # Lê o formulário original
+        existing_pdf = PdfReader(open(template_pdf_path, "rb"))
+        output = PdfWriter()
+        
+        # Pega a primeira página do formulário original
+        page = existing_pdf.pages[0]
+        # Sobrepõe o "carimbo" na página original
+        page.merge_page(new_pdf.pages[0])
+        output.add_page(page)
+        
+        # Salva o resultado final num buffer de memória
+        final_buffer = BytesIO()
+        output.write(final_buffer)
+        final_buffer.seek(0)
+        
+        return final_buffer
+
+    except FileNotFoundError:
+        st.error(f"Erro: O arquivo modelo '{template_pdf_path}' não foi encontrado no repositório GitHub.")
+        return None
+    except Exception as e:
+        st.error(f"Ocorreu um erro ao gerar o PDF: {e}")
+        return None
 
 # --- PÁGINAS DO APP ---
+def pagina_gerar_documentos(planilha):
+    st.title("📄 Gerador de Documentos")
+    
+    df = ler_dados_da_planilha(planilha)
+    if df.empty:
+        st.warning("Não há pacientes na base de dados para gerar documentos.")
+        return
+        
+    st.subheader("1. Selecione o Paciente")
+    lista_pacientes = sorted(df['Nome Completo'].tolist())
+    paciente_selecionado_nome = st.selectbox("Escolha um paciente:", lista_pacientes, index=None, placeholder="Selecione...")
+    
+    if paciente_selecionado_nome:
+        paciente_dados = df[df['Nome Completo'] == paciente_selecionado_nome].iloc[0]
+        
+        st.markdown("---")
+        st.subheader("2. Escolha o Documento e Gere")
+        
+        if st.button("Gerar Formulário de Vulnerabilidade"):
+            pdf_buffer = preencher_pdf_formulario(paciente_dados.to_dict())
+            
+            if pdf_buffer:
+                st.download_button(
+                    label="📥 Descarregar Formulário Preenchido (PDF)",
+                    data=pdf_buffer,
+                    file_name=f"formulario_{paciente_selecionado_nome.replace(' ', '_')}.pdf",
+                    mime="application/pdf"
+                )
+
+# ... (todas as outras páginas - coleta, dashboard, pesquisa, etc. - e a função main continuam aqui, sem alterações) ...
 def pagina_coleta(planilha, co_client):
     st.title("🤖 COLETA INTELIGENTE")
     st.header("1. Envie uma ou mais imagens de fichas")
@@ -376,7 +356,7 @@ def pagina_dashboard(planilha):
         file_name='dados_filtrados.csv',
         mime='text/csv',
     )
-
+    
 def pagina_pesquisa(planilha):
     st.title("🔎 Gestão de Pacientes")
     st.info("Use a pesquisa para encontrar um paciente e depois expandir para ver detalhes, editar ou apagar o registo.", icon="ℹ️")
@@ -550,6 +530,7 @@ def main():
         "Dashboard": lambda: pagina_dashboard(planilha_conectada),
         "Gerar Etiquetas": lambda: pagina_etiquetas(planilha_conectada),
         "Gerar Capas de Prontuário": lambda: pagina_capas_prontuario(planilha_conectada),
+        "Gerar Documentos": lambda: pagina_gerar_documentos(planilha_conectada),
         "Enviar WhatsApp": lambda: pagina_whatsapp(planilha_conectada),
     }
     
