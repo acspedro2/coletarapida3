@@ -6,3 +6,4 @@ reportlab
 cohere
 requests
 qrcode
+matplotlib
