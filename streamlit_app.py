@@ -122,9 +122,9 @@ def preencher_pdf_formulario(paciente_dados):
         can = canvas.Canvas(packet, pagesize=A4)
         
         # Coordenadas da última calibração bem sucedida
-        can.drawString(3.8 * cm, 23.8 * cm, str(paciente_dados.get("Nome Completo", "")))
-        can.drawString(15 * cm, 23.7 * cm, str(paciente_dados.get("CPF", "")))
-        can.drawString(15.5 * cm, 23 * cm, str(paciente_dados.get("Data de Nascimento", "")))
+        can.drawString(3.4 * cm, 23.8 * cm, str(paciente_dados.get("Nome Completo", ""))) # Nome Civil (Mais à esquerda)
+        can.drawString(15 * cm, 23.8 * cm, str(paciente_dados.get("CPF", ""))) # CPF (Subiu um pouco)
+        can.drawString(16 * cm, 23 * cm, str(paciente_dados.get("Data de Nascimento", ""))) # Data de Nascimento (Mais à direita)
         
         can.save()
         packet.seek(0)
