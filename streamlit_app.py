@@ -114,50 +114,29 @@ def salvar_no_sheets(dados, planilha):
     except Exception as e:
         st.error(f"Erro ao salvar na planilha: {e}")
 
-# --- NOVA FUNÇÃO PARA PREENCHER O PDF ---
 def preencher_pdf_formulario(paciente_dados):
     try:
         template_pdf_path = "Formulario_2IndiceDeVulnerabilidadeClinicoFuncional20IVCF20_ImpressoraPDFPreenchivel_202404-2.pdf"
         
-        # Buffer para criar o "carimbo" com os dados
         packet = BytesIO()
         can = canvas.Canvas(packet, pagesize=A4)
         
-        # --- AQUI COMEÇA A NOSSA "CALIBRAÇÃO" ---
-        # As coordenadas (0,0) são o canto INFERIOR esquerdo.
-        # Ajustes baseados no feedback mais recente:
-        # Nome Civil: descer um pouco mais e chegar mais a esquerda
-        # CPF: subir um pouquinho
-        # Data de Nascimento: mais a direita
-
-        # Nome Civil (Nome Completo)
-        can.drawString(4.5 * cm, 23.7 * cm, str(paciente_dados.get("Nome Completo", "")))
-        
-        # CPF
-        can.drawString(15 * cm, 23.8 * cm, str(paciente_dados.get("CPF", "")))
-
-        # DATA DE NASCIMENTO
-        can.drawString(14.5 * cm, 23 * cm, str(paciente_dados.get("Data de Nascimento", "")))
-
-        # --- FIM DA CALIBRAÇÃO ---
+        # Ajustes de calibração
+        can.drawString(4.2 * cm, 23.5 * cm, str(paciente_dados.get("Nome Completo", "")))
+        can.drawString(15 * cm, 24.0 * cm, str(paciente_dados.get("CPF", "")))
+        can.drawString(15.0 * cm, 23 * cm, str(paciente_dados.get("Data de Nascimento", "")))
         
         can.save()
         packet.seek(0)
         
-        # Lê o PDF de "carimbo" que acabámos de criar
         new_pdf = PdfReader(packet)
-        
-        # Lê o formulário original
         existing_pdf = PdfReader(open(template_pdf_path, "rb"))
         output = PdfWriter()
         
-        # Pega a primeira página do formulário original
         page = existing_pdf.pages[0]
-        # Sobrepõe o "carimbo" na página original
         page.merge_page(new_pdf.pages[0])
         output.add_page(page)
         
-        # Salva o resultado final num buffer de memória
         final_buffer = BytesIO()
         output.write(final_buffer)
         final_buffer.seek(0)
@@ -201,7 +180,6 @@ def pagina_gerar_documentos(planilha):
                     mime="application/pdf"
                 )
 
-# ... (todas as outras páginas - coleta, dashboard, pesquisa, etc. - e a função main continuam aqui, sem alterações) ...
 def pagina_coleta(planilha, co_client):
     st.title("🤖 COLETA INTELIGENTE")
     st.header("1. Envie uma ou mais imagens de fichas")
@@ -243,7 +221,15 @@ def pagina_coleta(planilha, co_client):
 
                         if st.form_submit_button("✅ Salvar Dados Desta Ficha"):
                             cpf_a_verificar = ''.join(re.findall(r'\d', dados_para_salvar['CPF']))
-                            cns_a_verificar = ''.join(re.findall(r'\D', '', regex=True).str.contains(cns_a_verificar).any()
+                            cns_a_verificar = ''.join(re.findall(r'\d', dados_para_salvar['CNS']))
+                            
+                            duplicado_cpf = False
+                            if cpf_a_verificar and not df_existente.empty:
+                                duplicado_cpf = df_existente['CPF'].astype(str).str.replace(r'\D', '', regex=True).str.contains(cpf_a_verificar).any()
+
+                            duplicado_cns = False
+                            if cns_a_verificar and not df_existente.empty:
+                                duplicado_cns = df_existente['CNS'].astype(str).str.replace(r'\D', '', regex=True).str.contains(cns_a_verificar).any()
 
                             if duplicado_cpf or duplicado_cns:
                                 st.error("⚠️ Alerta de Duplicado: Já existe um paciente registado com este CPF ou CNS. O registo não foi salvo.")
@@ -521,4 +507,15 @@ def main():
         "Coletar Fichas": lambda: pagina_coleta(planilha_conectada, co_client),
         "Gestão de Pacientes": lambda: pagina_pesquisa(planilha_conectada),
         "Dashboard": lambda: pagina_dashboard(planilha_conectada),
-        "Ger
+        "Gerar Etiquetas": lambda: pagina_etiquetas(planilha_conectada),
+        "Gerar Capas de Prontuário": lambda: pagina_capas_prontuario(planilha_conectada),
+        "Gerar Documentos": lambda: pagina_gerar_documentos(planilha_conectada),
+        "Enviar WhatsApp": lambda: pagina_whatsapp(planilha_conectada),
+    }
+    
+    pagina_selecionada = st.sidebar.radio("Escolha uma página:", paginas.keys())
+    
+    paginas[pagina_selecionada]()
+
+if __name__ == "__main__":
+    main()
