@@ -22,7 +22,6 @@ from pypdf import PdfReader, PdfWriter
 st.set_page_config(page_title="Coleta Inteligente", page_icon="🤖", layout="wide")
 
 # --- Funções de Validação e Utilitárias ---
-# ... (todas as funções de validação e cálculo continuam aqui, sem alterações) ...
 def validar_cpf(cpf: str) -> bool:
     cpf = ''.join(re.findall(r'\d', str(cpf)))
     if not cpf or len(cpf) != 11 or cpf == cpf[0] * 11: return False
@@ -47,7 +46,6 @@ def calcular_idade(data_nasc):
     return hoje.year - data_nasc.year - ((hoje.month, hoje.day) < (data_nasc.month, data_nasc.day))
 
 # --- Funções de Conexão e API ---
-# ... (todas as funções de conexão e API continuam aqui, sem alterações) ...
 @st.cache_resource
 def conectar_planilha():
     try:
@@ -119,44 +117,28 @@ def salvar_no_sheets(dados, planilha):
 # --- NOVA FUNÇÃO PARA PREENCHER O PDF ---
 def preencher_pdf_formulario(paciente_dados):
     try:
-        template_pdf_path = "Formulario_2IndiceDeVulnerabilidadeClinicoSocial.pdf"
+        # NOME DO ARQUIVO CORRIGIDO
+        template_pdf_path = "Formulario_2IndiceDeVulnerabilidadeClinicoFuncional20IVCF20_ImpressoraPDFPreenchivel_202404-2.pdf"
         
-        # Buffer para criar o "carimbo" com os dados
         packet = BytesIO()
         can = canvas.Canvas(packet, pagesize=A4)
         
-        # --- AQUI COMEÇA A NOSSA "CALIBRAÇÃO" ---
-        # Estas são as coordenadas de CHUTE INICIAL. Vamos ajustá-las juntos.
-        # As coordenadas (0,0) são o canto INFERIOR esquerdo.
-        
-        # NOME CIVIL
+        # Coordenadas de CHUTE INICIAL para calibrarmos.
         can.drawString(3 * cm, 25 * cm, str(paciente_dados.get("Nome Completo", "")))
-        
-        # CPF
         can.drawString(3 * cm, 24 * cm, str(paciente_dados.get("CPF", "")))
-
-        # DATA DE NASCIMENTO
         can.drawString(3 * cm, 23 * cm, str(paciente_dados.get("Data de Nascimento", "")))
-
-        # --- FIM DA CALIBRAÇÃO ---
         
         can.save()
         packet.seek(0)
         
-        # Lê o PDF de "carimbo" que acabámos de criar
         new_pdf = PdfReader(packet)
-        
-        # Lê o formulário original
         existing_pdf = PdfReader(open(template_pdf_path, "rb"))
         output = PdfWriter()
         
-        # Pega a primeira página do formulário original
         page = existing_pdf.pages[0]
-        # Sobrepõe o "carimbo" na página original
         page.merge_page(new_pdf.pages[0])
         output.add_page(page)
         
-        # Salva o resultado final num buffer de memória
         final_buffer = BytesIO()
         output.write(final_buffer)
         final_buffer.seek(0)
