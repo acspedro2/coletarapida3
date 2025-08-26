@@ -69,7 +69,6 @@ def ler_dados_da_planilha(_planilha):
     except Exception as e:
         st.error(f"Erro ao ler os dados da planilha: {e}"); return pd.DataFrame()
 
-# ... (outras funções como ocr_space_api, extrair_dados_com_cohere, etc., continuam iguais) ...
 def ocr_space_api(file_bytes, ocr_api_key):
     try:
         url = "https://api.ocr.space/parse/image"
@@ -102,106 +101,25 @@ def extrair_dados_com_cohere(texto_extraido: str, cohere_client):
 def salvar_no_sheets(dados, planilha):
     try:
         cabecalhos = planilha.row_values(1)
-        # Garante que um ID único seja criado se não existir
         if 'ID' not in dados or not dados['ID']:
             dados['ID'] = f"ID-{int(time.time())}"
         nova_linha = [dados.get(cabecalho, "") for cabecalho in cabecalhos]
         planilha.append_row(nova_linha)
         st.success(f"✅ Dados de '{dados.get('Nome Completo', 'Desconhecido')}' salvos com sucesso!")
         st.balloons()
+        st.cache_data.clear() # Limpa o cache para garantir que a próxima leitura de dados esteja atualizada
     except Exception as e:
         st.error(f"Erro ao salvar na planilha: {e}")
 
 # --- PÁGINAS DO APP ---
 
-def pagina_pesquisa(planilha):
-    st.title("🔎 Gestão de Pacientes")
-    st.info("Use a pesquisa para encontrar um paciente e depois expandir para ver detalhes, editar ou apagar o registo.", icon="ℹ️")
-
-    df = ler_dados_da_planilha(planilha)
-    if df.empty:
-        st.warning("Ainda não há dados na planilha para pesquisar.")
-        return
-
-    colunas_pesquisaveis = ["Nome Completo", "CPF", "CNS", "Nome da Mãe", "ID"]
-    coluna_selecionada = st.selectbox("Pesquisar por:", colunas_pesquisaveis)
-    termo_pesquisa = st.text_input("Digite o termo de pesquisa:")
-
-    if termo_pesquisa:
-        # Garante que a pesquisa funciona mesmo com colunas numéricas
-        resultados = df[df[coluna_selecionada].astype(str).str.contains(termo_pesquisa, case=False, na=False)]
-        
-        st.markdown(f"**{len(resultados)}** resultado(s) encontrado(s):")
-        
-        for index, row in resultados.iterrows():
-            id_paciente = row['ID']
-            with st.expander(f"**{row['Nome Completo']}** (ID: {id_paciente})"):
-                st.dataframe(row.to_frame().T, hide_index=True)
-                
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    if st.button("✏️ Editar Dados", key=f"edit_{id_paciente}"):
-                        st.session_state['patient_to_edit'] = row.to_dict()
-                        st.session_state['patient_row_index'] = index + 2 # +2 para corresponder à linha na planilha (cabeçalho + index 0)
-                
-                with col2:
-                    if st.button("🗑️ Apagar Registo", key=f"delete_{id_paciente}"):
-                        try:
-                            cell = planilha.find(str(id_paciente))
-                            planilha.delete_rows(cell.row)
-                            st.success(f"Registo de {row['Nome Completo']} apagado com sucesso!")
-                            st.cache_data.clear() # Limpa o cache para recarregar os dados
-                            time.sleep(1) # Pequena pausa para o utilizador ver a mensagem
-                            st.rerun()
-                        except gspread.exceptions.CellNotFound:
-                            st.error(f"Erro: Não foi possível encontrar o paciente com ID {id_paciente} para apagar.")
-                        except Exception as e:
-                            st.error(f"Ocorreu um erro ao apagar: {e}")
-                            
-    # Formulário de edição (aparece fora do loop de resultados se um paciente for selecionado)
-    if 'patient_to_edit' in st.session_state:
-        st.markdown("---")
-        st.subheader("Editando Paciente")
-        
-        patient_data = st.session_state['patient_to_edit']
-        
-        with st.form(key="edit_form"):
-            # Exibe todos os campos para edição
-            edited_data = {}
-            for key, value in patient_data.items():
-                # Campos de data e idade não são diretamente editáveis aqui para simplicidade
-                if key not in ['Data de Nascimento DT', 'Idade']:
-                    edited_data[key] = st.text_input(f"{key}", value=value, key=f"edit_{key}")
-
-            submitted = st.form_submit_button("Salvar Alterações")
-            
-            if submitted:
-                try:
-                    cell = planilha.find(str(patient_data['ID']))
-                    row_to_update = cell.row
-                    
-                    # Constrói a lista de valores na ordem correta dos cabeçalhos
-                    cabecalhos = planilha.row_values(1)
-                    update_values = [edited_data.get(h, '') for h in cabecalhos]
-                    
-                    planilha.update(f'A{row_to_update}', [update_values])
-                    
-                    st.success("Dados do paciente atualizados com sucesso!")
-                    del st.session_state['patient_to_edit'] # Limpa o estado de edição
-                    st.cache_data.clear() # Limpa o cache
-                    time.sleep(1)
-                    st.rerun()
-
-                except gspread.exceptions.CellNotFound:
-                    st.error(f"Erro: Não foi possível encontrar o paciente com ID {patient_data['ID']} para atualizar.")
-                except Exception as e:
-                    st.error(f"Ocorreu um erro ao salvar: {e}")
-
-# ... (todas as outras páginas e a função main continuam iguais) ...
 def pagina_coleta(planilha, co_client):
     st.title("🤖 COLETA INTELIGENTE")
     st.header("1. Envie uma ou mais imagens de fichas")
+    
+    # Lê os dados existentes para a verificação de duplicados
+    df_existente = ler_dados_da_planilha(planilha)
+
     uploaded_files = st.file_uploader("Pode selecionar vários arquivos de uma vez", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
 
     if 'processados' not in st.session_state: st.session_state.processados = []
@@ -222,19 +140,37 @@ def pagina_coleta(planilha, co_client):
                 if dados_extraidos:
                     with st.form(key=f"form_{proximo_arquivo.file_id}"):
                         st.subheader("2. Confirme e salve os dados")
-                        id_val = st.text_input("ID", value=dados_extraidos.get("ID", "")); familia_val = st.text_input("FAMÍLIA", value=dados_extraidos.get("FAMÍLIA", ""))
-                        nome_completo = st.text_input("Nome Completo", value=dados_extraidos.get("Nome Completo", ""))
-                        data_nascimento = st.text_input("Data de Nascimento", value=dados_extraidos.get("Data de Nascimento", ""))
-                        if not validar_data_nascimento(data_nascimento)[0] and data_nascimento: st.warning(f"⚠️ {validar_data_nascimento(data_nascimento)[1]}")
-                        cpf = st.text_input("CPF", value=dados_extraidos.get("CPF", ""))
-                        if not validar_cpf(cpf) and cpf: st.warning("⚠️ O CPF parece ser inválido.")
-                        telefone = st.text_input("Telefone", value=dados_extraidos.get("Telefone", "")); nome_mae = st.text_input("Nome da Mãe", value=dados_extraidos.get("Nome da Mãe", "")); nome_pai = st.text_input("Nome do Pai", value=dados_extraidos.get("Nome do Pai", "")); sexo = st.text_input("Sexo", value=dados_extraidos.get("Sexo", "")); cns = st.text_input("CNS", value=dados_extraidos.get("CNS", "")); municipio_nascimento = st.text_input("Município de Nascimento", value=dados_extraidos.get("Município de Nascimento", ""))
-                        
+                        dados_para_salvar = {}
+                        dados_para_salvar['ID'] = st.text_input("ID", value=dados_extraidos.get("ID", ""))
+                        dados_para_salvar['FAMÍLIA'] = st.text_input("FAMÍLIA", value=dados_extraidos.get("FAMÍLIA", ""))
+                        dados_para_salvar['Nome Completo'] = st.text_input("Nome Completo", value=dados_extraidos.get("Nome Completo", ""))
+                        dados_para_salvar['Data de Nascimento'] = st.text_input("Data de Nascimento", value=dados_extraidos.get("Data de Nascimento", ""))
+                        dados_para_salvar['CPF'] = st.text_input("CPF", value=dados_extraidos.get("CPF", ""))
+                        dados_para_salvar['CNS'] = st.text_input("CNS", value=dados_extraidos.get("CNS", ""))
+                        dados_para_salvar['Telefone'] = st.text_input("Telefone", value=dados_extraidos.get("Telefone", ""))
+                        dados_para_salvar['Nome da Mãe'] = st.text_input("Nome da Mãe", value=dados_extraidos.get("Nome da Mãe", ""))
+                        dados_para_salvar['Nome do Pai'] = st.text_input("Nome do Pai", value=dados_extraidos.get("Nome do Pai", ""))
+                        dados_para_salvar['Sexo'] = st.text_input("Sexo", value=dados_extraidos.get("Sexo", ""))
+                        dados_para_salvar['Município de Nascimento'] = st.text_input("Município de Nascimento", value=dados_extraidos.get("Município de Nascimento", ""))
+
                         if st.form_submit_button("✅ Salvar Dados Desta Ficha"):
-                            dados_para_salvar = {'ID': id_val, 'FAMÍLIA': familia_val, 'Nome Completo': nome_completo,'Data de Nascimento': data_nascimento, 'Telefone': telefone, 'CPF': cpf,'Nome da Mãe': nome_mae, 'Nome do Pai': nome_pai, 'Sexo': sexo, 'CNS': cns,'Município de Nascimento': municipio_nascimento}
-                            salvar_no_sheets(dados_para_salvar, planilha)
-                            st.session_state.processados.append(proximo_arquivo.file_id)
-                            st.rerun()
+                            cpf_a_verificar = ''.join(re.findall(r'\d', dados_para_salvar['CPF']))
+                            cns_a_verificar = ''.join(re.findall(r'\d', dados_para_salvar['CNS']))
+                            
+                            duplicado_cpf = False
+                            if cpf_a_verificar and not df_existente.empty:
+                                duplicado_cpf = df_existente['CPF'].astype(str).str.replace(r'\D', '', regex=True).str.contains(cpf_a_verificar).any()
+
+                            duplicado_cns = False
+                            if cns_a_verificar and not df_existente.empty:
+                                duplicado_cns = df_existente['CNS'].astype(str).str.replace(r'\D', '', regex=True).str.contains(cns_a_verificar).any()
+
+                            if duplicado_cpf or duplicado_cns:
+                                st.error("⚠️ Alerta de Duplicado: Já existe um paciente registado com este CPF ou CNS. O registo não foi salvo.")
+                            else:
+                                salvar_no_sheets(dados_para_salvar, planilha)
+                                st.session_state.processados.append(proximo_arquivo.file_id)
+                                st.rerun()
                 else: st.error("A IA não conseguiu extrair dados deste texto.")
             else: st.error("Não foi possível extrair texto desta imagem.")
         elif len(uploaded_files) > 0:
@@ -242,6 +178,84 @@ def pagina_coleta(planilha, co_client):
             if st.button("Limpar lista para enviar novas imagens"):
                 st.session_state.processados = []; st.rerun()
 
+def pagina_pesquisa(planilha):
+    st.title("🔎 Gestão de Pacientes")
+    st.info("Use a pesquisa para encontrar um paciente e depois expandir para ver detalhes, editar ou apagar o registo.", icon="ℹ️")
+
+    df = ler_dados_da_planilha(planilha)
+    if df.empty:
+        st.warning("Ainda não há dados na planilha para pesquisar.")
+        return
+
+    colunas_pesquisaveis = ["Nome Completo", "CPF", "CNS", "Nome da Mãe", "ID"]
+    coluna_selecionada = st.selectbox("Pesquisar por:", colunas_pesquisaveis)
+    termo_pesquisa = st.text_input("Digite o termo de pesquisa:")
+
+    if termo_pesquisa:
+        resultados = df[df[coluna_selecionada].astype(str).str.contains(termo_pesquisa, case=False, na=False)]
+        
+        st.markdown(f"**{len(resultados)}** resultado(s) encontrado(s):")
+        
+        for index, row in resultados.iterrows():
+            id_paciente = row['ID']
+            with st.expander(f"**{row['Nome Completo']}** (ID: {id_paciente})"):
+                st.dataframe(row.to_frame().T, hide_index=True)
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    if st.button("✏️ Editar Dados", key=f"edit_{id_paciente}"):
+                        st.session_state['patient_to_edit'] = row.to_dict()
+                
+                with col2:
+                    if st.button("🗑️ Apagar Registo", key=f"delete_{id_paciente}"):
+                        try:
+                            cell = planilha.find(str(id_paciente))
+                            planilha.delete_rows(cell.row)
+                            st.success(f"Registo de {row['Nome Completo']} apagado com sucesso!")
+                            st.cache_data.clear()
+                            time.sleep(1)
+                            st.rerun()
+                        except gspread.exceptions.CellNotFound:
+                            st.error(f"Erro: Não foi possível encontrar o paciente com ID {id_paciente} para apagar.")
+                        except Exception as e:
+                            st.error(f"Ocorreu um erro ao apagar: {e}")
+                            
+    if 'patient_to_edit' in st.session_state:
+        st.markdown("---")
+        st.subheader("Editando Paciente")
+        
+        patient_data = st.session_state['patient_to_edit']
+        
+        with st.form(key="edit_form"):
+            edited_data = {}
+            for key, value in patient_data.items():
+                if key not in ['Data de Nascimento DT', 'Idade']:
+                    edited_data[key] = st.text_input(f"{key}", value=value, key=f"edit_{key}")
+
+            submitted = st.form_submit_button("Salvar Alterações")
+            
+            if submitted:
+                try:
+                    cell = planilha.find(str(patient_data['ID']))
+                    row_to_update = cell.row
+                    
+                    cabecalhos = planilha.row_values(1)
+                    update_values = [edited_data.get(h, '') for h in cabecalhos]
+                    
+                    planilha.update(f'A{row_to_update}', [update_values])
+                    
+                    st.success("Dados do paciente atualizados com sucesso!")
+                    del st.session_state['patient_to_edit']
+                    st.cache_data.clear()
+                    time.sleep(1)
+                    st.rerun()
+                except gspread.exceptions.CellNotFound:
+                    st.error(f"Erro: Não foi possível encontrar o paciente com ID {patient_data['ID']} para atualizar.")
+                except Exception as e:
+                    st.error(f"Ocorreu um erro ao salvar: {e}")
+
+# ... (todas as outras páginas e a função main continuam iguais) ...
 def pagina_dashboard(planilha):
     st.title("📊 Dashboard de Dados")
     df = ler_dados_da_planilha(planilha)
@@ -363,7 +377,6 @@ def pagina_whatsapp(planilha):
 def main():
     st.sidebar.title("Navegação")
     
-    # A conexão com a planilha é necessária para todas as páginas
     try:
         planilha_conectada = conectar_planilha()
     except Exception as e:
@@ -374,7 +387,6 @@ def main():
         st.error("A conexão com a planilha falhou. Não é possível carregar a aplicação.")
         st.stop()
         
-    # Conexão com o Cohere só é necessária na página de coleta
     co_client = None
     try:
         co_client = cohere.Client(api_key=st.secrets["COHEREKEY"])
@@ -392,7 +404,6 @@ def main():
     
     pagina_selecionada = st.sidebar.radio("Escolha uma página:", paginas.keys())
     
-    # Executa a função da página selecionada
     paginas[pagina_selecionada]()
 
 if __name__ == "__main__":
