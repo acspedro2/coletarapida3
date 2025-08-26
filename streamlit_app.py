@@ -15,6 +15,7 @@ from io import BytesIO
 import urllib.parse
 import qrcode
 from reportlab.lib.utils import ImageReader
+import matplotlib.pyplot as plt
 
 # --- Interface Streamlit ---
 st.set_page_config(page_title="Coleta Inteligente", page_icon="🤖", layout="wide")
@@ -215,7 +216,6 @@ def gerar_pdf_capas_prontuario(pacientes_selecionados):
     return buffer
 
 # --- PÁGINAS DO APP ---
-
 def pagina_coleta(planilha, co_client):
     st.title("🤖 COLETA INTELIGENTE")
     st.header("1. Envie uma ou mais imagens de fichas")
@@ -262,18 +262,51 @@ def pagina_coleta(planilha, co_client):
 def pagina_dashboard(planilha):
     st.title("📊 Dashboard de Dados")
     df = ler_dados_da_planilha(planilha)
-    if df.empty: st.warning("Ainda não há dados na planilha para exibir."); return
-    st.markdown("### Métricas Gerais"); col1, col2, col3 = st.columns(3)
+    if df.empty:
+        st.warning("Ainda não há dados na planilha para exibir.")
+        return
+        
+    st.markdown("### Métricas Gerais")
+    col1, col2, col3 = st.columns(3)
     col1.metric("Total de Fichas", len(df))
-    idade_media = df.loc[df['Idade'] > 0, 'Idade'].mean()
-    col2.metric("Idade Média", f"{idade_media:.1f} anos" if idade_media > 0 else "N/A")
-    sexo_counts = df['Sexo'].str.capitalize().value_counts()
+    
+    # Garante que a idade média só é calculada se houver idades válidas
+    idades_validas = df.loc[df['Idade'] > 0, 'Idade']
+    if not idades_validas.empty:
+        idade_media = idades_validas.mean()
+        col2.metric("Idade Média", f"{idade_media:.1f} anos")
+    else:
+        col2.metric("Idade Média", "N/A")
+
+    sexo_counts = df['Sexo'].str.strip().str.capitalize().value_counts()
     col3.metric("Sexo (Moda)", sexo_counts.index[0] if not sexo_counts.empty else "N/A")
-    st.markdown("### Pacientes por Município")
-    municipio_counts = df['Município de Nascimento'].value_counts()
-    if not municipio_counts.empty: st.bar_chart(municipio_counts)
-    else: st.info("Não há dados de município para exibir.")
-    st.markdown("### Tabela de Dados Completa"); st.dataframe(df)
+    
+    st.markdown("---")
+    
+    # Layout com duas colunas para os gráficos
+    gcol1, gcol2 = st.columns(2)
+    
+    with gcol1:
+        st.markdown("### Pacientes por Município")
+        municipio_counts = df['Município de Nascimento'].value_counts()
+        if not municipio_counts.empty:
+            st.bar_chart(municipio_counts)
+        else:
+            st.info("Não há dados de município para exibir.")
+
+    with gcol2:
+        st.markdown("### Distribuição por Sexo")
+        if not sexo_counts.empty:
+            fig, ax = plt.subplots(figsize=(5, 3)) # Ajusta o tamanho da figura
+            ax.pie(sexo_counts, labels=sexo_counts.index, autopct='%1.1f%%', startangle=90, colors=['#66b3ff','#ff9999', '#99ff99'])
+            ax.axis('equal')  # Garante que o gráfico seja um círculo
+            st.pyplot(fig)
+        else:
+            st.info("Não há dados de sexo para exibir.")
+            
+    st.markdown("---")
+    st.markdown("### Tabela de Dados Completa")
+    st.dataframe(df)
 
 def pagina_pesquisa(planilha):
     st.title("🔎 Ferramenta de Pesquisa")
@@ -357,98 +390,30 @@ def pagina_whatsapp(planilha):
         col1, col2 = st.columns([3, 1])
         col1.text(f"{nome} - ({row['Telefone']})")
         col2.link_button("Enviar Mensagem ↗️", whatsapp_url, use_container_width=True)
-
-# --- PÁGINA PÚBLICA DE RESUMO (PARA O QR CODE DINÂMICO) ---
-def mostrar_resumo_publico():
-    st.set_page_config(page_title="Resumo da Gaveta", page_icon="🗄️", layout="centered")
-    planilha = conectar_planilha()
-    if planilha is None: st.error("Não foi possível conectar à base de dados."); return
-    
-    df = ler_dados_da_planilha(planilha)
-    if df.empty: st.warning("Não há dados para exibir."); return
-
-    st.title("🗄️ Resumo dos Prontuários")
-    st.caption(f"Atualizado em: {datetime.now().strftime('%d/%m/%Y às %H:%M')}")
-    st.markdown("---")
-
-    total_pacientes = len(df)
-    num_homens = df[df['Sexo'].str.upper().str.startswith('M')].shape[0]
-    num_mulheres = df[df['Sexo'].str.upper().str.startswith('F')].shape[0]
-    num_idosos = df[df['Idade'] >= 60].shape[0]
-
-    cols = st.columns(2)
-    cols[0].metric("Total de Pacientes", f"{total_pacientes}")
-    cols[1].metric("Idosos (60+ anos)", f"{num_idosos}")
-    
-    cols = st.columns(2)
-    cols[0].metric("Homens", f"{num_homens}")
-    cols[1].metric("Mulheres", f"{num_mulheres}")
-
-# --- PÁGINA PARA GERAR O QR CODE DINÂMICO ---
-def pagina_qr_gaveta():
-    st.title("🔗 QR Code da Gaveta (Dinâmico)")
-    st.info("Este QR code é **permanente**. Imprima-o apenas uma vez e cole na sua gaveta. Sempre que for lido, mostrará as estatísticas mais recentes.", icon="ℹ️")
-    
-    # URL da sua aplicação. Substitua se o seu URL mudar.
-    app_url = "https://coletarapida3-fcea4c5mutihfmscxbxjue.streamlit.app"
-    
-    # Adiciona o parâmetro para aceder à página de resumo
-    dynamic_url = f"{app_url}?view=stats"
-    
-    st.write("O QR Code irá apontar para o seguinte link:")
-    st.code(dynamic_url)
-    
-    qr = qrcode.QRCode(version=1, error_correction=qrcode.constants.ERROR_CORRECT_L, box_size=10, border=4)
-    qr.add_data(dynamic_url)
-    qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white")
-
-    buf = BytesIO()
-    img.save(buf, format="PNG")
-    buf.seek(0)
-    
-    st.image(buf, caption="QR Code dinâmico. Aponte a câmara para testar!", width=250)
-    
-    st.download_button(
-        label="📥 Descarregar QR Code",
-        data=buf,
-        file_name="qrcode_gaveta_dinamico.png",
-        mime="image/png"
-    )
-
-# --- LÓGICA PRINCIPAL DE EXECUÇÃO (com menu e rota para página pública) ---
+            
+# --- LÓGICA PRINCIPAL DE EXECUÇÃO ---
 def main():
-    # Verifica se a página deve ser a de resumo público
-    if 'view' in st.query_params and st.query_params['view'] == 'stats':
-        mostrar_resumo_publico()
+    try:
+        st.session_state.co_client = cohere.Client(api_key=st.secrets["COHEREKEY"])
+        planilha_conectada = conectar_planilha()
+    except Exception as e:
+        st.error(f"Não foi possível inicializar os serviços. Verifique seus segredos. Erro: {e}"); st.stop()
+    
+    st.sidebar.title("Navegação")
+    paginas = {
+        "Coletar Fichas": lambda: pagina_coleta(planilha_conectada, st.session_state.co_client),
+        "Dashboard": lambda: pagina_dashboard(planilha_conectada),
+        "Pesquisar Paciente": lambda: pagina_pesquisa(planilha_conectada),
+        "Gerar Etiquetas": lambda: pagina_etiquetas(planilha_conectada),
+        "Gerar Capas de Prontuário": lambda: pagina_capas_prontuario(planilha_conectada),
+        "Enviar WhatsApp": lambda: pagina_whatsapp(planilha_conectada),
+    }
+    pagina_selecionada = st.sidebar.radio("Escolha uma página:", paginas.keys())
+    
+    if planilha_conectada is not None:
+        paginas[pagina_selecionada]()
     else:
-        # Se não, mostra a aplicação completa
-        try:
-            st.session_state.co_client = cohere.Client(api_key=st.secrets["COHEREKEY"])
-            planilha_conectada = conectar_planilha()
-        except Exception as e:
-            st.error(f"Não foi possível inicializar os serviços. Verifique seus segredos. Erro: {e}"); st.stop()
-        
-        st.sidebar.title("Navegação")
-        paginas = {
-            "Coletar Fichas": lambda: pagina_coleta(planilha_conectada, st.session_state.co_client),
-            "Dashboard": lambda: pagina_dashboard(planilha_conectada),
-            "Pesquisar Paciente": lambda: pagina_pesquisa(planilha_conectada),
-            "Gerar Etiquetas": lambda: pagina_etiquetas(planilha_conectada),
-            "Gerar Capas de Prontuário": lambda: pagina_capas_prontuario(planilha_conectada),
-            "QR Code da Gaveta (Dinâmico)": pagina_qr_gaveta,
-            "Enviar WhatsApp": lambda: pagina_whatsapp(planilha_conectada),
-        }
-        pagina_selecionada = st.sidebar.radio("Escolha uma página:", paginas.keys())
-        
-        if planilha_conectada is not None:
-            # Chama a função da página selecionada
-            if pagina_selecionada == "QR Code da Gaveta (Dinâmico)":
-                paginas[pagina_selecionada]() # Não precisa da planilha como argumento
-            else:
-                paginas[pagina_selecionada]()
-        else:
-            st.error("A conexão com a planilha falhou. Não é possível carregar a página.")
+        st.error("A conexão com a planilha falhou. Não é possível carregar a página.")
 
 if __name__ == "__main__":
     main()
