@@ -125,19 +125,19 @@ def preencher_pdf_formulario(paciente_dados):
         
         # --- AQUI COMEÇA A NOSSA "CALIBRAÇÃO" ---
         # As coordenadas (0,0) são o canto INFERIOR esquerdo.
-        # Ajustes baseados no feedback:
-        # Nome Civil: um pouco para a direita e descer um pouco
-        # CPF: bem mais para a direita
-        # Data de Nascimento: bem mais para a direita
+        # Ajustes baseados no feedback mais recente:
+        # Nome Civil: descer e um pouco mais a esquerda
+        # CPF: só descer um pouco
+        # Data de Nascimento: chegar um pouco a esquerda
 
         # Nome Civil (Nome Completo)
-        can.drawString(6 * cm, 24.5 * cm, str(paciente_dados.get("Nome Completo", "")))
+        can.drawString(5 * cm, 24 * cm, str(paciente_dados.get("Nome Completo", "")))
         
         # CPF
-        can.drawString(15 * cm, 24 * cm, str(paciente_dados.get("CPF", "")))
+        can.drawString(15 * cm, 23.5 * cm, str(paciente_dados.get("CPF", "")))
 
         # DATA DE NASCIMENTO
-        can.drawString(15 * cm, 23 * cm, str(paciente_dados.get("Data de Nascimento", "")))
+        can.drawString(14 * cm, 23 * cm, str(paciente_dados.get("Data de Nascimento", "")))
 
         # --- FIM DA CALIBRAÇÃO ---
         
