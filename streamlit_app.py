@@ -113,7 +113,178 @@ def salvar_no_sheets(dados, planilha):
     except Exception as e:
         st.error(f"Erro ao salvar na planilha: {e}")
 
+def gerar_pdf_etiquetas(familias_agrupadas):
+    buffer = BytesIO()
+    p = canvas.Canvas(buffer, pagesize=landscape(A4))
+    width, height = landscape(A4)
+    margin = 1 * cm
+    etiqueta_width = (width - 3 * margin) / 2
+    etiqueta_height = (height - 3 * margin) / 2
+    
+    posicoes = [
+        (margin, height - margin - etiqueta_height),
+        (margin * 2 + etiqueta_width, height - margin - etiqueta_height),
+        (margin, margin),
+        (margin * 2 + etiqueta_width, margin),
+    ]
+    
+    etiqueta_count = 0
+    
+    for familia_id, dados_familia in familias_agrupadas.items():
+        if not familia_id: continue
+
+        if etiqueta_count % 4 == 0 and etiqueta_count > 0: p.showPage()
+        
+        idx_posicao = etiqueta_count % 4
+        x, y = posicoes[idx_posicao]
+        
+        p.setStrokeColorRGB(0.7, 0.7, 0.7); p.setDash(6, 3)
+        p.rect(x, y, etiqueta_width, etiqueta_height)
+        p.setDash([])
+        
+        y_pos = y + etiqueta_height - (1.5 * cm)
+        x_pos = x + (0.5 * cm)
+        
+        texto_familia = f"Família: {familia_id}    PB01"
+        p.setFont("Helvetica-Bold", 14)
+        p.drawString(x_pos, y_pos, texto_familia)
+        
+        line_end_x = x + etiqueta_width - (0.5 * cm)
+        qr_size = 2.5 * cm
+
+        link_pasta = dados_familia.get("link_pasta", "")
+        if link_pasta:
+            qr_x_pos = x + (0.3 * cm)
+            qr_y_pos = y + (0.3 * cm)
+            qr = qrcode.QRCode(version=1, error_correction=qrcode.constants.ERROR_CORRECT_L, box_size=10, border=2)
+            qr.add_data(link_pasta)
+            qr.make(fit=True)
+            img_qr = qr.make_image(fill_color="black", back_color="white")
+            qr_buffer = BytesIO()
+            img_qr.save(qr_buffer, format="PNG")
+            qr_buffer.seek(0)
+            img_reader = ImageReader(qr_buffer)
+            p.drawImage(img_reader, qr_x_pos, qr_y_pos, width=qr_size, height=qr_size, mask='auto')
+
+        y_pos -= 0.7 * cm
+        p.line(x_pos, y_pos, line_end_x, y_pos)
+        y_pos -= 0.7 * cm
+        
+        for membro in dados_familia.get("membros", []):
+            if y_pos < y + qr_size + (0.5*cm): break
+            p.setFont("Helvetica-Bold", 11); p.drawString(x_pos, y_pos, str(membro.get("Nome Completo", "")))
+            y_pos -= 0.5 * cm
+            p.setFont("Helvetica", 9); p.drawString(x_pos + (0.5*cm), y_pos, f"DN: {membro.get('Data de Nascimento', 'N/A')}  |  CNS: {membro.get('CNS', 'N/A')}")
+            y_pos -= 0.8 * cm
+            
+        etiqueta_count += 1
+            
+    p.save()
+    buffer.seek(0)
+    return buffer
+    
+def gerar_pdf_capas_prontuario(pacientes_selecionados):
+    buffer = BytesIO()
+    p = canvas.Canvas(buffer, pagesize=letter)
+    width, height = letter
+    for index, paciente in pacientes_selecionados.iterrows():
+        p.setFont("Helvetica-Bold", 14); p.drawRightString(width - inch, height - 0.75 * inch, "PB01")
+        p.setFont("Helvetica-Bold", 24); p.drawCentredString(width / 2.0, height - 1.5 * inch, "PRONTUÁRIO DO PACIENTE")
+        p.line(inch, height - 2.2 * inch, width - inch, height - 2.2 * inch)
+        box_x = inch; box_y = height - 6 * inch
+        box_width = width - 2 * inch; box_height = 4 * inch
+        p.setStrokeColorRGB(0.2, 0.2, 0.2); p.setLineWidth(1)
+        p.roundRect(box_x, box_y, box_width, box_height, 10)
+        y_pos = box_y + box_height - 0.75 * inch
+        p.setFont("Helvetica-Bold", 22); p.setFillColorRGB(0, 0, 0)
+        p.drawString(box_x + 0.3 * inch, y_pos, str(paciente.get("Nome Completo", "")))
+        y_pos -= 0.25 * inch
+        p.line(box_x + 0.3 * inch, y_pos, box_x + box_width - 0.3 * inch, y_pos)
+        y_pos -= 0.6 * inch
+        x_col1_label = box_x + 0.3 * inch; x_col1_value = x_col1_label + 1.3 * inch
+        x_col2_label = box_x + box_width / 2; x_col2_value = x_col2_label + 0.8 * inch
+        line_height = 0.4 * inch
+        p.setFont("Helvetica", 12); p.drawString(x_col1_label, y_pos, "Data de Nasc.:")
+        p.setFont("Helvetica-Bold", 12); p.drawString(x_col1_value, y_pos, str(paciente.get("Data de Nascimento", "")))
+        y_pos -= line_height
+        p.setFont("Helvetica", 12); p.drawString(x_col1_label, y_pos, "CPF:")
+        p.setFont("Helvetica-Bold", 12); p.drawString(x_col1_value, y_pos, str(paciente.get("CPF", "")))
+        y_pos = box_y + box_height - 1.6 * inch
+        p.setFont("Helvetica", 12); p.drawString(x_col2_label, y_pos, "Família:")
+        p.setFont("Helvetica-Bold", 12); p.drawString(x_col2_value, y_pos, str(paciente.get("FAMÍLIA", "")))
+        y_pos -= line_height
+        p.setFont("Helvetica", 12); p.drawString(x_col2_label, y_pos, "CNS:")
+        p.setFont("Helvetica-Bold", 12); p.drawString(x_col2_value, y_pos, str(paciente.get("CNS", "")))
+        if not index == pacientes_selecionados.index[-1]: p.showPage()
+    p.save()
+    buffer.seek(0)
+    return buffer
+
 # --- PÁGINAS DO APP ---
+def pagina_coleta(planilha, co_client):
+    st.title("🤖 COLETA INTELIGENTE")
+    st.header("1. Envie uma ou mais imagens de fichas")
+    
+    df_existente = ler_dados_da_planilha(planilha)
+
+    uploaded_files = st.file_uploader("Pode selecionar vários arquivos de uma vez", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
+
+    if 'processados' not in st.session_state: st.session_state.processados = []
+
+    if uploaded_files:
+        proximo_arquivo = next((f for f in uploaded_files if f.file_id not in st.session_state.processados), None)
+
+        if proximo_arquivo:
+            st.subheader(f"Processando Ficha: `{proximo_arquivo.name}`")
+            st.image(Image.open(proximo_arquivo), width=400)
+            
+            file_bytes = proximo_arquivo.getvalue()
+            texto_extraido = ocr_space_api(file_bytes, st.secrets["OCRSPACEKEY"])
+            
+            if texto_extraido:
+                dados_extraidos = extrair_dados_com_cohere(texto_extraido, co_client)
+                
+                if dados_extraidos:
+                    with st.form(key=f"form_{proximo_arquivo.file_id}"):
+                        st.subheader("2. Confirme e salve os dados")
+                        dados_para_salvar = {}
+                        dados_para_salvar['ID'] = st.text_input("ID", value=dados_extraidos.get("ID", ""))
+                        dados_para_salvar['FAMÍLIA'] = st.text_input("FAMÍLIA", value=dados_extraidos.get("FAMÍLIA", ""))
+                        dados_para_salvar['Nome Completo'] = st.text_input("Nome Completo", value=dados_extraidos.get("Nome Completo", ""))
+                        dados_para_salvar['Data de Nascimento'] = st.text_input("Data de Nascimento", value=dados_extraidos.get("Data de Nascimento", ""))
+                        dados_para_salvar['CPF'] = st.text_input("CPF", value=dados_extraidos.get("CPF", ""))
+                        dados_para_salvar['CNS'] = st.text_input("CNS", value=dados_extraidos.get("CNS", ""))
+                        dados_para_salvar['Telefone'] = st.text_input("Telefone", value=dados_extraidos.get("Telefone", ""))
+                        dados_para_salvar['Nome da Mãe'] = st.text_input("Nome da Mãe", value=dados_extraidos.get("Nome da Mãe", ""))
+                        dados_para_salvar['Nome do Pai'] = st.text_input("Nome do Pai", value=dados_extraidos.get("Nome do Pai", ""))
+                        dados_para_salvar['Sexo'] = st.text_input("Sexo", value=dados_extraidos.get("Sexo", ""))
+                        dados_para_salvar['Município de Nascimento'] = st.text_input("Município de Nascimento", value=dados_extraidos.get("Município de Nascimento", ""))
+
+                        if st.form_submit_button("✅ Salvar Dados Desta Ficha"):
+                            cpf_a_verificar = ''.join(re.findall(r'\d', dados_para_salvar['CPF']))
+                            cns_a_verificar = ''.join(re.findall(r'\d', dados_para_salvar['CNS']))
+                            
+                            duplicado_cpf = False
+                            if cpf_a_verificar and not df_existente.empty:
+                                duplicado_cpf = df_existente['CPF'].astype(str).str.replace(r'\D', '', regex=True).str.contains(cpf_a_verificar).any()
+
+                            duplicado_cns = False
+                            if cns_a_verificar and not df_existente.empty:
+                                duplicado_cns = df_existente['CNS'].astype(str).str.replace(r'\D', '', regex=True).str.contains(cns_a_verificar).any()
+
+                            if duplicado_cpf or duplicado_cns:
+                                st.error("⚠️ Alerta de Duplicado: Já existe um paciente registado com este CPF ou CNS. O registo não foi salvo.")
+                            else:
+                                salvar_no_sheets(dados_para_salvar, planilha)
+                                st.session_state.processados.append(proximo_arquivo.file_id)
+                                st.rerun()
+                else: st.error("A IA não conseguiu extrair dados deste texto.")
+            else: st.error("Não foi possível extrair texto desta imagem.")
+        elif len(uploaded_files) > 0:
+            st.success("🎉 Todas as fichas enviadas foram processadas e salvas!")
+            if st.button("Limpar lista para enviar novas imagens"):
+                st.session_state.processados = []; st.rerun()
+
 def pagina_dashboard(planilha):
     st.title("📊 Dashboard de Dados")
     df_original = ler_dados_da_planilha(planilha)
@@ -194,7 +365,6 @@ def pagina_dashboard(planilha):
     st.markdown("### Tabela de Dados (com filtros aplicados)")
     st.dataframe(df_filtrado)
     
-    # --- BOTÃO DE EXPORTAÇÃO ---
     @st.cache_data
     def convert_df_to_csv(df):
         return df.to_csv(index=False).encode('utf-8')
@@ -206,71 +376,6 @@ def pagina_dashboard(planilha):
         file_name='dados_filtrados.csv',
         mime='text/csv',
     )
-
-# ... (todas as outras páginas e a função main continuam iguais) ...
-def pagina_coleta(planilha, co_client):
-    st.title("🤖 COLETA INTELIGENTE")
-    st.header("1. Envie uma ou mais imagens de fichas")
-    
-    df_existente = ler_dados_da_planilha(planilha)
-
-    uploaded_files = st.file_uploader("Pode selecionar vários arquivos de uma vez", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
-
-    if 'processados' not in st.session_state: st.session_state.processados = []
-
-    if uploaded_files:
-        proximo_arquivo = next((f for f in uploaded_files if f.file_id not in st.session_state.processados), None)
-
-        if proximo_arquivo:
-            st.subheader(f"Processando Ficha: `{proximo_arquivo.name}`")
-            st.image(Image.open(proximo_arquivo), width=400)
-            
-            file_bytes = proximo_arquivo.getvalue()
-            texto_extraido = ocr_space_api(file_bytes, st.secrets["OCRSPACEKEY"])
-            
-            if texto_extraido:
-                dados_extraidos = extrair_dados_com_cohere(texto_extraido, co_client)
-                
-                if dados_extraidos:
-                    with st.form(key=f"form_{proximo_arquivo.file_id}"):
-                        st.subheader("2. Confirme e salve os dados")
-                        dados_para_salvar = {}
-                        dados_para_salvar['ID'] = st.text_input("ID", value=dados_extraidos.get("ID", ""))
-                        dados_para_salvar['FAMÍLIA'] = st.text_input("FAMÍLIA", value=dados_extraidos.get("FAMÍLIA", ""))
-                        dados_para_salvar['Nome Completo'] = st.text_input("Nome Completo", value=dados_extraidos.get("Nome Completo", ""))
-                        dados_para_salvar['Data de Nascimento'] = st.text_input("Data de Nascimento", value=dados_extraidos.get("Data de Nascimento", ""))
-                        dados_para_salvar['CPF'] = st.text_input("CPF", value=dados_extraidos.get("CPF", ""))
-                        dados_para_salvar['CNS'] = st.text_input("CNS", value=dados_extraidos.get("CNS", ""))
-                        dados_para_salvar['Telefone'] = st.text_input("Telefone", value=dados_extraidos.get("Telefone", ""))
-                        dados_para_salvar['Nome da Mãe'] = st.text_input("Nome da Mãe", value=dados_extraidos.get("Nome da Mãe", ""))
-                        dados_para_salvar['Nome do Pai'] = st.text_input("Nome do Pai", value=dados_extraidos.get("Nome do Pai", ""))
-                        dados_para_salvar['Sexo'] = st.text_input("Sexo", value=dados_extraidos.get("Sexo", ""))
-                        dados_para_salvar['Município de Nascimento'] = st.text_input("Município de Nascimento", value=dados_extraidos.get("Município de Nascimento", ""))
-
-                        if st.form_submit_button("✅ Salvar Dados Desta Ficha"):
-                            cpf_a_verificar = ''.join(re.findall(r'\d', dados_para_salvar['CPF']))
-                            cns_a_verificar = ''.join(re.findall(r'\d', dados_para_salvar['CNS']))
-                            
-                            duplicado_cpf = False
-                            if cpf_a_verificar and not df_existente.empty:
-                                duplicado_cpf = df_existente['CPF'].astype(str).str.replace(r'\D', '', regex=True).str.contains(cpf_a_verificar).any()
-
-                            duplicado_cns = False
-                            if cns_a_verificar and not df_existente.empty:
-                                duplicado_cns = df_existente['CNS'].astype(str).str.replace(r'\D', '', regex=True).str.contains(cns_a_verificar).any()
-
-                            if duplicado_cpf or duplicado_cns:
-                                st.error("⚠️ Alerta de Duplicado: Já existe um paciente registado com este CPF ou CNS. O registo não foi salvo.")
-                            else:
-                                salvar_no_sheets(dados_para_salvar, planilha)
-                                st.session_state.processados.append(proximo_arquivo.file_id)
-                                st.rerun()
-                else: st.error("A IA não conseguiu extrair dados deste texto.")
-            else: st.error("Não foi possível extrair texto desta imagem.")
-        elif len(uploaded_files) > 0:
-            st.success("🎉 Todas as fichas enviadas foram processadas e salvas!")
-            if st.button("Limpar lista para enviar novas imagens"):
-                st.session_state.processados = []; st.rerun()
 
 def pagina_pesquisa(planilha):
     st.title("🔎 Gestão de Pacientes")
