@@ -107,9 +107,117 @@ def salvar_no_sheets(dados, planilha):
         planilha.append_row(nova_linha)
         st.success(f"✅ Dados de '{dados.get('Nome Completo', 'Desconhecido')}' salvos com sucesso!")
         st.balloons()
-        st.cache_data.clear() # Limpa o cache para garantir que a próxima leitura de dados esteja atualizada
+        st.cache_data.clear()
     except Exception as e:
         st.error(f"Erro ao salvar na planilha: {e}")
+
+# ... (outras funções como gerar_pdf_etiquetas, gerar_pdf_capas_prontuario, etc. continuam iguais) ...
+def gerar_pdf_etiquetas(familias_agrupadas):
+    buffer = BytesIO()
+    p = canvas.Canvas(buffer, pagesize=landscape(A4))
+    width, height = landscape(A4)
+    margin = 1 * cm
+    etiqueta_width = (width - 3 * margin) / 2
+    etiqueta_height = (height - 3 * margin) / 2
+    
+    posicoes = [
+        (margin, height - margin - etiqueta_height),
+        (margin * 2 + etiqueta_width, height - margin - etiqueta_height),
+        (margin, margin),
+        (margin * 2 + etiqueta_width, margin),
+    ]
+    
+    etiqueta_count = 0
+    
+    for familia_id, dados_familia in familias_agrupadas.items():
+        if not familia_id: continue
+
+        if etiqueta_count % 4 == 0 and etiqueta_count > 0: p.showPage()
+        
+        idx_posicao = etiqueta_count % 4
+        x, y = posicoes[idx_posicao]
+        
+        p.setStrokeColorRGB(0.7, 0.7, 0.7); p.setDash(6, 3)
+        p.rect(x, y, etiqueta_width, etiqueta_height)
+        p.setDash([])
+        
+        y_pos = y + etiqueta_height - (1.5 * cm)
+        x_pos = x + (0.5 * cm)
+        
+        texto_familia = f"Família: {familia_id}    PB01"
+        p.setFont("Helvetica-Bold", 14)
+        p.drawString(x_pos, y_pos, texto_familia)
+        
+        line_end_x = x + etiqueta_width - (0.5 * cm)
+        qr_size = 2.5 * cm
+
+        link_pasta = dados_familia.get("link_pasta", "")
+        if link_pasta:
+            qr_x_pos = x + (0.3 * cm)
+            qr_y_pos = y + (0.3 * cm)
+            qr = qrcode.QRCode(version=1, error_correction=qrcode.constants.ERROR_CORRECT_L, box_size=10, border=2)
+            qr.add_data(link_pasta)
+            qr.make(fit=True)
+            img_qr = qr.make_image(fill_color="black", back_color="white")
+            qr_buffer = BytesIO()
+            img_qr.save(qr_buffer, format="PNG")
+            qr_buffer.seek(0)
+            img_reader = ImageReader(qr_buffer)
+            p.drawImage(img_reader, qr_x_pos, qr_y_pos, width=qr_size, height=qr_size, mask='auto')
+
+        y_pos -= 0.7 * cm
+        p.line(x_pos, y_pos, line_end_x, y_pos)
+        y_pos -= 0.7 * cm
+        
+        for membro in dados_familia.get("membros", []):
+            if y_pos < y + qr_size + (0.5*cm): break
+            p.setFont("Helvetica-Bold", 11); p.drawString(x_pos, y_pos, str(membro.get("Nome Completo", "")))
+            y_pos -= 0.5 * cm
+            p.setFont("Helvetica", 9); p.drawString(x_pos + (0.5*cm), y_pos, f"DN: {membro.get('Data de Nascimento', 'N/A')}  |  CNS: {membro.get('CNS', 'N/A')}")
+            y_pos -= 0.8 * cm
+            
+        etiqueta_count += 1
+            
+    p.save()
+    buffer.seek(0)
+    return buffer
+    
+def gerar_pdf_capas_prontuario(pacientes_selecionados):
+    buffer = BytesIO()
+    p = canvas.Canvas(buffer, pagesize=letter)
+    width, height = letter
+    for index, paciente in pacientes_selecionados.iterrows():
+        p.setFont("Helvetica-Bold", 14); p.drawRightString(width - inch, height - 0.75 * inch, "PB01")
+        p.setFont("Helvetica-Bold", 24); p.drawCentredString(width / 2.0, height - 1.5 * inch, "PRONTUÁRIO DO PACIENTE")
+        p.line(inch, height - 2.2 * inch, width - inch, height - 2.2 * inch)
+        box_x = inch; box_y = height - 6 * inch
+        box_width = width - 2 * inch; box_height = 4 * inch
+        p.setStrokeColorRGB(0.2, 0.2, 0.2); p.setLineWidth(1)
+        p.roundRect(box_x, box_y, box_width, box_height, 10)
+        y_pos = box_y + box_height - 0.75 * inch
+        p.setFont("Helvetica-Bold", 22); p.setFillColorRGB(0, 0, 0)
+        p.drawString(box_x + 0.3 * inch, y_pos, str(paciente.get("Nome Completo", "")))
+        y_pos -= 0.25 * inch
+        p.line(box_x + 0.3 * inch, y_pos, box_x + box_width - 0.3 * inch, y_pos)
+        y_pos -= 0.6 * inch
+        x_col1_label = box_x + 0.3 * inch; x_col1_value = x_col1_label + 1.3 * inch
+        x_col2_label = box_x + box_width / 2; x_col2_value = x_col2_label + 0.8 * inch
+        line_height = 0.4 * inch
+        p.setFont("Helvetica", 12); p.drawString(x_col1_label, y_pos, "Data de Nasc.:")
+        p.setFont("Helvetica-Bold", 12); p.drawString(x_col1_value, y_pos, str(paciente.get("Data de Nascimento", "")))
+        y_pos -= line_height
+        p.setFont("Helvetica", 12); p.drawString(x_col1_label, y_pos, "CPF:")
+        p.setFont("Helvetica-Bold", 12); p.drawString(x_col1_value, y_pos, str(paciente.get("CPF", "")))
+        y_pos = box_y + box_height - 1.6 * inch
+        p.setFont("Helvetica", 12); p.drawString(x_col2_label, y_pos, "Família:")
+        p.setFont("Helvetica-Bold", 12); p.drawString(x_col2_value, y_pos, str(paciente.get("FAMÍLIA", "")))
+        y_pos -= line_height
+        p.setFont("Helvetica", 12); p.drawString(x_col2_label, y_pos, "CNS:")
+        p.setFont("Helvetica-Bold", 12); p.drawString(x_col2_value, y_pos, str(paciente.get("CNS", "")))
+        if not index == pacientes_selecionados.index[-1]: p.showPage()
+    p.save()
+    buffer.seek(0)
+    return buffer
 
 # --- PÁGINAS DO APP ---
 
@@ -117,7 +225,6 @@ def pagina_coleta(planilha, co_client):
     st.title("🤖 COLETA INTELIGENTE")
     st.header("1. Envie uma ou mais imagens de fichas")
     
-    # Lê os dados existentes para a verificação de duplicados
     df_existente = ler_dados_da_planilha(planilha)
 
     uploaded_files = st.file_uploader("Pode selecionar vários arquivos de uma vez", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
@@ -177,6 +284,88 @@ def pagina_coleta(planilha, co_client):
             st.success("🎉 Todas as fichas enviadas foram processadas e salvas!")
             if st.button("Limpar lista para enviar novas imagens"):
                 st.session_state.processados = []; st.rerun()
+
+def pagina_dashboard(planilha):
+    st.title("📊 Dashboard de Dados")
+    df_original = ler_dados_da_planilha(planilha)
+    
+    if df_original.empty:
+        st.warning("Ainda não há dados na planilha para exibir.")
+        return
+
+    # --- FILTROS NA BARRA LATERAL ---
+    st.sidebar.header("Filtros do Dashboard")
+    
+    municipios = sorted(df_original['Município de Nascimento'].unique())
+    municipios_selecionados = st.sidebar.multiselect(
+        "Filtrar por Município:",
+        options=municipios,
+        default=municipios
+    )
+
+    idade_max = int(df_original['Idade'].max()) if not df_original.empty else 100
+    faixa_etaria = st.sidebar.slider(
+        "Filtrar por Faixa Etária:",
+        min_value=0,
+        max_value=idade_max,
+        value=(0, idade_max)
+    )
+
+    # Aplica os filtros
+    if not municipios_selecionados:
+        municipios_selecionados = municipios # Garante que se o utilizador limpar a seleção, todos são selecionados
+
+    df_filtrado = df_original[
+        (df_original['Município de Nascimento'].isin(municipios_selecionados)) &
+        (df_original['Idade'] >= faixa_etaria[0]) &
+        (df_original['Idade'] <= faixa_etaria[1])
+    ]
+    
+    if df_filtrado.empty:
+        st.warning("Nenhum dado encontrado com os filtros selecionados.")
+        return
+
+    # --- MÉTRICAS COM DADOS FILTRADOS ---
+    st.markdown("### Métricas Gerais (com filtros aplicados)")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Total de Fichas", len(df_filtrado))
+    
+    idades_validas = df_filtrado.loc[df_filtrado['Idade'] > 0, 'Idade']
+    if not idades_validas.empty:
+        idade_media = idades_validas.mean()
+        col2.metric("Idade Média", f"{idade_media:.1f} anos")
+    else:
+        col2.metric("Idade Média", "N/A")
+
+    sexo_counts = df_filtrado['Sexo'].str.strip().str.capitalize().value_counts()
+    col3.metric("Sexo (Moda)", sexo_counts.index[0] if not sexo_counts.empty else "N/A")
+    
+    st.markdown("---")
+    
+    # --- GRÁFICOS COM DADOS FILTRADOS ---
+    gcol1, gcol2 = st.columns(2)
+    
+    with gcol1:
+        st.markdown("### Pacientes por Município")
+        municipio_counts = df_filtrado['Município de Nascimento'].value_counts()
+        if not municipio_counts.empty:
+            st.bar_chart(municipio_counts)
+        else:
+            st.info("Não há dados de município para exibir.")
+
+    with gcol2:
+        st.markdown("### Distribuição por Sexo")
+        if not sexo_counts.empty:
+            fig, ax = plt.subplots(figsize=(5, 3))
+            ax.pie(sexo_counts, labels=sexo_counts.index, autopct='%1.1f%%', startangle=90, colors=['#66b3ff','#ff9999', '#99ff99'])
+            ax.axis('equal')
+            st.pyplot(fig)
+        else:
+            st.info("Não há dados de sexo para exibir.")
+            
+    st.markdown("---")
+    st.markdown("### Tabela de Dados (com filtros aplicados)")
+    st.dataframe(df_filtrado)
 
 def pagina_pesquisa(planilha):
     st.title("🔎 Gestão de Pacientes")
@@ -254,55 +443,7 @@ def pagina_pesquisa(planilha):
                     st.error(f"Erro: Não foi possível encontrar o paciente com ID {patient_data['ID']} para atualizar.")
                 except Exception as e:
                     st.error(f"Ocorreu um erro ao salvar: {e}")
-
-# ... (todas as outras páginas e a função main continuam iguais) ...
-def pagina_dashboard(planilha):
-    st.title("📊 Dashboard de Dados")
-    df = ler_dados_da_planilha(planilha)
-    if df.empty:
-        st.warning("Ainda não há dados na planilha para exibir.")
-        return
-        
-    st.markdown("### Métricas Gerais")
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Total de Fichas", len(df))
-    
-    idades_validas = df.loc[df['Idade'] > 0, 'Idade']
-    if not idades_validas.empty:
-        idade_media = idades_validas.mean()
-        col2.metric("Idade Média", f"{idade_media:.1f} anos")
-    else:
-        col2.metric("Idade Média", "N/A")
-
-    sexo_counts = df['Sexo'].str.strip().str.capitalize().value_counts()
-    col3.metric("Sexo (Moda)", sexo_counts.index[0] if not sexo_counts.empty else "N/A")
-    
-    st.markdown("---")
-    
-    gcol1, gcol2 = st.columns(2)
-    
-    with gcol1:
-        st.markdown("### Pacientes por Município")
-        municipio_counts = df['Município de Nascimento'].value_counts()
-        if not municipio_counts.empty:
-            st.bar_chart(municipio_counts)
-        else:
-            st.info("Não há dados de município para exibir.")
-
-    with gcol2:
-        st.markdown("### Distribuição por Sexo")
-        if not sexo_counts.empty:
-            fig, ax = plt.subplots(figsize=(5, 3))
-            ax.pie(sexo_counts, labels=sexo_counts.index, autopct='%1.1f%%', startangle=90, colors=['#66b3ff','#ff9999', '#99ff99'])
-            ax.axis('equal')
-            st.pyplot(fig)
-        else:
-            st.info("Não há dados de sexo para exibir.")
-            
-    st.markdown("---")
-    st.markdown("### Tabela de Dados Completa")
-    st.dataframe(df)
-
+                    
 def pagina_etiquetas(planilha):
     st.title("🏷️ Gerador de Etiquetas por Família")
     df = ler_dados_da_planilha(planilha)
