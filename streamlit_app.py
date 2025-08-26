@@ -121,7 +121,7 @@ def preencher_pdf_formulario(paciente_dados):
         packet = BytesIO()
         can = canvas.Canvas(packet, pagesize=A4)
         
-        # Ajustes de calibração
+        # Coordenadas da última calibração bem sucedida
         can.drawString(3.8 * cm, 23.8 * cm, str(paciente_dados.get("Nome Completo", "")))
         can.drawString(15 * cm, 23.7 * cm, str(paciente_dados.get("CPF", "")))
         can.drawString(15.5 * cm, 23 * cm, str(paciente_dados.get("Data de Nascimento", "")))
@@ -151,6 +151,8 @@ def preencher_pdf_formulario(paciente_dados):
         return None
 
 # --- PÁGINAS DO APP ---
+# ... (as outras páginas permanecem inalteradas) ...
+
 def pagina_gerar_documentos(planilha):
     st.title("📄 Gerador de Documentos")
     
@@ -463,4 +465,59 @@ def pagina_capas_prontuario(planilha):
         st.dataframe(pacientes_df[["Nome Completo", "Data de Nascimento", "FAMÍLIA", "CPF", "CNS", "Link do Prontuário"]])
         if st.button("📥 Gerar PDF das Capas com QR Code"):
             pdf_bytes = gerar_pdf_capas_prontuario(pacientes_df)
-            st.download_button(label="Descarregar PDF das Capas", data=pdf_bytes, file_name=f"capas_
+            st.download_button(label="Descarregar PDF das Capas", data=pdf_bytes, file_name=f"capas_prontuario_qrcode_{datetime.now().strftime('%Y%m%d')}.pdf", mime="application/pdf")
+    else: st.info("Selecione pelo menos um paciente para gerar as capas.")
+
+def pagina_whatsapp(planilha):
+    st.title("📱 Enviar Mensagens de WhatsApp")
+    df = ler_dados_da_planilha(planilha)
+    if df.empty: st.warning("Ainda não há dados na planilha para enviar mensagens."); return
+    st.subheader("1. Escreva a sua mensagem")
+    mensagem_padrao = st.text_area("Mensagem:", "Olá, [NOME]! A sua autorização de exame para [ESCREVA AQUI O NOME DO EXAME] foi liberada. Por favor, entre em contato para mais detalhes.", height=150)
+    st.subheader("2. Escolha o paciente e envie")
+    df_com_telefone = df[df['Telefone'].astype(str).str.strip() != ''].copy()
+    for index, row in df_com_telefone.iterrows():
+        nome = row['Nome Completo']
+        telefone = re.sub(r'\D', '', str(row['Telefone']))
+        if len(telefone) < 10: continue
+        mensagem_personalizada = mensagem_padrao.replace("[NOME]", nome.split()[0])
+        whatsapp_url = f"https://wa.me/55{telefone}?text={urllib.parse.quote(mensagem_personalizada)}"
+        col1, col2 = st.columns([3, 1])
+        col1.text(f"{nome} - ({row['Telefone']})")
+        col2.link_button("Enviar Mensagem ↗️", whatsapp_url, use_container_width=True)
+
+def main():
+    st.sidebar.title("Navegação")
+    
+    try:
+        planilha_conectada = conectar_planilha()
+    except Exception as e:
+        st.error(f"Não foi possível inicializar os serviços. Verifique seus segredos. Erro: {e}")
+        st.stop()
+
+    if planilha_conectada is None:
+        st.error("A conexão com a planilha falhou. Não é possível carregar a aplicação.")
+        st.stop()
+        
+    co_client = None
+    try:
+        co_client = cohere.Client(api_key=st.secrets["COHEREKEY"])
+    except Exception as e:
+        st.warning(f"Não foi possível conectar ao serviço de IA. A página de coleta pode não funcionar. Erro: {e}")
+
+    paginas = {
+        "Coletar Fichas": lambda: pagina_coleta(planilha_conectada, co_client),
+        "Gestão de Pacientes": lambda: pagina_pesquisa(planilha_conectada),
+        "Dashboard": lambda: pagina_dashboard(planilha_conectada),
+        "Gerar Etiquetas": lambda: pagina_etiquetas(planilha_conectada),
+        "Gerar Capas de Prontuário": lambda: pagina_capas_prontuario(planilha_conectada),
+        "Gerar Documentos": lambda: pagina_gerar_documentos(planilha_conectada),
+        "Enviar WhatsApp": lambda: pagina_whatsapp(planilha_conectada),
+    }
+    
+    pagina_selecionada = st.sidebar.radio("Escolha uma página:", paginas.keys())
+    
+    paginas[pagina_selecionada]()
+
+if __name__ == "__main__":
+    main()
