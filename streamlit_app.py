@@ -60,7 +60,7 @@ def ler_dados_da_planilha(_planilha):
     try:
         dados = _planilha.get_all_records()
         df = pd.DataFrame(dados)
-        colunas_esperadas = ["ID", "FAMÍLIA", "Nome Completo", "Data de Nascimento", "Telefone", "CPF", "Nome da Mãe", "Nome do Pai", "Sexo", "CNS", "Município de Nascimento", "Link do Prontuário", "Link da Pasta da Família"]
+        colunas_esperadas = ["ID", "FAMÍLIA", "Nome Completo", "Data de Nascimento", "Telefone", "CPF", "Nome da Mãe", "Nome do Pai", "Sexo", "CNS", "Município de Nascimento", "Link do Prontuário", "Link da Pasta da Família", "Condição"]
         for col in colunas_esperadas:
             if col not in df.columns: df[col] = ""
         df['Data de Nascimento DT'] = pd.to_datetime(df['Data de Nascimento'], format='%d/%m/%Y', errors='coerce')
@@ -270,7 +270,6 @@ def pagina_dashboard(planilha):
     col1, col2, col3 = st.columns(3)
     col1.metric("Total de Fichas", len(df))
     
-    # Garante que a idade média só é calculada se houver idades válidas
     idades_validas = df.loc[df['Idade'] > 0, 'Idade']
     if not idades_validas.empty:
         idade_media = idades_validas.mean()
@@ -283,7 +282,6 @@ def pagina_dashboard(planilha):
     
     st.markdown("---")
     
-    # Layout com duas colunas para os gráficos
     gcol1, gcol2 = st.columns(2)
     
     with gcol1:
@@ -297,9 +295,9 @@ def pagina_dashboard(planilha):
     with gcol2:
         st.markdown("### Distribuição por Sexo")
         if not sexo_counts.empty:
-            fig, ax = plt.subplots(figsize=(5, 3)) # Ajusta o tamanho da figura
+            fig, ax = plt.subplots(figsize=(5, 3))
             ax.pie(sexo_counts, labels=sexo_counts.index, autopct='%1.1f%%', startangle=90, colors=['#66b3ff','#ff9999', '#99ff99'])
-            ax.axis('equal')  # Garante que o gráfico seja um círculo
+            ax.axis('equal')
             st.pyplot(fig)
         else:
             st.info("Não há dados de sexo para exibir.")
@@ -390,30 +388,106 @@ def pagina_whatsapp(planilha):
         col1, col2 = st.columns([3, 1])
         col1.text(f"{nome} - ({row['Telefone']})")
         col2.link_button("Enviar Mensagem ↗️", whatsapp_url, use_container_width=True)
-            
+
+# --- PÁGINA PÚBLICA DE RESUMO (COM NOVAS ESTATÍSTICAS) ---
+def mostrar_resumo_publico():
+    st.set_page_config(page_title="Resumo da Gaveta", page_icon="🗄️", layout="centered")
+    
+    st.title("🗄️ Resumo dos Prontuários")
+    
+    planilha = conectar_planilha()
+    if planilha is None: st.error("Não foi possível conectar à base de dados."); return
+    
+    df = ler_dados_da_planilha(planilha)
+    if df.empty: st.warning("Não há dados para exibir."); return
+
+    st.caption(f"Atualizado em: {datetime.now().strftime('%d/%m/%Y às %H:%M')}")
+    st.markdown("---")
+
+    # Cálculos
+    total_pacientes = len(df)
+    num_homens = df[df['Sexo'].str.upper().str.startswith('M')].shape[0]
+    num_mulheres = df[df['Sexo'].str.upper().str.startswith('F')].shape[0]
+    num_criancas = df[df['Idade'] < 12].shape[0]
+    num_jovens = df[(df['Idade'] >= 12) & (df['Idade'] < 18)].shape[0]
+    num_idosos = df[df['Idade'] >= 60].shape[0]
+    num_gravidas = df[df['Condição'].str.contains('Grávida', case=False, na=False)].shape[0]
+
+    # Exibição
+    st.metric("Total de Pacientes", f"{total_pacientes}")
+    st.markdown("---")
+    
+    col1, col2 = st.columns(2)
+    col1.metric("Homens", f"{num_homens}")
+    col2.metric("Mulheres", f"{num_mulheres}")
+    
+    col1, col2 = st.columns(2)
+    col1.metric("Crianças (<12 anos)", f"{num_criancas}")
+    col2.metric("Jovens (12-17 anos)", f"{num_jovens}")
+    
+    col1, col2 = st.columns(2)
+    col1.metric("Idosos (60+ anos)", f"{num_idosos}")
+    col2.metric("Gestantes", f"{num_gravidas}")
+
+# --- PÁGINA PARA GERAR O QR CODE DINÂMICO ---
+def pagina_qr_gaveta():
+    st.title("🔗 QR Code da Gaveta (Dinâmico)")
+    st.info("Este QR code é **permanente**. Imprima-o apenas uma vez e cole na sua gaveta. Sempre que for lido, mostrará as estatísticas mais recentes.", icon="ℹ️")
+    
+    app_url = "https://coletarapida3-fcea4c5mutihfmscxbxjue.streamlit.app"
+    dynamic_url = f"{app_url}?view=stats"
+    
+    st.write("O QR Code irá apontar para o seguinte link:")
+    st.code(dynamic_url)
+    
+    qr = qrcode.QRCode(version=1, error_correction=qrcode.constants.ERROR_CORRECT_L, box_size=10, border=4)
+    qr.add_data(dynamic_url)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+    
+    st.image(buf, caption="QR Code dinâmico. Aponte a câmara para testar!", width=250)
+    
+    st.download_button(
+        label="📥 Descarregar QR Code",
+        data=buf,
+        file_name="qrcode_gaveta_dinamico.png",
+        mime="image/png"
+    )
+
 # --- LÓGICA PRINCIPAL DE EXECUÇÃO ---
 def main():
-    try:
-        st.session_state.co_client = cohere.Client(api_key=st.secrets["COHEREKEY"])
-        planilha_conectada = conectar_planilha()
-    except Exception as e:
-        st.error(f"Não foi possível inicializar os serviços. Verifique seus segredos. Erro: {e}"); st.stop()
-    
-    st.sidebar.title("Navegação")
-    paginas = {
-        "Coletar Fichas": lambda: pagina_coleta(planilha_conectada, st.session_state.co_client),
-        "Dashboard": lambda: pagina_dashboard(planilha_conectada),
-        "Pesquisar Paciente": lambda: pagina_pesquisa(planilha_conectada),
-        "Gerar Etiquetas": lambda: pagina_etiquetas(planilha_conectada),
-        "Gerar Capas de Prontuário": lambda: pagina_capas_prontuario(planilha_conectada),
-        "Enviar WhatsApp": lambda: pagina_whatsapp(planilha_conectada),
-    }
-    pagina_selecionada = st.sidebar.radio("Escolha uma página:", paginas.keys())
-    
-    if planilha_conectada is not None:
-        paginas[pagina_selecionada]()
+    if 'view' in st.query_params and st.query_params['view'] == 'stats':
+        mostrar_resumo_publico()
     else:
-        st.error("A conexão com a planilha falhou. Não é possível carregar a página.")
+        try:
+            st.session_state.co_client = cohere.Client(api_key=st.secrets["COHEREKEY"])
+            planilha_conectada = conectar_planilha()
+        except Exception as e:
+            st.error(f"Não foi possível inicializar os serviços. Verifique seus segredos. Erro: {e}"); st.stop()
+        
+        st.sidebar.title("Navegação")
+        paginas = {
+            "Coletar Fichas": lambda: pagina_coleta(planilha_conectada, st.session_state.co_client),
+            "Dashboard": lambda: pagina_dashboard(planilha_conectada),
+            "Pesquisar Paciente": lambda: pagina_pesquisa(planilha_conectada),
+            "Gerar Etiquetas": lambda: pagina_etiquetas(planilha_conectada),
+            "Gerar Capas de Prontuário": lambda: pagina_capas_prontuario(planilha_conectada),
+            "QR Code da Gaveta (Dinâmico)": pagina_qr_gaveta,
+            "Enviar WhatsApp": lambda: pagina_whatsapp(planilha_conectada),
+        }
+        pagina_selecionada = st.sidebar.radio("Escolha uma página:", paginas.keys())
+        
+        if planilha_conectada is not None:
+            if pagina_selecionada == "QR Code da Gaveta (Dinâmico)":
+                paginas[pagina_selecionada]()
+            else:
+                paginas[pagina_selecionada]()
+        else:
+            st.error("A conexão com a planilha falhou. Não é possível carregar a página.")
 
 if __name__ == "__main__":
     main()
