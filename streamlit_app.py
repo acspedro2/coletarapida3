@@ -117,28 +117,47 @@ def salvar_no_sheets(dados, planilha):
 # --- NOVA FUNÇÃO PARA PREENCHER O PDF ---
 def preencher_pdf_formulario(paciente_dados):
     try:
-        # NOME DO ARQUIVO CORRIGIDO
         template_pdf_path = "Formulario_2IndiceDeVulnerabilidadeClinicoFuncional20IVCF20_ImpressoraPDFPreenchivel_202404-2.pdf"
         
+        # Buffer para criar o "carimbo" com os dados
         packet = BytesIO()
         can = canvas.Canvas(packet, pagesize=A4)
         
-        # Coordenadas de CHUTE INICIAL para calibrarmos.
-        can.drawString(3 * cm, 25 * cm, str(paciente_dados.get("Nome Completo", "")))
-        can.drawString(3 * cm, 24 * cm, str(paciente_dados.get("CPF", "")))
-        can.drawString(3 * cm, 23 * cm, str(paciente_dados.get("Data de Nascimento", "")))
+        # --- AQUI COMEÇA A NOSSA "CALIBRAÇÃO" ---
+        # As coordenadas (0,0) são o canto INFERIOR esquerdo.
+        # Ajustes baseados no feedback:
+        # Nome Civil: um pouco para a direita e descer um pouco
+        # CPF: bem mais para a direita
+        # Data de Nascimento: bem mais para a direita
+
+        # Nome Civil (Nome Completo)
+        can.drawString(6 * cm, 24.5 * cm, str(paciente_dados.get("Nome Completo", "")))
+        
+        # CPF
+        can.drawString(15 * cm, 24 * cm, str(paciente_dados.get("CPF", "")))
+
+        # DATA DE NASCIMENTO
+        can.drawString(15 * cm, 23 * cm, str(paciente_dados.get("Data de Nascimento", "")))
+
+        # --- FIM DA CALIBRAÇÃO ---
         
         can.save()
         packet.seek(0)
         
+        # Lê o PDF de "carimbo" que acabámos de criar
         new_pdf = PdfReader(packet)
+        
+        # Lê o formulário original
         existing_pdf = PdfReader(open(template_pdf_path, "rb"))
         output = PdfWriter()
         
+        # Pega a primeira página do formulário original
         page = existing_pdf.pages[0]
+        # Sobrepõe o "carimbo" na página original
         page.merge_page(new_pdf.pages[0])
         output.add_page(page)
         
+        # Salva o resultado final num buffer de memória
         final_buffer = BytesIO()
         output.write(final_buffer)
         final_buffer.seek(0)
