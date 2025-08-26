@@ -121,10 +121,19 @@ def preencher_pdf_formulario(paciente_dados):
         packet = BytesIO()
         can = canvas.Canvas(packet, pagesize=A4)
         
-        # --- AJUSTE FINO FINAL ---
+        # --- CALIBRAÇÃO DOS CAMPOS ---
+        can.setFont("Helvetica", 10)
         can.drawString(3.2 * cm, 23.8 * cm, str(paciente_dados.get("Nome Completo", "")))
         can.drawString(15 * cm, 23.8 * cm, str(paciente_dados.get("CPF", "")))
         can.drawString(16.5 * cm, 23 * cm, str(paciente_dados.get("Data de Nascimento", "")))
+        
+        # --- LÓGICA PARA MARCAR O 'X' NO SEXO ---
+        sexo = str(paciente_dados.get("Sexo", "")).strip().upper()
+        can.setFont("Helvetica-Bold", 12)
+        if sexo.startswith('F'):
+            can.drawString(12.55 * cm, 23.05 * cm, "X") # Chute para a posição do [F]
+        elif sexo.startswith('M'):
+            can.drawString(13.45 * cm, 23.05 * cm, "X") # Chute para a posição do [M]
         
         can.save()
         packet.seek(0)
