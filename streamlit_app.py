@@ -160,7 +160,6 @@ def preencher_pdf_formulario(paciente_dados):
         return None
 
 # --- PÁGINAS DO APP ---
-# ... (as outras páginas permanecem inalteradas) ...
 def pagina_gerar_documentos(planilha):
     st.title("📄 Gerador de Documentos")
     
