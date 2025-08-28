@@ -383,6 +383,29 @@ def gerar_pdf_relatorio_vacinacao(nome_paciente, data_nascimento, relatorio):
     return pdf_buffer
 
 # --- PÁGINAS DO APP ---
+def pagina_gerar_documentos(planilha):
+    st.title("📄 Gerador de Documentos")
+    df = ler_dados_da_planilha(planilha)
+    if df.empty:
+        st.warning("Não há pacientes na base de dados para gerar documentos.")
+        return
+    st.subheader("1. Selecione o Paciente")
+    lista_pacientes = sorted(df['Nome Completo'].tolist())
+    paciente_selecionado_nome = st.selectbox("Escolha um paciente:", lista_pacientes, index=None, placeholder="Selecione...")
+    if paciente_selecionado_nome:
+        paciente_dados = df[df['Nome Completo'] == paciente_selecionado_nome].iloc[0]
+        st.markdown("---")
+        st.subheader("2. Escolha o Documento e Gere")
+        if st.button("Gerar Formulário de Vulnerabilidade"):
+            pdf_buffer = preencher_pdf_formulario(paciente_dados.to_dict())
+            if pdf_buffer:
+                st.download_button(
+                    label="📥 Descarregar Formulário Preenchido (PDF)",
+                    data=pdf_buffer,
+                    file_name=f"formulario_{paciente_selecionado_nome.replace(' ', '_')}.pdf",
+                    mime="application/pdf"
+                )
+
 def pagina_coleta(planilha, co_client):
     st.title("🤖 COLETA INTELIGENTE")
     st.header("1. Envie uma ou mais imagens de fichas")
