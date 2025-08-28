@@ -131,9 +131,9 @@ def preencher_pdf_formulario(paciente_dados):
         sexo = str(paciente_dados.get("Sexo", "")).strip().upper()
         can.setFont("Helvetica-Bold", 12)
         if sexo.startswith('F'):
-            can.drawString(12.2 * cm, 22.9 * cm, "X") # Posição final F
+            can.drawString(12.1 * cm, 22.9 * cm, "X") # Posição final F
         elif sexo.startswith('M'):
-            can.drawString(13.1 * cm, 22.9 * cm, "X") # Posição final M
+            can.drawString(12.6 * cm, 22.9 * cm, "X") # Posição final M
         
         can.save()
         packet.seek(0)
@@ -189,7 +189,6 @@ def pagina_gerar_documentos(planilha):
                     mime="application/pdf"
                 )
 
-# ... (outras páginas e main() continuam aqui) ...
 def pagina_coleta(planilha, co_client):
     st.title("🤖 COLETA INTELIGENTE")
     st.header("1. Envie uma ou mais imagens de fichas")
