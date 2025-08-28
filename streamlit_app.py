@@ -116,36 +116,6 @@ def salvar_vacina_no_sheets(dados, planilha_vacinas):
     except Exception as e:
         st.error(f"Erro ao salvar na planilha de vacinas: {e}")
 
-# ... (outras funções - ocr, cohere, pdfs, etc. - continuam aqui) ...
-def ocr_space_api(file_bytes, ocr_api_key):
-    try:
-        url = "https://api.ocr.space/parse/image"
-        payload = {"language": "por", "isOverlayRequired": False, "OCREngine": 2}
-        files = {"file": ("ficha.jpg", file_bytes, "image/jpeg")}
-        headers = {"apikey": ocr_api_key}
-        response = requests.post(url, data=payload, files=files, headers=headers)
-        response.raise_for_status()
-        result = response.json()
-        if result.get("IsErroredOnProcessing"): st.error(f"Erro no OCR: {result.get('ErrorMessage')}"); return None
-        return result["ParsedResults"][0]["ParsedText"]
-    except Exception as e:
-        st.error(f"Erro inesperado no OCR: {e}"); return None
-
-def extrair_dados_com_cohere(texto_extraido: str, cohere_client):
-    try:
-        prompt = f"""
-        Sua tarefa é extrair informações de um texto de formulário de saúde e convertê-lo para um JSON.
-        Instrução Crítica: Procure por uma anotação à mão que pareça um código de família (ex: 'FAM111'). Este código deve ir para a chave "FAMÍLIA".
-        Retorne APENAS um objeto JSON com as chaves: 'ID', 'FAMÍLIA', 'Nome Completo', 'Data de Nascimento', 'Telefone', 'CPF', 'Nome da Mãe', 'Nome do Pai', 'Sexo', 'CNS', 'Município de Nascimento'.
-        Se um valor não for encontrado, retorne uma string vazia "".
-        Texto para analisar: --- {texto_extraido} ---
-        """
-        response = cohere_client.chat(model="command-r-plus", message=prompt, temperature=0.1)
-        json_string = response.text.replace('```json', '').replace('```', '').strip()
-        return json.loads(json_string)
-    except Exception as e:
-        st.error(f"Erro ao chamar a API do Cohere: {e}"); return None
-        
 def preencher_pdf_formulario(paciente_dados):
     try:
         template_pdf_path = "Formulario_2IndiceDeVulnerabilidadeClinicoFuncional20IVCF20_ImpressoraPDFPreenchivel_202404-2.pdf"
@@ -260,38 +230,6 @@ def pagina_vacinacao(planilha_pacientes, planilha_vacinas):
                         salvar_vacina_no_sheets(novo_registo, planilha_vacinas)
                         st.rerun()
 
-def pagina_gerar_documentos(planilha):
-    # ... (código inalterado) ...
-    st.title("📄 Gerador de Documentos")
-    
-    df = ler_dados_da_planilha(planilha)
-    if df.empty:
-        st.warning("Não há pacientes na base de dados para gerar documentos.")
-        return
-        
-    st.subheader("1. Selecione o Paciente")
-    lista_pacientes = sorted(df['Nome Completo'].tolist())
-    paciente_selecionado_nome = st.selectbox("Escolha um paciente:", lista_pacientes, index=None, placeholder="Selecione...")
-    
-    if paciente_selecionado_nome:
-        paciente_dados = df[df['Nome Completo'] == paciente_selecionado_nome].iloc[0]
-        
-        st.markdown("---")
-        st.subheader("2. Escolha o Documento e Gere")
-        
-        if st.button("Gerar Formulário de Vulnerabilidade"):
-            pdf_buffer = preencher_pdf_formulario(paciente_dados.to_dict())
-            
-            if pdf_buffer:
-                st.download_button(
-                    label="📥 Descarregar Formulário Preenchido (PDF)",
-                    data=pdf_buffer,
-                    file_name=f"formulario_{paciente_selecionado_nome.replace(' ', '_')}.pdf",
-                    mime="application/pdf"
-                )
-
-# ... (restante do código, como pagina_dashboard, main, etc., continua igual) ...
-# O código completo foi omitido por brevidade, mas está na sua cópia local
 def main():
     st.sidebar.title("Navegação")
     
@@ -329,4 +267,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
