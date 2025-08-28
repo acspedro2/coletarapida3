@@ -61,7 +61,7 @@ def ler_dados_da_planilha(_planilha):
     try:
         dados = _planilha.get_all_records()
         df = pd.DataFrame(dados)
-        colunas_esperadas = ["ID", "FAMÍLIA", "Nome Completo", "Data de Nascimento", "Telefone", "CPF", "Nome da Mãe", "Nome do Pai", "Sexo", "CNS", "Município de Nascimento", "Link do Prontuário", "Link da Pasta da Família", "Condição", "Data de Registo"]
+        colunas_esperadas = ["ID", "FAMÍLIA", "Nome Completo", "Data de Nascimento", "Telefone", "CPF", "Nome da Mãe", "Nome do Pai", "Sexo", "CNS", "Município de Nascimento", "Link do Prontuário", "Link da Pasta da Família", "Condição", "Data de Registo", "Raça/Cor"]
         for col in colunas_esperadas:
             if col not in df.columns: df[col] = ""
         df['Data de Nascimento DT'] = pd.to_datetime(df['Data de Nascimento'], format='%d/%m/%Y', errors='coerce')
@@ -121,7 +121,7 @@ def preencher_pdf_formulario(paciente_dados):
         packet = BytesIO()
         can = canvas.Canvas(packet, pagesize=A4)
         
-        # --- CALIBRAÇÃO DOS CAMPOS ---
+        # --- CALIBRAÇÃO DOS CAMPOS DE TEXTO ---
         can.setFont("Helvetica", 10)
         can.drawString(3.2 * cm, 23.8 * cm, str(paciente_dados.get("Nome Completo", "")))
         can.drawString(15 * cm, 23.8 * cm, str(paciente_dados.get("CPF", "")))
@@ -131,10 +131,25 @@ def preencher_pdf_formulario(paciente_dados):
         sexo = str(paciente_dados.get("Sexo", "")).strip().upper()
         can.setFont("Helvetica-Bold", 12)
         if sexo.startswith('F'):
-            can.drawString(12.1 * cm, 22.9 * cm, "X") # Posição final F
+            can.drawString(12.1 * cm, 22.9 * cm, "X")
         elif sexo.startswith('M'):
-            can.drawString(12.6 * cm, 22.9 * cm, "X") # Posição final M
+            can.drawString(12.6 * cm, 22.9 * cm, "X")
         
+        # --- LÓGICA PARA MARCAR O 'X' EM RAÇA/COR ---
+        raca_cor = str(paciente_dados.get("Raça/Cor", "")).strip().upper()
+        if raca_cor.startswith('BRANCA'):
+            can.drawString(3.1 * cm, 23 * cm, "X")
+        elif raca_cor.startswith('PRETA'):
+            can.drawString(4.4 * cm, 23 * cm, "X")
+        elif raca_cor.startswith('AMARELA'):
+            can.drawString(5.5 * cm, 23 * cm, "X")
+        elif raca_cor.startswith('PARDA'):
+            can.drawString(7.0 * cm, 23 * cm, "X")
+        elif raca_cor.startswith('INDÍGENA') or raca_cor.startswith('INDIGENA'):
+            can.drawString(8.2 * cm, 23 * cm, "X")
+        elif raca_cor.startswith('IGNORADO'):
+            can.drawString(9.7 * cm, 23 * cm, "X")
+
         can.save()
         packet.seek(0)
         
@@ -160,6 +175,8 @@ def preencher_pdf_formulario(paciente_dados):
         return None
 
 # --- PÁGINAS DO APP ---
+# ... (as outras páginas permanecem inalteradas, colei apenas a relevante abaixo) ...
+
 def pagina_gerar_documentos(planilha):
     st.title("📄 Gerador de Documentos")
     
