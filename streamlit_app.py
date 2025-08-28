@@ -18,6 +18,7 @@ from reportlab.lib.utils import ImageReader
 import matplotlib.pyplot as plt
 from pypdf import PdfReader, PdfWriter
 from reportlab.lib.colors import HexColor
+from dateutil.relativedelta import relativedelta
 
 # --- MOTOR DE REGRAS: CALENDÁRIO NACIONAL DE IMUNIZAÇÕES (PNI) ---
 # Protótipo focado no primeiro ano de vida.
@@ -85,6 +86,41 @@ def calcular_idade(data_nasc):
     if pd.isna(data_nasc): return 0
     hoje = datetime.now()
     return hoje.year - data_nasc.year - ((hoje.month, hoje.day) < (data_nasc.month, data_nasc.day))
+
+def analisar_carteira_vacinacao(data_nascimento_str, vacinas_administradas):
+    """
+    Analisa o histórico de vacinação de um paciente com base no CALENDARIO_PNI.
+    """
+    try:
+        data_nascimento = datetime.strptime(data_nascimento_str, "%d/%m/%Y")
+    except ValueError:
+        return {"erro": "Formato da data de nascimento inválido. Utilize DD/MM/AAAA."}
+
+    hoje = datetime.now()
+    idade = relativedelta(hoje, data_nascimento)
+    idade_total_meses = idade.years * 12 + idade.months
+
+    vacinas_tomadas_set = {(v['vacina'], v['dose']) for v in vacinas_administradas}
+
+    relatorio = {
+        "em_dia": [],
+        "em_atraso": [],
+        "proximas_doses": []
+    }
+
+    for regra in CALENDARIO_PNI:
+        vacina_requerida = (regra['vacina'], regra['dose'])
+        idade_recomendada_meses = regra['idade_meses']
+
+        if idade_total_meses >= idade_recomendada_meses:
+            if vacina_requerida in vacinas_tomadas_set:
+                relatorio["em_dia"].append(regra)
+            else:
+                relatorio["em_atraso"].append(regra)
+        else:
+            relatorio["proximas_doses"].append(regra)
+
+    return relatorio
 
 # --- Funções de Conexão e API ---
 @st.cache_resource
@@ -162,7 +198,6 @@ def preencher_pdf_formulario(paciente_dados):
         packet = BytesIO()
         can = canvas.Canvas(packet, pagesize=A4)
         
-        # --- CALIBRAÇÃO DOS CAMPOS ---
         can.setFont("Helvetica", 10)
         can.drawString(3.2 * cm, 23.8 * cm, str(paciente_dados.get("Nome Completo", "")))
         can.drawString(15 * cm, 23.8 * cm, str(paciente_dados.get("CPF", "")))
@@ -705,6 +740,60 @@ def pagina_whatsapp(planilha):
         col1.text(f"{nome} - ({row['Telefone']})")
         col2.link_button("Enviar Mensagem ↗️", whatsapp_url, use_container_width=True)
 
+def pagina_analise_vacinacao(planilha):
+    st.title("💉 Análise da Caderneta de Vacinação (Protótipo)")
+
+    st.info("Esta página utiliza dados de teste para validar a lógica de análise do calendário vacinal.")
+
+    st.subheader("Dados do Paciente (Simulação)")
+    # Usando a data atual como um exemplo mais relevante
+    data_hoje = datetime.now()
+    data_exemplo = (data_hoje - relativedelta(months=4)).strftime("%d/%m/%Y")
+    data_nasc_teste = st.text_input("Data de Nascimento do Paciente:", data_exemplo)
+
+    vacinas_teste = [
+        {"vacina": "BCG", "dose": "Dose Única"},
+        {"vacina": "Hepatite B", "dose": "1ª Dose"},
+        {"vacina": "Pentavalente", "dose": "1ª Dose"},
+        {"vacina": "VIP (Poliomielite inativada)", "dose": "1ª Dose"},
+        {"vacina": "Pneumocócica 10V", "dose": "1ª Dose"},
+        {"vacina": "Rotavírus", "dose": "1ª Dose"},
+    ]
+
+    st.write("Vacinas administradas (simulação):")
+    st.json(vacinas_teste)
+
+    if st.button("Analisar Situação Vacinal"):
+        with st.spinner("Analisando..."):
+            relatorio = analisar_carteira_vacinacao(data_nasc_teste, vacinas_teste)
+
+            if "erro" in relatorio:
+                st.error(relatorio["erro"])
+            else:
+                st.subheader("Resultado da Análise")
+
+                st.success("✅ Vacinas em Dia")
+                if relatorio["em_dia"]:
+                    for vac in relatorio["em_dia"]:
+                        st.write(f"- **{vac['vacina']} ({vac['dose']})** - Recomendada aos {vac['idade_meses']} meses.")
+                else:
+                    st.write("Nenhuma vacina registrada como em dia.")
+
+                st.warning("⚠️ Vacinas em Atraso")
+                if relatorio["em_atraso"]:
+                    for vac in relatorio["em_atraso"]:
+                        st.write(f"- **{vac['vacina']} ({vac['dose']})** - Deveria ter sido administrada aos {vac['idade_meses']} meses.")
+                else:
+                    st.write("Nenhuma vacina em atraso identificada.")
+                
+                st.info("🗓️ Próximas Doses")
+                if relatorio["proximas_doses"]:
+                    proximas_ordenadas = sorted(relatorio["proximas_doses"], key=lambda x: x['idade_meses'])
+                    for vac in proximas_ordenadas:
+                        st.write(f"- **{vac['vacina']} ({vac['dose']})** - Recomendada aos **{vac['idade_meses']} meses**.")
+                else:
+                    st.write("Nenhuma próxima dose identificada no calendário do primeiro ano.")
+
 def main():
     st.sidebar.title("Navegação")
     
@@ -732,6 +821,7 @@ def main():
         "Gerar Capas de Prontuário": lambda: pagina_capas_prontuario(planilha_conectada),
         "Gerar Documentos": lambda: pagina_gerar_documentos(planilha_conectada),
         "Enviar WhatsApp": lambda: pagina_whatsapp(planilha_conectada),
+        "Análise de Vacinação (Teste)": lambda: pagina_analise_vacinacao(planilha_conectada),
     }
     
     pagina_selecionada = st.sidebar.radio("Escolha uma página:", paginas.keys())
