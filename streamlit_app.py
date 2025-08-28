@@ -131,9 +131,9 @@ def preencher_pdf_formulario(paciente_dados):
         sexo = str(paciente_dados.get("Sexo", "")).strip().upper()
         can.setFont("Helvetica-Bold", 12)
         if sexo.startswith('F'):
-            can.drawString(11.8 * cm, 22.9 * cm, "X") # Ajuste final
+            can.drawString(12.5 * cm, 22.9 * cm, "X") # Ajuste final para 12.5cm
         elif sexo.startswith('M'):
-            can.drawString(12.7 * cm, 22.9 * cm, "X") # Ajuste final
+            can.drawString(13.4 * cm, 22.9 * cm, "X") # Ajuste proporcional
         
         can.save()
         packet.seek(0)
@@ -160,6 +160,7 @@ def preencher_pdf_formulario(paciente_dados):
         return None
 
 # --- PÁGINAS DO APP ---
+# ... (as outras páginas permanecem inalteradas) ...
 def pagina_gerar_documentos(planilha):
     st.title("📄 Gerador de Documentos")
     
