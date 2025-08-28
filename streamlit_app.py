@@ -17,6 +17,7 @@ import qrcode
 from reportlab.lib.utils import ImageReader
 import matplotlib.pyplot as plt
 from pypdf import PdfReader, PdfWriter
+from reportlab.lib.colors import HexColor
 
 # --- Interface Streamlit ---
 st.set_page_config(page_title="Coleta Inteligente", page_icon="🤖", layout="wide")
@@ -166,7 +167,7 @@ def preencher_pdf_formulario(paciente_dados):
         return final_buffer
 
     except FileNotFoundError:
-        st.error(f"Erro: O arquivo modelo '{template_pdf_path}' não foi encontrado no repositório GitHub.")
+        st.error(f"Erro: O arquivo modelo '{template_pdf_path}' não foi encontrado.")
         return None
     except Exception as e:
         st.error(f"Ocorreu um erro ao gerar o PDF: {e}")
@@ -183,7 +184,6 @@ def gerar_pdf_etiquetas(familias_para_gerar):
     can = canvas.Canvas(pdf_buffer, pagesize=A4)
     largura_pagina, altura_pagina = A4
 
-    # --- Configurações do Layout da Etiqueta ---
     num_colunas = 2
     num_linhas = 5
     etiquetas_por_pagina = num_colunas * num_linhas
@@ -199,17 +199,14 @@ def gerar_pdf_etiquetas(familias_para_gerar):
 
     for i, (familia_id, dados_familia) in enumerate(lista_familias):
         
-        # --- Calcula a Posição da Etiqueta ---
         linha_atual = (contador_etiquetas % etiquetas_por_pagina) // num_colunas
         coluna_atual = (contador_etiquetas % etiquetas_por_pagina) % num_colunas
         
         x_base = margem_esquerda + coluna_atual * largura_etiqueta
         y_base = altura_pagina - margem_superior - (linha_atual + 1) * altura_etiqueta
 
-        # --- Desenha a Borda da Etiqueta (Opcional) ---
         can.rect(x_base, y_base, largura_etiqueta, altura_etiqueta)
 
-        # --- Gera e Desenha o QR Code ---
         link_pasta = dados_familia.get("link_pasta", "")
         if link_pasta:
             qr = qrcode.QRCode(version=1, box_size=8, border=2)
@@ -223,7 +220,6 @@ def gerar_pdf_etiquetas(familias_para_gerar):
             
             can.drawImage(ImageReader(qr_buffer), x_base + 0.5 * cm, y_base + 0.5 * cm, width=2.5*cm, height=2.5*cm)
 
-        # --- Escreve as Informações da Família ---
         x_texto = x_base + 3.5 * cm
         y_texto = y_base + altura_etiqueta - 0.8 * cm
         
@@ -261,78 +257,84 @@ def gerar_pdf_etiquetas(familias_para_gerar):
 
 def gerar_pdf_capas_prontuario(pacientes_df):
     """
-    Gera um PDF com uma capa de prontuário para cada paciente selecionado,
-    seguindo o layout de um modelo específico.
+    Gera um PDF com uma capa de prontuário de design profissional para cada paciente.
     """
     pdf_buffer = BytesIO()
     can = canvas.Canvas(pdf_buffer, pagesize=A4)
     largura_pagina, altura_pagina = A4
 
-    for index, paciente in pacientes_df.iterrows():
-        # --- 1. Cabeçalho ---
-        # Adiciona o "PB01" no canto superior direito
-        can.setFont("Helvetica", 10)
-        can.drawRightString(largura_pagina - 1.5 * cm, altura_pagina - 2 * cm, "PB01")
-        
-        # Adiciona o título principal centralizado
-        can.setFont("Helvetica-Bold", 14)
-        can.drawCentredString(largura_pagina / 2, altura_pagina - 3 * cm, "PRONTUÁRIO DO PACIENTE")
+    COR_PRINCIPAL = HexColor('#2c3e50')
+    COR_SECUNDARIA = HexColor('#7f8c8d')
+    COR_FUNDO_CABECALHO = HexColor('#ecf0f1')
 
-        # --- 2. Caixa de Informações ---
-        # Coordenadas e dimensões da caixa principal
+    for index, paciente in pacientes_df.iterrows():
+        can.setFont("Helvetica", 9)
+        can.setFillColor(COR_SECUNDARIA)
+        can.drawRightString(largura_pagina - 2 * cm, altura_pagina - 2 * cm, "PB01")
+        
+        can.setFont("Helvetica-Bold", 16)
+        can.setFillColor(COR_PRINCIPAL)
+        can.drawCentredString(largura_pagina / 2, altura_pagina - 3.5 * cm, "PRONTUÁRIO DO PACIENTE")
+
         margem_caixa = 2 * cm
         largura_caixa = largura_pagina - (2 * margem_caixa)
-        altura_caixa = 4 * cm
+        altura_caixa = 5 * cm
         x_caixa = margem_caixa
-        y_caixa = altura_pagina - 8.5 * cm
+        y_caixa = altura_pagina - 10 * cm
         
-        # Desenha o retângulo da caixa
-        can.rect(x_caixa, y_caixa, largura_caixa, altura_caixa)
+        can.setStrokeColor(COR_FUNDO_CABECALHO)
+        can.setLineWidth(1)
+        can.rect(x_caixa, y_caixa, largura_caixa, altura_caixa, stroke=1, fill=0)
 
-        # --- 3. Nome do Paciente ---
-        # Pega o nome, converte para maiúsculas e o desenha
+        altura_cabecalho_interno = 1.5 * cm
+        y_cabecalho_interno = y_caixa + altura_caixa - altura_cabecalho_interno
+        
+        can.setFillColor(COR_FUNDO_CABECALHO)
+        can.rect(x_caixa, y_cabecalho_interno, largura_caixa, altura_cabecalho_interno, stroke=0, fill=1)
+        
         nome_paciente = str(paciente.get("Nome Completo", "")).upper()
-        y_nome = y_caixa + altura_caixa - 1 * cm
-        can.setFont("Helvetica-Bold", 12)
-        can.drawCentredString(largura_pagina / 2, y_nome, nome_paciente)
-        
-        # Desenha a linha abaixo do nome
-        y_linha = y_caixa + altura_caixa - 1.5 * cm
-        can.line(x_caixa, y_linha, x_caixa + largura_caixa, y_linha)
+        y_texto_nome = y_cabecalho_interno + (altura_cabecalho_interno / 2) - (0.2 * cm)
+        can.setFont("Helvetica-Bold", 14)
+        can.setFillColor(COR_PRINCIPAL)
+        can.drawCentredString(largura_pagina / 2, y_texto_nome, nome_paciente)
 
-        # --- 4. Detalhes em Duas Colunas ---
-        y_inicio_dados = y_linha - 0.8 * cm
+        y_inicio_dados = y_cabecalho_interno - 1.2 * cm
         
-        # Coluna da Esquerda
-        x_label_esq = x_caixa + 0.5 * cm
-        x_valor_esq = x_caixa + 3.5 * cm
+        x_label_esq = x_caixa + 1 * cm
+        x_valor_esq = x_caixa + 4.5 * cm
         
-        can.setFont("Helvetica-Bold", 10)
-        can.drawString(x_label_esq, y_inicio_dados, "Data de Nasc.:")
         can.setFont("Helvetica", 10)
+        can.setFillColor(COR_SECUNDARIA)
+        can.drawString(x_label_esq, y_inicio_dados, "Data de Nasc.:")
+        can.setFont("Helvetica-Bold", 11)
+        can.setFillColor(COR_PRINCIPAL)
         can.drawString(x_valor_esq, y_inicio_dados, str(paciente.get("Data de Nascimento", "")))
         
-        y_segunda_linha = y_inicio_dados - 0.8 * cm
-        can.setFont("Helvetica-Bold", 10)
-        can.drawString(x_label_esq, y_segunda_linha, "CPF:")
+        y_segunda_linha = y_inicio_dados - 1 * cm
         can.setFont("Helvetica", 10)
+        can.setFillColor(COR_SECUNDARIA)
+        can.drawString(x_label_esq, y_segunda_linha, "CPF:")
+        can.setFont("Helvetica-Bold", 11)
+        can.setFillColor(COR_PRINCIPAL)
         can.drawString(x_valor_esq, y_segunda_linha, str(paciente.get("CPF", "")))
 
-        # Coluna da Direita
-        x_label_dir = x_caixa + (largura_caixa / 2) + 0.5 * cm
-        x_valor_dir = x_caixa + (largura_caixa / 2) + 2.5 * cm
+        x_label_dir = x_caixa + (largura_caixa / 2) + 1 * cm
+        x_valor_dir = x_caixa + (largura_caixa / 2) + 3.5 * cm
 
-        can.setFont("Helvetica-Bold", 10)
-        can.drawString(x_label_dir, y_inicio_dados, "Família:")
         can.setFont("Helvetica", 10)
+        can.setFillColor(COR_SECUNDARIA)
+        can.drawString(x_label_dir, y_inicio_dados, "Família:")
+        can.setFont("Helvetica-Bold", 11)
+        can.setFillColor(COR_PRINCIPAL)
         can.drawString(x_valor_dir, y_inicio_dados, str(paciente.get("FAMÍLIA", "")))
 
-        can.setFont("Helvetica-Bold", 10)
-        can.drawString(x_label_dir, y_segunda_linha, "CNS:")
         can.setFont("Helvetica", 10)
+        can.setFillColor(COR_SECUNDARIA)
+        can.drawString(x_label_dir, y_segunda_linha, "CNS:")
+        can.setFont("Helvetica-Bold", 11)
+        can.setFillColor(COR_PRINCIPAL)
         can.drawString(x_valor_dir, y_segunda_linha, str(paciente.get("CNS", "")))
         
-        # Finaliza a página e prepara uma nova para o próximo paciente
         can.showPage() 
 
     can.save()
@@ -640,17 +642,13 @@ def pagina_capas_prontuario(planilha):
     st.title("📇 Gerador de Capas de Prontuário")
     df = ler_dados_da_planilha(planilha)
     if df.empty: st.warning("Ainda não há dados na planilha para gerar capas."); return
-    if "Link do Prontuário" not in df.columns:
-        st.error("A sua planilha precisa de uma coluna chamada 'Link do Prontuário' para esta funcionalidade.")
-        # We keep this check, although the new design doesn't use the link.
-        # It's good practice to ensure the column exists if it's conceptually needed.
+    
     st.subheader("1. Selecione os pacientes")
     lista_pacientes = df['Nome Completo'].tolist()
     pacientes_selecionados_nomes = st.multiselect("Escolha um ou mais pacientes para gerar as capas:", sorted(lista_pacientes))
     if pacientes_selecionados_nomes:
         pacientes_df = df[df['Nome Completo'].isin(pacientes_selecionados_nomes)]
         st.subheader("2. Pré-visualização")
-        # Preview the columns that will be used in the PDF
         st.dataframe(pacientes_df[["Nome Completo", "Data de Nascimento", "FAMÍLIA", "CPF", "CNS"]])
         if st.button("📥 Gerar PDF das Capas"):
             pdf_bytes = gerar_pdf_capas_prontuario(pacientes_df)
