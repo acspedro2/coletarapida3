@@ -172,6 +172,141 @@ def preencher_pdf_formulario(paciente_dados):
         st.error(f"Ocorreu um erro ao gerar o PDF: {e}")
         return None
 
+# --- FUNÇÕES DE GERAÇÃO DE PDF ---
+def gerar_pdf_etiquetas(familias_para_gerar):
+    """
+    Gera um PDF com etiquetas para cada família.
+    Cada etiqueta contém o ID da família, os nomes dos membros e um QR Code
+    que leva ao link da pasta da família.
+    """
+    pdf_buffer = BytesIO()
+    can = canvas.Canvas(pdf_buffer, pagesize=A4)
+    largura_pagina, altura_pagina = A4
+
+    # --- Configurações do Layout da Etiqueta ---
+    num_colunas = 2
+    num_linhas = 5
+    etiquetas_por_pagina = num_colunas * num_linhas
+    
+    margem_esquerda = 0.5 * cm
+    margem_superior = 1 * cm
+    
+    largura_etiqueta = (largura_pagina - 2 * margem_esquerda) / num_colunas
+    altura_etiqueta = (altura_pagina - 2 * margem_superior) / num_linhas
+    
+    contador_etiquetas = 0
+    lista_familias = list(familias_para_gerar.items())
+
+    for i, (familia_id, dados_familia) in enumerate(lista_familias):
+        
+        # --- Calcula a Posição da Etiqueta ---
+        linha_atual = (contador_etiquetas % etiquetas_por_pagina) // num_colunas
+        coluna_atual = (contador_etiquetas % etiquetas_por_pagina) % num_colunas
+        
+        x_base = margem_esquerda + coluna_atual * largura_etiqueta
+        y_base = altura_pagina - margem_superior - (linha_atual + 1) * altura_etiqueta
+
+        # --- Desenha a Borda da Etiqueta (Opcional) ---
+        can.rect(x_base, y_base, largura_etiqueta, altura_etiqueta)
+
+        # --- Gera e Desenha o QR Code ---
+        link_pasta = dados_familia.get("link_pasta", "")
+        if link_pasta:
+            qr = qrcode.QRCode(version=1, box_size=8, border=2)
+            qr.add_data(link_pasta)
+            qr.make(fit=True)
+            img_qr = qr.make_image(fill_color="black", back_color="white")
+            
+            qr_buffer = BytesIO()
+            img_qr.save(qr_buffer, format='PNG')
+            qr_buffer.seek(0)
+            
+            can.drawImage(ImageReader(qr_buffer), x_base + 0.5 * cm, y_base + 0.5 * cm, width=2.5*cm, height=2.5*cm)
+
+        # --- Escreve as Informações da Família ---
+        x_texto = x_base + 3.5 * cm
+        y_texto = y_base + altura_etiqueta - 0.8 * cm
+        
+        can.setFont("Helvetica-Bold", 12)
+        can.drawString(x_texto, y_texto, f"Família: {familia_id}")
+        
+        y_texto -= 0.6 * cm
+        can.setFont("Helvetica", 7)
+        for membro in dados_familia['membros']:
+            nome = membro['Nome Completo']
+            # Limita o nome para não ultrapassar a etiqueta
+            if len(nome) > 40:
+                nome = nome[:37] + "..."
+            can.drawString(x_texto, y_texto, nome)
+            y_texto -= 0.4 * cm
+            if y_texto < (y_base + 0.5 * cm): # Para não escrever sobre a borda
+                break
+        
+        contador_etiquetas += 1
+        if contador_etiquetas % etiquetas_por_pagina == 0 and (i + 1) < len(lista_familias):
+            can.showPage() # Cria uma nova página se a atual estiver cheia
+
+    can.save()
+    pdf_buffer.seek(0)
+    return pdf_buffer
+
+def gerar_pdf_capas_prontuario(pacientes_df):
+    """
+    Gera um PDF com uma capa de prontuário para cada paciente selecionado.
+    Cada capa contém os dados principais do paciente e um QR Code para o prontuário digital.
+    """
+    pdf_buffer = BytesIO()
+    can = canvas.Canvas(pdf_buffer, pagesize=A4)
+    largura_pagina, altura_pagina = A4
+
+    for index, paciente in pacientes_df.iterrows():
+        # --- Desenha o Título da Capa ---
+        can.setFont("Helvetica-Bold", 22)
+        can.drawCentredString(largura_pagina / 2, altura_pagina - 2 * cm, "Prontuário do Paciente")
+        can.line(1 * cm, altura_pagina - 2.5 * cm, largura_pagina - 1 * cm, altura_pagina - 2.5 * cm)
+
+        # --- Escreve os Dados do Paciente ---
+        y_pos = altura_pagina - 4 * cm
+        x_label = 2 * cm
+        x_value = 6 * cm
+        
+        dados = {
+            "Nome Completo:": paciente.get("Nome Completo", ""),
+            "Data de Nasc.:": paciente.get("Data de Nascimento", ""),
+            "CPF:": paciente.get("CPF", ""),
+            "CNS:": paciente.get("CNS", ""),
+            "Nome da Mãe:": paciente.get("Nome da Mãe", ""),
+            "Família:": paciente.get("FAMÍLIA", "")
+        }
+
+        for label, value in dados.items():
+            can.setFont("Helvetica-Bold", 12)
+            can.drawString(x_label, y_pos, label)
+            can.setFont("Helvetica", 12)
+            can.drawString(x_value, y_pos, str(value))
+            y_pos -= 1 * cm
+
+        # --- Gera e Desenha o QR Code ---
+        link_prontuario = paciente.get("Link do Prontuário", "")
+        if link_prontuario:
+            qr = qrcode.QRCode(version=1, box_size=12, border=4)
+            qr.add_data(link_prontuario)
+            qr.make(fit=True)
+            img_qr = qr.make_image(fill_color="black", back_color="white")
+            
+            qr_buffer = BytesIO()
+            img_qr.save(qr_buffer, format='PNG')
+            qr_buffer.seek(0)
+            
+            # Posiciona o QR Code no canto inferior direito
+            can.drawImage(ImageReader(qr_buffer), largura_pagina - 7*cm, 2*cm, width=5*cm, height=5*cm)
+
+        can.showPage() # Finaliza a página atual e prepara uma nova para o próximo paciente
+
+    can.save()
+    pdf_buffer.seek(0)
+    return pdf_buffer
+
 # --- PÁGINAS DO APP ---
 def pagina_gerar_documentos(planilha):
     st.title("📄 Gerador de Documentos")
