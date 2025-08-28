@@ -228,36 +228,34 @@ def gerar_pdf_etiquetas(familias_para_gerar):
         y_texto = y_base + altura_etiqueta - 0.8 * cm
         
         can.setFont("Helvetica-Bold", 12)
-        can.drawString(x_texto, y_texto, f"Família: {familia_id}")
+        # --- LINHA MODIFICADA ---
+        can.drawString(x_texto, y_texto, f"Família: {familia_id} PB01")
         
         y_texto -= 0.6 * cm
         
-        # --- CICLO CORRIGIDO PARA INCLUIR DN E CNS ---
+        # --- CICLO PARA INCLUIR DN E CNS ---
         for membro in dados_familia['membros']:
-            # Define uma fonte um pouco maior para o nome
             can.setFont("Helvetica-Bold", 8)
             nome = membro.get('Nome Completo', '')
             
-            # Limita o nome para não ultrapassar a etiqueta
             if len(nome) > 35:
                 nome = nome[:32] + "..."
             can.drawString(x_texto, y_texto, nome)
             y_texto -= 0.4 * cm
 
-            # Define uma fonte menor para os dados adicionais
             can.setFont("Helvetica", 7)
             dn = membro.get('Data de Nascimento', 'N/D')
             cns = membro.get('CNS', 'N/D')
             info_str = f"DN: {dn} | CNS: {cns}"
             can.drawString(x_texto, y_texto, info_str)
-            y_texto -= 0.5 * cm # Aumenta o espaço para o próximo membro
+            y_texto -= 0.5 * cm 
 
-            if y_texto < (y_base + 0.5 * cm): # Para não escrever sobre a borda
+            if y_texto < (y_base + 0.5 * cm):
                 break
         
         contador_etiquetas += 1
         if contador_etiquetas % etiquetas_por_pagina == 0 and (i + 1) < len(lista_familias):
-            can.showPage() # Cria uma nova página se a atual estiver cheia
+            can.showPage()
 
     can.save()
     pdf_buffer.seek(0)
