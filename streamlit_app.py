@@ -131,9 +131,9 @@ def preencher_pdf_formulario(paciente_dados):
         sexo = str(paciente_dados.get("Sexo", "")).strip().upper()
         can.setFont("Helvetica-Bold", 12)
         if sexo.startswith('F'):
-            can.drawString(12.1 * cm, 22.9 * cm, "X") # Ajuste final para 12.1cm
+            can.drawString(11.8 * cm, 22.9 * cm, "X")
         elif sexo.startswith('M'):
-            can.drawString(13.0 * cm, 22.9 * cm, "X") # Ajuste proporcional
+            can.drawString(12.7 * cm, 22.9 * cm, "X")
         
         can.save()
         packet.seek(0)
