@@ -231,14 +231,27 @@ def gerar_pdf_etiquetas(familias_para_gerar):
         can.drawString(x_texto, y_texto, f"Família: {familia_id}")
         
         y_texto -= 0.6 * cm
-        can.setFont("Helvetica", 7)
+        
+        # --- CICLO CORRIGIDO PARA INCLUIR DN E CNS ---
         for membro in dados_familia['membros']:
-            nome = membro['Nome Completo']
+            # Define uma fonte um pouco maior para o nome
+            can.setFont("Helvetica-Bold", 8)
+            nome = membro.get('Nome Completo', '')
+            
             # Limita o nome para não ultrapassar a etiqueta
-            if len(nome) > 40:
-                nome = nome[:37] + "..."
+            if len(nome) > 35:
+                nome = nome[:32] + "..."
             can.drawString(x_texto, y_texto, nome)
             y_texto -= 0.4 * cm
+
+            # Define uma fonte menor para os dados adicionais
+            can.setFont("Helvetica", 7)
+            dn = membro.get('Data de Nascimento', 'N/D')
+            cns = membro.get('CNS', 'N/D')
+            info_str = f"DN: {dn} | CNS: {cns}"
+            can.drawString(x_texto, y_texto, info_str)
+            y_texto -= 0.5 * cm # Aumenta o espaço para o próximo membro
+
             if y_texto < (y_base + 0.5 * cm): # Para não escrever sobre a borda
                 break
         
