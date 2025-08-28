@@ -228,12 +228,10 @@ def gerar_pdf_etiquetas(familias_para_gerar):
         y_texto = y_base + altura_etiqueta - 0.8 * cm
         
         can.setFont("Helvetica-Bold", 12)
-        # --- LINHA MODIFICADA ---
         can.drawString(x_texto, y_texto, f"Família: {familia_id} PB01")
         
         y_texto -= 0.6 * cm
         
-        # --- CICLO PARA INCLUIR DN E CNS ---
         for membro in dados_familia['membros']:
             can.setFont("Helvetica-Bold", 8)
             nome = membro.get('Nome Completo', '')
@@ -263,56 +261,79 @@ def gerar_pdf_etiquetas(familias_para_gerar):
 
 def gerar_pdf_capas_prontuario(pacientes_df):
     """
-    Gera um PDF com uma capa de prontuário para cada paciente selecionado.
-    Cada capa contém os dados principais do paciente e um QR Code para o prontuário digital.
+    Gera um PDF com uma capa de prontuário para cada paciente selecionado,
+    seguindo o layout de um modelo específico.
     """
     pdf_buffer = BytesIO()
     can = canvas.Canvas(pdf_buffer, pagesize=A4)
     largura_pagina, altura_pagina = A4
 
     for index, paciente in pacientes_df.iterrows():
-        # --- Desenha o Título da Capa ---
-        can.setFont("Helvetica-Bold", 22)
-        can.drawCentredString(largura_pagina / 2, altura_pagina - 2 * cm, "Prontuário do Paciente")
-        can.line(1 * cm, altura_pagina - 2.5 * cm, largura_pagina - 1 * cm, altura_pagina - 2.5 * cm)
-
-        # --- Escreve os Dados do Paciente ---
-        y_pos = altura_pagina - 4 * cm
-        x_label = 2 * cm
-        x_value = 6 * cm
+        # --- 1. Cabeçalho ---
+        # Adiciona o "PB01" no canto superior direito
+        can.setFont("Helvetica", 10)
+        can.drawRightString(largura_pagina - 1.5 * cm, altura_pagina - 2 * cm, "PB01")
         
-        dados = {
-            "Nome Completo:": paciente.get("Nome Completo", ""),
-            "Data de Nasc.:": paciente.get("Data de Nascimento", ""),
-            "CPF:": paciente.get("CPF", ""),
-            "CNS:": paciente.get("CNS", ""),
-            "Nome da Mãe:": paciente.get("Nome da Mãe", ""),
-            "Família:": paciente.get("FAMÍLIA", "")
-        }
+        # Adiciona o título principal centralizado
+        can.setFont("Helvetica-Bold", 14)
+        can.drawCentredString(largura_pagina / 2, altura_pagina - 3 * cm, "PRONTUÁRIO DO PACIENTE")
 
-        for label, value in dados.items():
-            can.setFont("Helvetica-Bold", 12)
-            can.drawString(x_label, y_pos, label)
-            can.setFont("Helvetica", 12)
-            can.drawString(x_value, y_pos, str(value))
-            y_pos -= 1 * cm
+        # --- 2. Caixa de Informações ---
+        # Coordenadas e dimensões da caixa principal
+        margem_caixa = 2 * cm
+        largura_caixa = largura_pagina - (2 * margem_caixa)
+        altura_caixa = 4 * cm
+        x_caixa = margem_caixa
+        y_caixa = altura_pagina - 8.5 * cm
+        
+        # Desenha o retângulo da caixa
+        can.rect(x_caixa, y_caixa, largura_caixa, altura_caixa)
 
-        # --- Gera e Desenha o QR Code ---
-        link_prontuario = paciente.get("Link do Prontuário", "")
-        if link_prontuario:
-            qr = qrcode.QRCode(version=1, box_size=12, border=4)
-            qr.add_data(link_prontuario)
-            qr.make(fit=True)
-            img_qr = qr.make_image(fill_color="black", back_color="white")
-            
-            qr_buffer = BytesIO()
-            img_qr.save(qr_buffer, format='PNG')
-            qr_buffer.seek(0)
-            
-            # Posiciona o QR Code no canto inferior direito
-            can.drawImage(ImageReader(qr_buffer), largura_pagina - 7*cm, 2*cm, width=5*cm, height=5*cm)
+        # --- 3. Nome do Paciente ---
+        # Pega o nome, converte para maiúsculas e o desenha
+        nome_paciente = str(paciente.get("Nome Completo", "")).upper()
+        y_nome = y_caixa + altura_caixa - 1 * cm
+        can.setFont("Helvetica-Bold", 12)
+        can.drawCentredString(largura_pagina / 2, y_nome, nome_paciente)
+        
+        # Desenha a linha abaixo do nome
+        y_linha = y_caixa + altura_caixa - 1.5 * cm
+        can.line(x_caixa, y_linha, x_caixa + largura_caixa, y_linha)
 
-        can.showPage() # Finaliza a página atual e prepara uma nova para o próximo paciente
+        # --- 4. Detalhes em Duas Colunas ---
+        y_inicio_dados = y_linha - 0.8 * cm
+        
+        # Coluna da Esquerda
+        x_label_esq = x_caixa + 0.5 * cm
+        x_valor_esq = x_caixa + 3.5 * cm
+        
+        can.setFont("Helvetica-Bold", 10)
+        can.drawString(x_label_esq, y_inicio_dados, "Data de Nasc.:")
+        can.setFont("Helvetica", 10)
+        can.drawString(x_valor_esq, y_inicio_dados, str(paciente.get("Data de Nascimento", "")))
+        
+        y_segunda_linha = y_inicio_dados - 0.8 * cm
+        can.setFont("Helvetica-Bold", 10)
+        can.drawString(x_label_esq, y_segunda_linha, "CPF:")
+        can.setFont("Helvetica", 10)
+        can.drawString(x_valor_esq, y_segunda_linha, str(paciente.get("CPF", "")))
+
+        # Coluna da Direita
+        x_label_dir = x_caixa + (largura_caixa / 2) + 0.5 * cm
+        x_valor_dir = x_caixa + (largura_caixa / 2) + 2.5 * cm
+
+        can.setFont("Helvetica-Bold", 10)
+        can.drawString(x_label_dir, y_inicio_dados, "Família:")
+        can.setFont("Helvetica", 10)
+        can.drawString(x_valor_dir, y_inicio_dados, str(paciente.get("FAMÍLIA", "")))
+
+        can.setFont("Helvetica-Bold", 10)
+        can.drawString(x_label_dir, y_segunda_linha, "CNS:")
+        can.setFont("Helvetica", 10)
+        can.drawString(x_valor_dir, y_segunda_linha, str(paciente.get("CNS", "")))
+        
+        # Finaliza a página e prepara uma nova para o próximo paciente
+        can.showPage() 
 
     can.save()
     pdf_buffer.seek(0)
@@ -621,17 +642,19 @@ def pagina_capas_prontuario(planilha):
     if df.empty: st.warning("Ainda não há dados na planilha para gerar capas."); return
     if "Link do Prontuário" not in df.columns:
         st.error("A sua planilha precisa de uma coluna chamada 'Link do Prontuário' para esta funcionalidade.")
-        return
+        # We keep this check, although the new design doesn't use the link.
+        # It's good practice to ensure the column exists if it's conceptually needed.
     st.subheader("1. Selecione os pacientes")
     lista_pacientes = df['Nome Completo'].tolist()
     pacientes_selecionados_nomes = st.multiselect("Escolha um ou mais pacientes para gerar as capas:", sorted(lista_pacientes))
     if pacientes_selecionados_nomes:
         pacientes_df = df[df['Nome Completo'].isin(pacientes_selecionados_nomes)]
         st.subheader("2. Pré-visualização")
-        st.dataframe(pacientes_df[["Nome Completo", "Data de Nascimento", "FAMÍLIA", "CPF", "CNS", "Link do Prontuário"]])
-        if st.button("📥 Gerar PDF das Capas com QR Code"):
+        # Preview the columns that will be used in the PDF
+        st.dataframe(pacientes_df[["Nome Completo", "Data de Nascimento", "FAMÍLIA", "CPF", "CNS"]])
+        if st.button("📥 Gerar PDF das Capas"):
             pdf_bytes = gerar_pdf_capas_prontuario(pacientes_df)
-            st.download_button(label="Descarregar PDF das Capas", data=pdf_bytes, file_name=f"capas_prontuario_qrcode_{datetime.now().strftime('%Y%m%d')}.pdf", mime="application/pdf")
+            st.download_button(label="Descarregar PDF das Capas", data=pdf_bytes, file_name=f"capas_prontuario_{datetime.now().strftime('%Y%m%d')}.pdf", mime="application/pdf")
     else: st.info("Selecione pelo menos um paciente para gerar as capas.")
 
 def pagina_whatsapp(planilha):
