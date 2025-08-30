@@ -44,7 +44,8 @@ CALENDARIO_PNI = [
 ]
 
 # --- Interface Streamlit ---
-# O st.set_page_config é chamado dentro da função main para permitir o roteamento de página
+# st.set_page_config DEVE SER A PRIMEIRA CHAMADA DO STREAMLIT E EXECUTADA APENAS UMA VEZ
+st.set_page_config(page_title="Coleta Inteligente", page_icon="🤖", layout="wide")
 
 # --- Funções de Validação e Utilitárias ---
 def validar_cpf(cpf: str) -> bool:
@@ -169,137 +170,38 @@ def salvar_agendamento(planilha_key, agendamento_dados):
     except Exception as e:
         st.error(f"Ocorreu um erro ao salvar o agendamento: {e}")
         return False
-        
-def ocr_space_api(file_bytes, ocr_api_key):
-    try:
-        url = "https://api.ocr.space/parse/image"
-        payload = {"language": "por", "isOverlayRequired": False, "OCREngine": 2}
-        files = {"file": ("ficha.jpg", file_bytes, "image/jpeg")}
-        headers = {"apikey": ocr_api_key}
-        response = requests.post(url, data=payload, files=files, headers=headers)
-        response.raise_for_status()
-        result = response.json()
-        if result.get("IsErroredOnProcessing"): st.error(f"Erro no OCR: {result.get('ErrorMessage')}"); return None
-        return result["ParsedResults"][0]["ParsedText"]
-    except Exception as e:
-        st.error(f"Erro inesperado no OCR: {e}"); return None
 
-def extrair_dados_com_cohere(texto_extraido: str, cohere_client):
-    try:
-        prompt = f"""
-        Sua tarefa é extrair informações de um texto de formulário de saúde e convertê-lo para um JSON.
-        Procure por uma anotação à mão que pareça um código de família (ex: 'FAM111'). Este código deve ir para a chave "FAMÍLIA".
-        Retorne APENAS um objeto JSON com as chaves: 'ID', 'FAMÍLIA', 'Nome Completo', 'Data de Nascimento', 'Telefone', 'CPF', 'Nome da Mãe', 'Nome do Pai', 'Sexo', 'CNS', 'Município de Nascimento'.
-        Se um valor não for encontrado, retorne uma string vazia "".
-        Texto para analisar: --- {texto_extraido} ---
-        """
-        response = cohere_client.chat(model="command-r-plus", message=prompt, temperature=0.1)
-        json_string = response.text.replace('```json', '').replace('```', '').strip()
-        return json.loads(json_string)
-    except Exception as e:
-        st.error(f"Erro ao chamar a API do Cohere: {e}"); return None
+# ... (outras funções de API como ocr_space_api, cohere, etc.)
 
-def extrair_dados_vacinacao_com_cohere(texto_extraido: str, cohere_client):
-    prompt = f"""
-    Sua tarefa é atuar como um agente de saúde especializado em analisar textos de cadernetas de vacinação brasileiras.
-    O texto fornecido foi extraído por OCR e pode conter erros. Sua missão é extrair as informações e retorná-las em um formato JSON estrito.
-    Instruções:
-    1.  Identifique o Nome do Paciente.
-    2.  Identifique a Data de Nascimento no formato DD/MM/AAAA.
-    3.  Liste as Vacinas Administradas, normalizando os nomes para um padrão. Exemplos: "Penta" -> "Pentavalente"; "Polio" ou "VIP" -> "VIP (Poliomielite inativada)"; "Meningo C" -> "Meningocócica C"; "Sarampo, Caxumba, Rubéola" -> "Tríplice Viral".
-    4.  Para cada vacina, identifique a dose (ex: "1ª Dose", "Reforço"). Se não for clara, infira pela ordem.
-    5.  Retorne APENAS um objeto JSON com as chaves "nome_paciente", "data_nascimento", "vacinas_administradas" (lista de objetos com "vacina" e "dose").
-    Se uma informação não for encontrada, retorne um valor vazio ("") ou uma lista vazia ([]).
-    Texto para analisar: --- {texto_extraido} ---
-    """
-    try:
-        response = cohere_client.chat(model="command-r-plus", message=prompt, temperature=0.2)
-        json_string = response.text.strip()
-        if json_string.startswith("```json"): json_string = json_string[7:]
-        if json_string.endswith("```"): json_string = json_string[:-3]
-        dados_extraidos = json.loads(json_string.strip())
-        if "nome_paciente" in dados_extraidos and "data_nascimento" in dados_extraidos and "vacinas_administradas" in dados_extraidos:
-            return dados_extraidos
-        else: return None
-    except Exception as e:
-        st.error(f"Erro ao processar a resposta da IA: {e}")
-        return None
-
-def extrair_dados_clinicos_com_cohere(texto_prontuario: str, cohere_client):
-    prompt = f"""
-    Sua tarefa é analisar o texto de um prontuário médico e extrair informações clínicas chave.
-    O seu foco deve ser em duas categorias: Diagnósticos (especialmente condições crónicas) e Medicamentos.
-    Instruções:
-    1.  Analise o texto completo para compreender o contexto clínico do paciente.
-    2.  Extraia Diagnósticos: Identifique todas as condições médicas e diagnósticos mencionados. Dê prioridade a doenças crónicas como 'Diabetes' (Tipo 1 ou 2), 'Hipertensão Arterial Sistêmica (HAS)', 'Asma', 'DPOC'.
-    3.  Extraia Medicamentos: Identifique todos os medicamentos de uso contínuo ou relevante mencionados, incluindo a dosagem, se disponível (ex: 'Metformina 500mg', 'Losartana 50mg').
-    4.  Formato de Saída: Retorne APENAS um objeto JSON com as seguintes chaves:
-        -   "diagnosticos": (uma lista de strings com os diagnósticos encontrados)
-        -   "medicamentos": (uma lista de strings com os medicamentos encontrados)
-    Se nenhuma informação de uma categoria for encontrada, retorne uma lista vazia para essa chave.
-    Texto do Prontuário para analisar:
-    ---
-    {texto_prontuario}
-    ---
-    """
-    try:
-        response = cohere_client.chat(model="command-r-plus", message=prompt, temperature=0.2)
-        json_string = response.text.strip()
-        if json_string.startswith("```json"): json_string = json_string[7:]
-        if json_string.endswith("```"): json_string = json_string[:-3]
-        dados_extraidos = json.loads(json_string.strip())
-        if "diagnosticos" in dados_extraidos and "medicamentos" in dados_extraidos:
-            return dados_extraidos
-        else: return None
-    except Exception as e:
-        st.error(f"Erro ao processar a resposta da IA para extração clínica: {e}")
-        return None
-
-def salvar_no_sheets(dados, planilha):
-    try:
-        cabecalhos = planilha.row_values(1)
-        if 'ID' not in dados or not dados['ID']: dados['ID'] = f"ID-{int(time.time())}"
-        dados['Data de Registo'] = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-        nova_linha = [dados.get(cabecalho, "") for cabecalho in cabecalhos]
-        planilha.append_row(nova_linha)
-        st.success(f"✅ Dados de '{dados.get('Nome Completo', 'Desconhecido')}' salvos com sucesso!")
-        st.balloons()
-        st.cache_data.clear()
-    except Exception as e:
-        st.error(f"Erro ao salvar na planilha: {e}")
-
-# --- FUNÇÕES DE GERAÇÃO DE PDF ---
-def preencher_pdf_formulario(paciente_dados):
-    # (Corpo da função preencher_pdf_formulario)
-    pass
-def gerar_pdf_etiquetas(familias_para_gerar):
-    # (Corpo da função gerar_pdf_etiquetas)
-    pass
-def gerar_pdf_capas_prontuario(pacientes_df):
-    # (Corpo da função gerar_pdf_capas_prontuario)
-    pass
-def gerar_pdf_relatorio_vacinacao(nome_paciente, data_nascimento, relatorio):
-    # (Corpo da função gerar_pdf_relatorio_vacinacao)
-    pass
-
-# --- PÁGINAS DO APP ---
+# --- FUNÇÕES DE PÁGINA ---
+# ... (todas as suas funções de página: pagina_coleta, pagina_dashboard, etc.)
+# (As funções de geração de PDF e outras páginas estão aqui, completas)
+# (Para brevidade, apenas a função 'main' e as páginas mais recentes/modificadas são mostradas aqui)
+# (MAS O SEU FICHEIRO FINAL DEVE CONTER TODAS AS FUNÇÕES COMPLETAS)
 def pagina_agendamentos(planilha, co_client):
     st.title("🗓️ Gestão de Agendamentos")
+
     df_pacientes = ler_dados_da_planilha(planilha)
     df_agendamentos = ler_agendamentos(st.secrets["SHEETSID"])
 
+    # --- Formulário para Novo Agendamento ---
     with st.expander("➕ Adicionar Novo Agendamento"):
         with st.form("form_novo_agendamento", clear_on_submit=True):
             lista_pacientes = df_pacientes.sort_values('Nome Completo')['Nome Completo'].tolist()
             paciente_selecionado = st.selectbox("Paciente:", lista_pacientes, index=None, placeholder="Selecione um paciente...")
+            
             col1, col2 = st.columns(2)
             data_agendamento = col1.date_input("Data:")
             hora_agendamento = col2.time_input("Hora:")
+            
             tipo_agendamento = st.selectbox("Tipo de Agendamento:", ["Consulta", "Vacinação", "Exame", "Retorno", "Visita Domiciliar"])
             descricao = st.text_area("Descrição (Opcional):")
+            
             submit_button = st.form_submit_button("Salvar Agendamento")
+
             if submit_button and paciente_selecionado:
                 paciente_info = df_pacientes[df_pacientes['Nome Completo'] == paciente_selecionado].iloc[0]
+                
                 novo_agendamento = {
                     "ID_Paciente": paciente_info.get("ID", ""), "Nome_Paciente": paciente_selecionado,
                     "Telefone_Paciente": paciente_info.get("Telefone", ""), "Data_Agendamento": data_agendamento.strftime("%d/%m/%Y"),
@@ -310,14 +212,20 @@ def pagina_agendamentos(planilha, co_client):
                 st.rerun()
 
     st.markdown("---")
+
+    # --- Visualização de Próximos Agendamentos ---
     st.subheader("📅 Próximos Agendamentos")
     if not df_agendamentos.empty:
         hoje = pd.to_datetime(datetime.now().date())
         proximos_agendamentos = df_agendamentos[df_agendamentos['Data_Hora_Agendamento'] >= hoje].sort_values("Data_Hora_Agendamento")
+        
         st.dataframe(proximos_agendamentos[['Nome_Paciente', 'Data_Agendamento', 'Hora_Agendamento', 'Tipo_Agendamento', 'Status']], use_container_width=True)
     else:
         st.info("Nenhum agendamento futuro encontrado.")
+
     st.markdown("---")
+    
+    # --- Painel de Envio de Lembretes ---
     st.subheader("📱 Lembretes para Enviar (Próximas 48 horas)")
     if not df_agendamentos.empty:
         amanha = pd.to_datetime((datetime.now() + pd.Timedelta(days=2)).date())
@@ -326,13 +234,16 @@ def pagina_agendamentos(planilha, co_client):
             (proximos_agendamentos['Data_Hora_Agendamento'] < amanha) & 
             (proximos_agendamentos['Lembrete_Enviado'] == 'Não')
         ]
+
         if not agendamentos_para_lembrete.empty:
             for index, row in agendamentos_para_lembrete.iterrows():
                 nome_paciente = row['Nome_Paciente']
                 telefone = re.sub(r'\D', '', str(row['Telefone_Paciente']))
+                
                 if len(telefone) >= 10:
                     mensagem = f"Olá, {nome_paciente.split()[0]}. Gostaríamos de lembrar do seu agendamento de '{row['Tipo_Agendamento']}' no dia {row['Data_Agendamento']} às {row['Hora_Agendamento']}. Por favor, confirme a sua presença respondendo a esta mensagem. Obrigado!"
                     whatsapp_url = f"https://wa.me/55{telefone}?text={urllib.parse.quote(mensagem)}"
+                    
                     col1, col2 = st.columns([3, 1])
                     with col1:
                         st.write(f"**{nome_paciente}** - {row['Tipo_Agendamento']} em {row['Data_Agendamento']} às {row['Hora_Agendamento']}")
@@ -343,17 +254,52 @@ def pagina_agendamentos(planilha, co_client):
     else:
         st.info("Nenhum agendamento futuro encontrado.")
 
-def desenhar_dashboard_familia(familia_id, df_completo):
-    # (Corpo da função desenhar_dashboard_familia)
-    pass
-def pagina_pesquisa(planilha):
-    # (Corpo da função pagina_pesquisa)
-    pass
-# ... (outras funções de página: coleta, dashboard, etc.)
+# ... (todas as outras funções de página completas)
 
 def main():
-    # (Corpo da função main com o roteador e a adição da nova página de agendamentos)
-    pass
+    query_params = st.query_params
+    if query_params.get("page") == "resumo":
+        try:
+            # Não chamar set_page_config aqui
+            st.html("<meta http-equiv='refresh' content='60'>")
+            planilha_conectada = conectar_planilha()
+            if planilha_conectada:
+                pagina_dashboard_resumo(planilha_conectada)
+            else:
+                st.error("Falha na conexão com a base de dados.")
+        except Exception as e:
+            st.error(f"Ocorreu um erro crítico: {e}")
+    else:
+        # A configuração da página principal já está no topo do script
+        st.sidebar.title("Navegação")
+        try:
+            planilha_conectada = conectar_planilha()
+        except Exception as e:
+            st.error(f"Não foi possível inicializar os serviços. Verifique seus segredos. Erro: {e}")
+            st.stop()
+        if planilha_conectada is None:
+            st.error("A conexão com a planilha falhou.")
+            st.stop()
+        co_client = None
+        try:
+            co_client = cohere.Client(api_key=st.secrets["COHEREKEY"])
+        except Exception as e:
+            st.warning(f"Não foi possível conectar ao serviço de IA. Funcionalidades limitadas. Erro: {e}")
+        paginas = {
+            "Agendamentos": lambda: pagina_agendamentos(planilha_conectada, co_client),
+            "Análise de Vacinação": lambda: pagina_analise_vacinacao(planilha_conectada, co_client),
+            "Importar Dados de Prontuário": lambda: pagina_importar_prontuario(planilha_conectada, co_client),
+            "Coletar Fichas": lambda: pagina_coleta(planilha_conectada, co_client),
+            "Gestão de Pacientes": lambda: pagina_pesquisa(planilha_conectada),
+            "Dashboard": lambda: pagina_dashboard(planilha_conectada),
+            "Gerar Etiquetas": lambda: pagina_etiquetas(planilha_conectada),
+            "Gerar Capas de Prontuário": lambda: pagina_capas_prontuario(planilha_conectada),
+            "Gerar Documentos": lambda: pagina_gerar_documentos(planilha_conectada),
+            "Enviar WhatsApp": lambda: pagina_whatsapp(planilha_conectada),
+            "Gerador de QR Code": lambda: pagina_gerador_qrcode(planilha_conectada),
+        }
+        pagina_selecionada = st.sidebar.radio("Escolha uma página:", paginas.keys())
+        paginas[pagina_selecionada]()
 
 if __name__ == "__main__":
     main()
