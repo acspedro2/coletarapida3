@@ -1,4 +1,3 @@
-# ... (imports completos, incluindo qrcode, etc.)
 import streamlit as st
 import requests
 import json
@@ -20,10 +19,9 @@ import matplotlib.pyplot as plt
 from pypdf import PdfReader, PdfWriter
 from reportlab.lib.colors import HexColor
 from dateutil.relativedelta import relativedelta
+from pdf2image import convert_from_bytes
 
-
-# --- MOTOR DE REGRAS E OUTRAS CONSTANTES ---
-# ... (CALENDARIO_PNI)
+# --- MOTOR DE REGRAS: CALENDÁRIO NACIONAL DE IMUNIZAÇÕES (PNI) ---
 CALENDARIO_PNI = [
     {"vacina": "BCG", "dose": "Dose Única", "idade_meses": 0, "detalhe": "Protege contra formas graves de tuberculose."},
     {"vacina": "Hepatite B", "dose": "1ª Dose", "idade_meses": 0, "detalhe": "Primeira dose, preferencialmente nas primeiras 12-24 horas de vida."},
@@ -45,9 +43,10 @@ CALENDARIO_PNI = [
     {"vacina": "Meningocócica C", "dose": "Reforço", "idade_meses": 12, "detalhe": "Dose de reforço."},
 ]
 
+# --- Interface Streamlit ---
+st.set_page_config(page_title="Coleta Inteligente", page_icon="🤖", layout="wide")
 
-# --- FUNÇÕES UTILITÁRIAS ---
-# ... (todas as suas funções utilitárias: validar_cpf, calcular_idade, analisar_carteira_vacinacao, etc.)
+# --- Funções de Validação e Utilitárias ---
 def validar_cpf(cpf: str) -> bool:
     cpf = ''.join(re.findall(r'\d', str(cpf)))
     if not cpf or len(cpf) != 11 or cpf == cpf[0] * 11: return False
@@ -93,9 +92,26 @@ def analisar_carteira_vacinacao(data_nascimento_str, vacinas_administradas):
             relatorio["proximas_doses"].append(regra)
     return relatorio
 
+def ler_texto_prontuario(file_bytes, ocr_api_key):
+    try:
+        imagens_pil = convert_from_bytes(file_bytes)
+        texto_completo = ""
+        progress_bar = st.progress(0, text="A processar páginas do PDF...")
+        for i, imagem in enumerate(imagens_pil):
+            with BytesIO() as output:
+                imagem.save(output, format="JPEG")
+                img_bytes = output.getvalue()
+            texto_da_pagina = ocr_space_api(img_bytes, ocr_api_key)
+            if texto_da_pagina:
+                texto_completo += f"\n--- PÁGINA {i+1} ---\n" + texto_da_pagina
+            progress_bar.progress((i + 1) / len(imagens_pil), text=f"Página {i+1} de {len(imagens_pil)} processada.")
+        progress_bar.empty()
+        return texto_completo.strip()
+    except Exception as e:
+        st.error(f"Erro ao processar o ficheiro PDF: {e}. Verifique se o ficheiro não está corrompido e se as dependências (pdf2image/Poppler) estão instaladas.")
+        return None
 
-# --- FUNÇÕES DE CONEXÃO E API ---
-# ... (conectar_planilha, ler_dados_da_planilha, ocr_space_api, etc.)
+# --- Funções de Conexão e API ---
 @st.cache_resource
 def conectar_planilha():
     try:
@@ -111,7 +127,7 @@ def ler_dados_da_planilha(_planilha):
     try:
         dados = _planilha.get_all_records()
         df = pd.DataFrame(dados)
-        colunas_esperadas = ["ID", "FAMÍLIA", "Nome Completo", "Data de Nascimento", "Telefone", "CPF", "Nome da Mãe", "Nome do Pai", "Sexo", "CNS", "Município de Nascimento", "Link do Prontuário", "Link da Pasta da Família", "Condição", "Data de Registo", "Raça/Cor"]
+        colunas_esperadas = ["ID", "FAMÍLIA", "Nome Completo", "Data de Nascimento", "Telefone", "CPF", "Nome da Mãe", "Nome do Pai", "Sexo", "CNS", "Município de Nascimento", "Link do Prontuário", "Link da Pasta da Família", "Condição", "Data de Registo", "Raça/Cor", "Medicamentos"]
         for col in colunas_esperadas:
             if col not in df.columns: df[col] = ""
         df['Data de Nascimento DT'] = pd.to_datetime(df['Data de Nascimento'], format='%d/%m/%Y', errors='coerce')
@@ -175,6 +191,36 @@ def extrair_dados_vacinacao_com_cohere(texto_extraido: str, cohere_client):
         st.error(f"Erro ao processar a resposta da IA: {e}")
         return None
 
+def extrair_dados_clinicos_com_cohere(texto_prontuario: str, cohere_client):
+    prompt = f"""
+    Sua tarefa é analisar o texto de um prontuário médico e extrair informações clínicas chave.
+    O seu foco deve ser em duas categorias: Diagnósticos (especialmente condições crónicas) e Medicamentos.
+    Instruções:
+    1.  Analise o texto completo para compreender o contexto clínico do paciente.
+    2.  Extraia Diagnósticos: Identifique todas as condições médicas e diagnósticos mencionados. Dê prioridade a doenças crónicas como 'Diabetes' (Tipo 1 ou 2), 'Hipertensão Arterial Sistêmica (HAS)', 'Asma', 'DPOC'.
+    3.  Extraia Medicamentos: Identifique todos os medicamentos de uso contínuo ou relevante mencionados, incluindo a dosagem, se disponível (ex: 'Metformina 500mg', 'Losartana 50mg').
+    4.  Formato de Saída: Retorne APENAS um objeto JSON com as seguintes chaves:
+        -   "diagnosticos": (uma lista de strings com os diagnósticos encontrados)
+        -   "medicamentos": (uma lista de strings com os medicamentos encontrados)
+    Se nenhuma informação de uma categoria for encontrada, retorne uma lista vazia para essa chave.
+    Texto do Prontuário para analisar:
+    ---
+    {texto_prontuario}
+    ---
+    """
+    try:
+        response = cohere_client.chat(model="command-r-plus", message=prompt, temperature=0.2)
+        json_string = response.text.strip()
+        if json_string.startswith("```json"): json_string = json_string[7:]
+        if json_string.endswith("```"): json_string = json_string[:-3]
+        dados_extraidos = json.loads(json_string.strip())
+        if "diagnosticos" in dados_extraidos and "medicamentos" in dados_extraidos:
+            return dados_extraidos
+        else: return None
+    except Exception as e:
+        st.error(f"Erro ao processar a resposta da IA para extração clínica: {e}")
+        return None
+
 def salvar_no_sheets(dados, planilha):
     try:
         cabecalhos = planilha.row_values(1)
@@ -188,9 +234,6 @@ def salvar_no_sheets(dados, planilha):
     except Exception as e:
         st.error(f"Erro ao salvar na planilha: {e}")
 
-
-# --- FUNÇÕES DE GERAÇÃO DE PDF ---
-# ... (todas as suas funções de gerar PDF: etiquetas, capas, relatórios, etc.)
 def preencher_pdf_formulario(paciente_dados):
     try:
         template_pdf_path = "Formulario_2IndiceDeVulnerabilidadeClinicoFuncional20IVCF20_ImpressoraPDFPreenchivel_202404-2.pdf"
@@ -230,6 +273,7 @@ def preencher_pdf_formulario(paciente_dados):
         st.error(f"Ocorreu um erro ao gerar o PDF: {e}")
         return None
 
+# --- FUNÇÕES DE GERAÇÃO DE PDF ---
 def gerar_pdf_etiquetas(familias_para_gerar):
     pdf_buffer = BytesIO()
     can = canvas.Canvas(pdf_buffer, pagesize=A4)
@@ -388,31 +432,7 @@ def gerar_pdf_relatorio_vacinacao(nome_paciente, data_nascimento, relatorio):
     pdf_buffer.seek(0)
     return pdf_buffer
 
-
 # --- PÁGINAS DO APP ---
-def pagina_gerar_documentos(planilha):
-    st.title("📄 Gerador de Documentos")
-    df = ler_dados_da_planilha(planilha)
-    if df.empty:
-        st.warning("Não há pacientes na base de dados para gerar documentos.")
-        return
-    st.subheader("1. Selecione o Paciente")
-    lista_pacientes = sorted(df['Nome Completo'].tolist())
-    paciente_selecionado_nome = st.selectbox("Escolha um paciente:", lista_pacientes, index=None, placeholder="Selecione...")
-    if paciente_selecionado_nome:
-        paciente_dados = df[df['Nome Completo'] == paciente_selecionado_nome].iloc[0]
-        st.markdown("---")
-        st.subheader("2. Escolha o Documento e Gere")
-        if st.button("Gerar Formulário de Vulnerabilidade"):
-            pdf_buffer = preencher_pdf_formulario(paciente_dados.to_dict())
-            if pdf_buffer:
-                st.download_button(
-                    label="📥 Descarregar Formulário Preenchido (PDF)",
-                    data=pdf_buffer,
-                    file_name=f"formulario_{paciente_selecionado_nome.replace(' ', '_')}.pdf",
-                    mime="application/pdf"
-                )
-
 def pagina_coleta(planilha, co_client):
     st.title("🤖 COLETA INTELIGENTE")
     st.header("1. Envie uma ou mais imagens de fichas")
@@ -704,9 +724,110 @@ def pagina_analise_vacinacao(planilha, co_client):
         st.session_state.clear()
         st.rerun()
 
+def pagina_importar_prontuario(planilha, co_client):
+    st.title("📄 Importar Dados de Prontuário Clínico")
+    st.info("Esta funcionalidade extrai diagnósticos e medicamentos de um ficheiro de prontuário (PDF digitalizado) e adiciona-os ao registo do paciente.")
+    try:
+        df = ler_dados_da_planilha(planilha)
+        if df.empty:
+            st.warning("Não há pacientes na base de dados.")
+            return
+        lista_pacientes = sorted(df['Nome Completo'].tolist())
+        st.subheader("1. Selecione o Paciente e o Ficheiro do Prontuário")
+        paciente_selecionado = st.selectbox("Selecione o paciente:", lista_pacientes, index=None, placeholder="Escolha um paciente...")
+        uploaded_file = st.file_uploader("Carregue o prontuário em formato PDF:", type=["pdf"])
+        if paciente_selecionado and uploaded_file:
+            if st.button("🔍 Iniciar Extração de Dados"):
+                st.session_state.dados_clinicos_extraidos = None
+                with st.spinner("A processar PDF e a analisar com IA... Este processo pode demorar um pouco."):
+                    texto_prontuario = ler_texto_prontuario(uploaded_file.getvalue(), st.secrets["OCRSPACEKEY"])
+                    if texto_prontuario:
+                        st.success("Texto extraído do prontuário com sucesso!")
+                        dados_clinicos = extrair_dados_clinicos_com_cohere(texto_prontuario, co_client)
+                        if dados_clinicos:
+                            st.session_state.dados_clinicos_extraidos = dados_clinicos
+                            st.session_state.paciente_para_atualizar = paciente_selecionado
+                            st.rerun()
+                        else: st.error("A IA não conseguiu extrair informações clínicas do texto.")
+                    else: st.error("Não foi possível extrair texto do PDF.")
+        if 'dados_clinicos_extraidos' in st.session_state and st.session_state.dados_clinicos_extraidos is not None:
+            st.markdown("---")
+            st.subheader("3. Valide os Dados e Salve na Planilha")
+            st.warning("Verifique as informações extraídas pela IA. Pode adicionar ou remover itens antes de salvar.")
+            dados = st.session_state.dados_clinicos_extraidos
+            with st.form(key="clinical_data_form"):
+                st.write(f"**Paciente:** {st.session_state.paciente_para_atualizar}")
+                diagnosticos_validados = st.multiselect("Diagnósticos Encontrados:", options=dados.get('diagnosticos', []), default=dados.get('diagnosticos', []))
+                medicamentos_validados = st.multiselect("Medicamentos Encontrados:", options=dados.get('medicamentos', []), default=dados.get('medicamentos', []))
+                if st.form_submit_button("✅ Salvar Informações no Registo do Paciente"):
+                    with st.spinner("A atualizar a planilha..."):
+                        try:
+                            diagnosticos_str = ", ".join(diagnosticos_validados)
+                            medicamentos_str = ", ".join(medicamentos_validados)
+                            cell = planilha.find(st.session_state.paciente_para_atualizar)
+                            headers = planilha.row_values(1)
+                            col_condicao_index = headers.index("Condição") + 1 if "Condição" in headers else None
+                            col_medicamentos_index = headers.index("Medicamentos") + 1 if "Medicamentos" in headers else None
+                            if col_condicao_index: planilha.update_cell(cell.row, col_condicao_index, diagnosticos_str)
+                            if col_medicamentos_index: planilha.update_cell(cell.row, col_medicamentos_index, medicamentos_str)
+                            st.success(f"Os dados do paciente {st.session_state.paciente_para_atualizar} foram atualizados com sucesso!")
+                            st.session_state.dados_clinicos_extraidos = None
+                            st.session_state.paciente_para_atualizar = None
+                            st.cache_data.clear()
+                        except gspread.exceptions.CellNotFound:
+                            st.error(f"Não foi possível encontrar o paciente '{st.session_state.paciente_para_atualizar}' na planilha.")
+                        except Exception as e:
+                            st.error(f"Ocorreu um erro ao salvar na planilha: {e}")
+    except Exception as e:
+        st.error(f"Ocorreu um erro ao carregar a página: {e}")
+
 def main():
-    # ... (código da função main, como fornecido anteriormente, com o roteador de página)
-    pass
+    query_params = st.query_params
+    if query_params.get("page") == "resumo":
+        try:
+            planilha_conectada = conectar_planilha()
+            if planilha_conectada:
+                # Importante: A página de resumo não deve estar dentro do layout principal
+                # O set_page_config deve ser a primeira chamada do Streamlit
+                st.set_page_config(page_title="Resumo de Pacientes", layout="centered")
+                pagina_dashboard_resumo(planilha_conectada)
+            else:
+                st.set_page_config(page_title="Erro", layout="centered")
+                st.error("Falha na conexão com a base de dados.")
+        except Exception as e:
+            st.set_page_config(page_title="Erro", layout="centered")
+            st.error(f"Ocorreu um erro crítico: {e}")
+    else:
+        # Layout principal da aplicação
+        st.set_page_config(page_title="Coleta Inteligente", page_icon="🤖", layout="wide")
+        st.sidebar.title("Navegação")
+        try:
+            planilha_conectada = conectar_planilha()
+        except Exception as e:
+            st.error(f"Não foi possível inicializar os serviços. Verifique seus segredos. Erro: {e}")
+            st.stop()
+        if planilha_conectada is None:
+            st.error("A conexão com a planilha falhou.")
+            st.stop()
+        co_client = None
+        try:
+            co_client = cohere.Client(api_key=st.secrets["COHEREKEY"])
+        except Exception as e:
+            st.warning(f"Não foi possível conectar ao serviço de IA. Funcionalidades limitadas. Erro: {e}")
+        paginas = {
+            "Análise de Vacinação": lambda: pagina_analise_vacinacao(planilha_conectada, co_client),
+            "Importar Dados de Prontuário": lambda: pagina_importar_prontuario(planilha_conectada, co_client),
+            "Coletar Fichas": lambda: pagina_coleta(planilha_conectada, co_client),
+            "Gestão de Pacientes": lambda: pagina_pesquisa(planilha_conectada),
+            "Dashboard": lambda: pagina_dashboard(planilha_conectada),
+            "Gerar Etiquetas": lambda: pagina_etiquetas(planilha_conectada),
+            "Gerar Capas de Prontuário": lambda: pagina_capas_prontuario(planilha_conectada),
+            "Gerar Documentos": lambda: pagina_gerar_documentos(planilha_conectada),
+            "Enviar WhatsApp": lambda: pagina_whatsapp(planilha_conectada),
+            "Gerador de QR Code": lambda: pagina_gerador_qrcode(planilha_conectada),
+        }
+        pagina_selecionada = st.sidebar.radio("Escolha uma página:", paginas.keys())
+        paginas[pagina_selecionada]()
 
 if __name__ == "__main__":
     main()
