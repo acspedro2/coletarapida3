@@ -44,7 +44,7 @@ CALENDARIO_PNI = [
 ]
 
 # --- Interface Streamlit ---
-st.set_page_config(page_title="Coleta Inteligente", page_icon="🤖", layout="wide")
+# O st.set_page_config é chamado dentro da função main para permitir o roteamento de página
 
 # --- Funções de Validação e Utilitárias ---
 def validar_cpf(cpf: str) -> bool:
@@ -234,6 +234,7 @@ def salvar_no_sheets(dados, planilha):
     except Exception as e:
         st.error(f"Erro ao salvar na planilha: {e}")
 
+# --- FUNÇÕES DE GERAÇÃO DE PDF ---
 def preencher_pdf_formulario(paciente_dados):
     try:
         template_pdf_path = "Formulario_2IndiceDeVulnerabilidadeClinicoFuncional20IVCF20_ImpressoraPDFPreenchivel_202404-2.pdf"
@@ -273,7 +274,6 @@ def preencher_pdf_formulario(paciente_dados):
         st.error(f"Ocorreu um erro ao gerar o PDF: {e}")
         return None
 
-# --- FUNÇÕES DE GERAÇÃO DE PDF ---
 def gerar_pdf_etiquetas(familias_para_gerar):
     pdf_buffer = BytesIO()
     can = canvas.Canvas(pdf_buffer, pagesize=A4)
@@ -433,6 +433,29 @@ def gerar_pdf_relatorio_vacinacao(nome_paciente, data_nascimento, relatorio):
     return pdf_buffer
 
 # --- PÁGINAS DO APP ---
+def pagina_gerar_documentos(planilha):
+    st.title("📄 Gerador de Documentos")
+    df = ler_dados_da_planilha(planilha)
+    if df.empty:
+        st.warning("Não há pacientes na base de dados para gerar documentos.")
+        return
+    st.subheader("1. Selecione o Paciente")
+    lista_pacientes = sorted(df['Nome Completo'].tolist())
+    paciente_selecionado_nome = st.selectbox("Escolha um paciente:", lista_pacientes, index=None, placeholder="Selecione...")
+    if paciente_selecionado_nome:
+        paciente_dados = df[df['Nome Completo'] == paciente_selecionado_nome].iloc[0]
+        st.markdown("---")
+        st.subheader("2. Escolha o Documento e Gere")
+        if st.button("Gerar Formulário de Vulnerabilidade"):
+            pdf_buffer = preencher_pdf_formulario(paciente_dados.to_dict())
+            if pdf_buffer:
+                st.download_button(
+                    label="📥 Descarregar Formulário Preenchido (PDF)",
+                    data=pdf_buffer,
+                    file_name=f"formulario_{paciente_selecionado_nome.replace(' ', '_')}.pdf",
+                    mime="application/pdf"
+                )
+
 def pagina_coleta(planilha, co_client):
     st.title("🤖 COLETA INTELIGENTE")
     st.header("1. Envie uma ou mais imagens de fichas")
@@ -752,7 +775,7 @@ def pagina_importar_prontuario(planilha, co_client):
                     else: st.error("Não foi possível extrair texto do PDF.")
         if 'dados_clinicos_extraidos' in st.session_state and st.session_state.dados_clinicos_extraidos is not None:
             st.markdown("---")
-            st.subheader("3. Valide os Dados e Salve na Planilha")
+            st.subheader("2. Valide os Dados e Salve na Planilha")
             st.warning("Verifique as informações extraídas pela IA. Pode adicionar ou remover itens antes de salvar.")
             dados = st.session_state.dados_clinicos_extraidos
             with st.form(key="clinical_data_form"):
@@ -781,24 +804,73 @@ def pagina_importar_prontuario(planilha, co_client):
     except Exception as e:
         st.error(f"Ocorreu um erro ao carregar a página: {e}")
 
+def pagina_dashboard_resumo(planilha):
+    st.title("📊 Resumo de Pacientes")
+    st.caption(f"Dados atualizados em: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
+    try:
+        df = ler_dados_da_planilha(planilha)
+        if df.empty:
+            st.warning("A base de dados de pacientes está vazia.")
+            return
+        total_pacientes = len(df)
+        sexo_counts = df['Sexo'].str.strip().str.upper().value_counts()
+        total_homens = sexo_counts.get('M', 0) + sexo_counts.get('MASCULINO', 0)
+        total_mulheres = sexo_counts.get('F', 0) + sexo_counts.get('FEMININO', 0)
+        df['Idade'] = df['Data de Nascimento DT'].apply(lambda dt: calcular_idade(dt) if pd.notnull(dt) else -1)
+        total_criancas = df[df['Idade'].between(0, 11)].shape[0]
+        total_adolescentes = df[df['Idade'].between(12, 17)].shape[0]
+        total_idosos = df[df['Idade'] >= 60].shape[0]
+        st.header("Visão Geral")
+        st.metric("Total de Pacientes", f"{total_pacientes}")
+        st.header("Distribuição por Sexo")
+        col1, col2 = st.columns(2)
+        col1.metric("Homens", f"{total_homens}")
+        col2.metric("Mulheres", f"{total_mulheres}")
+        st.header("Distribuição por Faixa Etária")
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Crianças", f"{total_criancas}")
+        col2.metric("Adolescentes", f"{total_adolescentes}")
+        col3.metric("Idosos", f"{total_idosos}")
+    except Exception as e:
+        st.error(f"Ocorreu um erro ao carregar as estatísticas: {e}")
+
+def pagina_gerador_qrcode(planilha):
+    st.title("Generator de QR Code para Dashboard")
+    st.info("Utilize esta página para gerar o QR code que será afixado em locais físicos. Ao ser lido, ele exibirá um painel com as estatísticas atualizadas da sua base de dados.")
+    st.subheader("1. Insira o URL da sua aplicação")
+    base_url = st.text_input("URL Base da sua aplicação Streamlit Cloud:", placeholder="Ex: https://sua-app-id.streamlit.app")
+    if base_url:
+        dashboard_url = f"{base_url.strip('/')}?page=resumo"
+        st.success(f"URL do Dashboard: {dashboard_url}")
+        st.subheader("2. Gere e Descarregue o QR Code")
+        if st.button("Gerar QR Code"):
+            try:
+                qr = qrcode.QRCode(version=1, box_size=10, border=4)
+                qr.add_data(dashboard_url)
+                qr.make(fit=True)
+                img_qr = qr.make_image(fill_color="black", back_color="white")
+                qr_buffer = BytesIO()
+                img_qr.save(qr_buffer, format='PNG')
+                qr_buffer.seek(0)
+                st.image(qr_buffer, caption="QR Code Gerado", width=300)
+                st.download_button(label="📥 Descarregar QR Code (PNG)", data=qr_buffer, file_name="qrcode_dashboard_pacientes.png", mime="image/png")
+            except Exception as e:
+                st.error(f"Ocorreu um erro ao gerar o QR Code: {e}")
+
 def main():
     query_params = st.query_params
     if query_params.get("page") == "resumo":
         try:
+            st.set_page_config(page_title="Resumo de Pacientes", layout="centered")
+            st.html("<meta http-equiv='refresh' content='60'>")
             planilha_conectada = conectar_planilha()
             if planilha_conectada:
-                # Importante: A página de resumo não deve estar dentro do layout principal
-                # O set_page_config deve ser a primeira chamada do Streamlit
-                st.set_page_config(page_title="Resumo de Pacientes", layout="centered")
                 pagina_dashboard_resumo(planilha_conectada)
             else:
-                st.set_page_config(page_title="Erro", layout="centered")
                 st.error("Falha na conexão com a base de dados.")
         except Exception as e:
-            st.set_page_config(page_title="Erro", layout="centered")
             st.error(f"Ocorreu um erro crítico: {e}")
     else:
-        # Layout principal da aplicação
         st.set_page_config(page_title="Coleta Inteligente", page_icon="🤖", layout="wide")
         st.sidebar.title("Navegação")
         try:
