@@ -566,14 +566,44 @@ def pagina_dashboard(planilha):
     csv = convert_df_to_csv(df_filtrado)
     st.download_button(label="📥 Descarregar Dados Filtrados (CSV)", data=csv, file_name='dados_filtrados.csv', mime='text/csv')
 
+def desenhar_dashboard_familia(familia_id, df_completo):
+    st.header(f"Dashboard da Família: {familia_id}")
+    df_familia = df_completo[df_completo['FAMÍLIA'] == familia_id].copy()
+    st.subheader("Membros da Família")
+    st.dataframe(df_familia[['Nome Completo', 'Data de Nascimento', 'Idade', 'Sexo', 'CPF', 'CNS']])
+    st.markdown("---")
+    st.subheader("Acompanhamento Individual")
+    cols = st.columns(len(df_familia))
+    for i, (index, membro) in enumerate(df_familia.iterrows()):
+        with cols[i]:
+            st.info(f"**{membro['Nome Completo'].split()[0]}** ({membro['Idade']} anos)")
+            condicoes = membro.get('Condição', '')
+            if condicoes:
+                st.write("**Condições:**"); st.warning(f"{condicoes}")
+            else:
+                st.write("**Condições:** Nenhuma registada.")
+            medicamentos = membro.get('Medicamentos', '')
+            if medicamentos:
+                st.write("**Medicamentos:**"); st.warning(f"{medicamentos}")
+            else:
+                st.write("**Medicamentos:** Nenhum registado.")
+            if membro['Idade'] >= 0 and membro['Idade'] <= 11:
+                st.write("**Vacinação Infantil:**"); st.info("Verificar caderneta.")
+
 def pagina_pesquisa(planilha):
     st.title("🔎 Gestão de Pacientes")
-    st.info("Use a pesquisa para encontrar um paciente e depois expandir para ver detalhes, editar ou apagar o registo.", icon="ℹ️")
+    if 'familia_selecionada_id' in st.session_state and st.session_state.familia_selecionada_id:
+        if st.button("⬅️ Voltar para a Pesquisa"):
+            del st.session_state.familia_selecionada_id
+            st.rerun()
     df = ler_dados_da_planilha(planilha)
     if df.empty:
-        st.warning("Ainda não há dados na planilha para pesquisar.")
+        st.warning("Ainda não há dados na planilha para pesquisar."); return
+    if 'familia_selecionada_id' in st.session_state and st.session_state.familia_selecionada_id:
+        desenhar_dashboard_familia(st.session_state.familia_selecionada_id, df)
         return
-    colunas_pesquisaveis = ["Nome Completo", "CPF", "CNS", "Nome da Mãe", "ID"]
+    st.info("Use a pesquisa para encontrar um paciente e depois expandir para ver detalhes, editar, apagar ou ver o dashboard da família.", icon="ℹ️")
+    colunas_pesquisaveis = ["Nome Completo", "CPF", "CNS", "Nome da Mãe", "ID", "FAMÍLIA"]
     coluna_selecionada = st.selectbox("Pesquisar por:", colunas_pesquisaveis)
     termo_pesquisa = st.text_input("Digite o termo de pesquisa:")
     if termo_pesquisa:
@@ -583,23 +613,26 @@ def pagina_pesquisa(planilha):
             id_paciente = row['ID']
             with st.expander(f"**{row['Nome Completo']}** (ID: {id_paciente})"):
                 st.dataframe(row.to_frame().T, hide_index=True)
-                col1, col2 = st.columns(2)
-                with col1:
+                botoes = st.columns(3)
+                with botoes[0]:
                     if st.button("✏️ Editar Dados", key=f"edit_{id_paciente}"):
-                        st.session_state['patient_to_edit'] = row.to_dict()
-                with col2:
+                        st.session_state['patient_to_edit'] = row.to_dict(); st.rerun()
+                with botoes[1]:
                     if st.button("🗑️ Apagar Registo", key=f"delete_{id_paciente}"):
                         try:
                             cell = planilha.find(str(id_paciente))
                             planilha.delete_rows(cell.row)
                             st.success(f"Registo de {row['Nome Completo']} apagado com sucesso!")
-                            st.cache_data.clear()
-                            time.sleep(1)
-                            st.rerun()
+                            st.cache_data.clear(); time.sleep(1); st.rerun()
                         except gspread.exceptions.CellNotFound:
                             st.error(f"Erro: Não foi possível encontrar o paciente com ID {id_paciente} para apagar.")
                         except Exception as e:
                             st.error(f"Ocorreu um erro ao apagar: {e}")
+                with botoes[2]:
+                    familia_id = row.get('FAMÍLIA')
+                    if familia_id:
+                        if st.button("👨‍👩‍👧 Ver Dashboard da Família", key=f"fam_{id_paciente}"):
+                            st.session_state.familia_selecionada_id = familia_id; st.rerun()
     if 'patient_to_edit' in st.session_state:
         st.markdown("---")
         st.subheader("Editando Paciente")
@@ -617,9 +650,7 @@ def pagina_pesquisa(planilha):
                     planilha.update(f'A{cell.row}', [update_values])
                     st.success("Dados do paciente atualizados com sucesso!")
                     del st.session_state['patient_to_edit']
-                    st.cache_data.clear()
-                    time.sleep(1)
-                    st.rerun()
+                    st.cache_data.clear(); time.sleep(1); st.rerun()
                 except gspread.exceptions.CellNotFound:
                     st.error(f"Erro: Não foi possível encontrar o paciente com ID {patient_data['ID']} para atualizar.")
                 except Exception as e:
@@ -633,8 +664,7 @@ def pagina_etiquetas(planilha):
         return {"membros": x[['Nome Completo', 'Data de Nascimento', 'CNS']].to_dict('records'), "link_pasta": x['Link da Pasta da Família'].iloc[0] if 'Link da Pasta da Família' in x.columns and not x['Link da Pasta da Família'].empty else ""}
     df_familias = df[df['FAMÍLIA'].astype(str).str.strip() != '']
     if df_familias.empty:
-        st.warning("Não há famílias para exibir.")
-        return
+        st.warning("Não há famílias para exibir."); return
     familias_dict = df_familias.groupby('FAMÍLIA').apply(agregador).to_dict()
     lista_familias = sorted([f for f in familias_dict.keys() if f])
     st.subheader("1. Selecione as famílias")
@@ -810,8 +840,7 @@ def pagina_dashboard_resumo(planilha):
     try:
         df = ler_dados_da_planilha(planilha)
         if df.empty:
-            st.warning("A base de dados de pacientes está vazia.")
-            return
+            st.warning("A base de dados de pacientes está vazia."); return
         total_pacientes = len(df)
         sexo_counts = df['Sexo'].str.strip().str.upper().value_counts()
         total_homens = sexo_counts.get('M', 0) + sexo_counts.get('MASCULINO', 0)
