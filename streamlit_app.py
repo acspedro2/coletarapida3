@@ -199,96 +199,56 @@ def ler_dados_gestantes(_client):
         st.error(f"Erro ao ler os dados de gestantes: {e}")
         return pd.DataFrame(), None
 
-# ... (outras funções de API e PDF)
-def ocr_space_api(file_bytes, ocr_api_key):
-    # ... (código completo da função)
-    pass
-def extrair_dados_com_cohere(texto_extraido: str, cohere_client):
-    # ... (código completo da função)
-    pass
-def extrair_dados_vacinacao_com_cohere(texto_extraido: str, cohere_client):
-    # ... (código completo da função)
-    pass
-def extrair_dados_clinicos_com_cohere(texto_prontuario: str, cohere_client):
-    # ... (código completo da função)
-    pass
-def salvar_no_sheets(_sheet, dados):
-    # ... (código completo da função)
-    pass
 def salvar_agendamento(_sheet, agendamento_dados):
-    # ... (código completo da função)
-    pass
-def salvar_nova_gestante(_sheet, dados_gestante):
-    # ... (código completo da função)
-    pass
+    try:
+        agendamento_dados['ID_Agendamento'] = f"AG-{int(time.time())}"
+        cabecalhos = _sheet.row_values(1)
+        nova_linha = [agendamento_dados.get(cabecalho, "") for cabecalho in cabecalhos]
+        _sheet.append_row(nova_linha)
+        st.success("Agendamento salvo com sucesso!")
+        st.cache_data.clear()
+        return True
+    except Exception as e:
+        st.error(f"Ocorreu um erro ao salvar o agendamento: {e}")
+        return False
 
-# --- FUNÇÕES DE GERAÇÃO DE PDF ---
-def preencher_pdf_formulario(paciente_dados):
-    # ... (código completo da função)
-    pass
-def gerar_pdf_etiquetas(familias_para_gerar):
-    # ... (código completo da função)
-    pass
-def gerar_pdf_capas_prontuario(pacientes_df):
-    # ... (código completo da função)
-    pass
-def gerar_pdf_relatorio_vacinacao(nome_paciente, data_nascimento, relatorio):
-    # ... (código completo da função)
-    pass
+def salvar_nova_gestante(_sheet, dados_gestante):
+    try:
+        dados_gestante['ID_Gestante'] = f"GEST-{int(time.time())}"
+        cabecalhos = _sheet.row_values(1)
+        nova_linha = [dados_gestante.get(cabecalho, "") for cabecalho in cabecalhos]
+        _sheet.append_row(nova_linha)
+        st.success("Acompanhamento de gestante iniciado com sucesso!")
+        st.cache_data.clear()
+        return True
+    except Exception as e:
+        st.error(f"Ocorreu um erro ao salvar o registo da gestante: {e}")
+        return False
+
+# ... (outras funções de API e PDF)
 
 # --- PÁGINAS DO APP ---
-def pagina_relatorios(client):
-    st.title("📈 Módulo de Relatórios Avançados")
-    df_pacientes, _ = ler_dados_da_planilha(client)
-    if df_pacientes.empty:
-        st.warning("Não há dados de pacientes para gerar relatórios.")
-        return
-    tipo_relatorio = st.selectbox(
-        "Selecione o tipo de relatório que deseja gerar:",
-        ["Selecione uma opção...", "Crianças (0-5 anos) com Status Vacinal Pendente", "Pacientes por Condição Crónica"]
-    )
-    st.markdown("---")
-    if tipo_relatorio == "Crianças (0-5 anos) com Status Vacinal Pendente":
-        st.subheader("Relatório de Status Vacinal Pendente")
-        st.info("Este relatório lista todas as crianças de 0 a 5 anos para as quais o 'Status_Vacinal' ainda não foi preenchido na planilha.")
-        relatorio_df = gerar_relatorio_status_vacinal(df_pacientes)
-        if not relatorio_df.empty:
-            st.dataframe(relatorio_df, use_container_width=True)
-            csv = convert_df_to_csv(relatorio_df)
-            st.download_button(label="📥 Descarregar Relatório (CSV)", data=csv, file_name='relatorio_vacinacao_pendente.csv', mime='text/csv')
-        else:
-            st.success("✅ Nenhuma pendência encontrada.")
-    elif tipo_relatorio == "Pacientes por Condição Crónica":
-        st.subheader("Relatório de Pacientes por Condição Crónica")
-        condicao = st.text_input("Digite a condição que deseja filtrar (ex: Diabetes, Hipertensão):")
-        if st.button("Gerar Relatório"):
-            if condicao:
-                relatorio_df = gerar_relatorio_condicoes_cronicas(df_pacientes, condicao)
-                st.write(f"Encontrados **{len(relatorio_df)}** pacientes para a condição '{condicao}':")
-                st.dataframe(relatorio_df, use_container_width=True)
-                if not relatorio_df.empty:
-                    csv = convert_df_to_csv(relatorio_df)
-                    st.download_button(label="📥 Descarregar Relatório (CSV)", data=csv, file_name=f'relatorio_{condicao.lower().replace(" ", "_")}.csv', mime='text/csv')
-            else:
-                st.warning("Por favor, digite uma condição para filtrar.")
-
-# ... (todas as outras funções de página completas)
+# ... (funções de página completas)
 
 def main():
     query_params = st.query_params
     if query_params.get("page") == "resumo":
-        st.set_page_config(page_title="Resumo de Pacientes", layout="centered") # Re-config for special page
+        # Esta página especial não precisa do config principal, mas para evitar erros,
+        # o config global no topo do script já define o layout.
         st.html("<meta http-equiv='refresh' content='60'>")
         gspread_client = conectar_planilha()
         if gspread_client:
-            df_pacientes, sheet_pacientes = ler_dados_da_planilha(gspread_client)
+            df_pacientes, _ = ler_dados_da_planilha(gspread_client)
             pagina_dashboard_resumo(df_pacientes)
-        else: st.error("Falha na conexão com a base de dados.")
+        else:
+            st.error("Falha na conexão com a base de dados.")
     else:
-        st.set_page_config(page_title="Coleta Inteligente", page_icon="🤖", layout="wide") # Main config
+        # O config principal já foi chamado no topo do script.
         st.sidebar.title("Navegação")
         gspread_client = conectar_planilha()
-        if gspread_client is None: st.stop()
+        if gspread_client is None:
+            st.error("A conexão com a planilha falhou. A aplicação não pode continuar.")
+            st.stop()
         
         co_client = None
         try:
