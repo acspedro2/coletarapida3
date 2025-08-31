@@ -1,5 +1,3 @@
-# streamlit_app.py - VERSÃO COM GERADOR DE QR CODE SEPARADO
-
 import streamlit as st
 import requests
 import json
@@ -16,13 +14,35 @@ from pdf2image import convert_from_bytes
 
 # --- CONFIGURAÇÕES E CLIENTES (INICIALIZAÇÃO) ---
 try:
+    # Inicializa o cliente da API Cohere usando a chave dos segredos
     cohere_client = cohere.Client(st.secrets["COHERE_API_KEY"])
 except Exception as e:
     st.error(f"Erro ao inicializar o cliente Cohere. Verifique os segredos: {e}")
     cohere_client = None
 
-# --- FUNÇÕES UTILITÁRIAS ---
-# (Cole aqui o seu CALENDARIO_PNI e as funções como validar_cpf, etc.)
+# --- MOTOR DE REGRAS: CALENDÁRIO NACIONAL DE IMUNIZAÇÕES (PNI) ---
+CALENDARIO_PNI = [
+    {"vacina": "BCG", "dose": "Dose Única", "idade_meses": 0, "detalhe": "Protege contra formas graves de tuberculose."},
+    {"vacina": "Hepatite B", "dose": "1ª Dose", "idade_meses": 0, "detalhe": "Primeira dose, preferencialmente nas primeiras 12-24 horas de vida."},
+    {"vacina": "Pentavalente", "dose": "1ª Dose", "idade_meses": 2, "detalhe": "Protege contra Difteria, Tétano, Coqueluche, Hepatite B e Haemophilus influenzae B."},
+    {"vacina": "VIP (Poliomielite inativada)", "dose": "1ª Dose", "idade_meses": 2, "detalhe": "Protege contra a poliomielite."},
+    {"vacina": "Pneumocócica 10V", "dose": "1ª Dose", "idade_meses": 2, "detalhe": "Protege contra doenças pneumocócicas."},
+    {"vacina": "Rotavírus", "dose": "1ª Dose", "idade_meses": 2, "detalhe": "Idade máxima para iniciar o esquema: 3 meses e 15 dias."},
+    {"vacina": "Meningocócica C", "dose": "1ª Dose", "idade_meses": 3, "detalhe": "Protege contra a meningite C."},
+    {"vacina": "Pentavalente", "dose": "2ª Dose", "idade_meses": 4, "detalhe": "Reforço da proteção."},
+    {"vacina": "VIP (Poliomielite inativada)", "dose": "2ª Dose", "idade_meses": 4, "detalhe": "Reforço da proteção."},
+    {"vacina": "Pneumocócica 10V", "dose": "2ª Dose", "idade_meses": 4, "detalhe": "Reforço da proteção."},
+    {"vacina": "Rotavírus", "dose": "2ª Dose", "idade_meses": 4, "detalhe": "Idade máxima para a última dose: 7 meses e 29 dias."},
+    {"vacina": "Meningocócica C", "dose": "2ª Dose", "idade_meses": 5, "detalhe": "Reforço da proteção."},
+    {"vacina": "Pentavalente", "dose": "3ª Dose", "idade_meses": 6, "detalhe": "Finalização do esquema primário."},
+    {"vacina": "VIP (Poliomielite inativada)", "dose": "3ª Dose", "idade_meses": 6, "detalhe": "Finalização do esquema primário."},
+    {"vacina": "Febre Amarela", "dose": "Dose Inicial", "idade_meses": 9, "detalhe": "Proteção contra a febre amarela. Reforço aos 4 anos."},
+    {"vacina": "Tríplice Viral", "dose": "1ª Dose", "idade_meses": 12, "detalhe": "Protege contra Sarampo, Caxumba e Rubéola."},
+    {"vacina": "Pneumocócica 10V", "dose": "Reforço", "idade_meses": 12, "detalhe": "Dose de reforço."},
+    {"vacina": "Meningocócica C", "dose": "Reforço", "idade_meses": 12, "detalhe": "Dose de reforço."},
+]
+
+# --- FUNÇÕES DE VALIDAÇÃO E UTILITÁRIAS ---
 def validar_cpf(cpf: str) -> bool:
     cpf = ''.join(re.findall(r'\d', str(cpf)))
     if not cpf or len(cpf) != 11 or cpf == cpf[0] * 11: return False
@@ -37,7 +57,7 @@ def validar_cpf(cpf: str) -> bool:
 # --- FUNÇÕES DE GERAÇÃO DE DOCUMENTOS (OTIMIZADAS) ---
 
 def gerar_capa_prontuario_pdf(dados_paciente):
-    """Gera PDF da capa do prontuário (sem QR Code)."""
+    """Gera PDF da capa do prontuário, importando a biblioteca sob demanda."""
     try:
         from reportlab.pdfgen import canvas
         from reportlab.lib.pagesizes import A4
@@ -100,6 +120,7 @@ def main():
         
         submitted = st.form_submit_button("Salvar Paciente")
         if submitted:
+            # A lógica para salvar os dados na sua planilha Google entraria aqui
             st.success(f"Paciente {nome} salvo com sucesso! (Simulação)")
 
     st.divider()
@@ -122,10 +143,9 @@ def main():
 
     st.divider()
     
-    # --- NOVO: GERADOR DE ETIQUETA QR CODE ---
+    # Gerador de Etiqueta QR Code
     st.header("Gerador de Etiqueta QR Code")
     
-    # Sugestão de dados para o QR Code com base no formulário
     sugestao_dados = f"Nome: {nome}\nCPF: {cpf}\nNasc: {data_nasc}"
     dados_qr = st.text_area("Dados para incluir no QR Code:", value=sugestao_dados, height=100)
 
@@ -143,7 +163,7 @@ def main():
         else:
             st.warning("Insira os dados que você quer incluir no QR Code.")
 
-
+# --- Ponto de Entrada da Aplicação ---
 if __name__ == "__main__":
     main()
 
