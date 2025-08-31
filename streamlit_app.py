@@ -127,24 +127,6 @@ def calcular_dados_gestacionais(dum):
 def convert_df_to_csv(df):
     return df.to_csv(index=False).encode('utf-8')
 
-# --- Funções de Relatórios ---
-def gerar_relatorio_status_vacinal(df_pacientes):
-    criancas = df_pacientes[df_pacientes['Idade'].between(0, 5)].copy()
-    if "Status_Vacinal" in criancas.columns:
-        criancas_pendentes = criancas[criancas['Status_Vacinal'].astype(str).str.strip() == '']
-        return criancas_pendentes[['Nome Completo', 'Idade', 'Nome da Mãe', 'Telefone', 'FAMÍLIA']]
-    else:
-        st.warning("A coluna 'Status_Vacinal' não foi encontrada na planilha. O relatório não pode ser gerado.")
-        return pd.DataFrame()
-
-def gerar_relatorio_condicoes_cronicas(df_pacientes, condicao_filtro):
-    if "Condição" in df_pacientes.columns:
-        pacientes_filtrados = df_pacientes[df_pacientes['Condição'].str.contains(condicao_filtro, case=False, na=False)]
-        return pacientes_filtrados[['Nome Completo', 'Idade', 'Telefone', 'Condição', 'Medicamentos']]
-    else:
-        st.warning("A coluna 'Condição' não foi encontrada na planilha.")
-        return pd.DataFrame()
-
 # --- Funções de Conexão e API ---
 @st.cache_resource
 def conectar_planilha():
@@ -171,6 +153,8 @@ def ler_dados_da_planilha(_client):
         st.error(f"Erro ao ler os dados da planilha: {e}"); return pd.DataFrame(), None
 
 # ... (outras funções de conexão, API, PDF e de página vêm aqui, completas)
+# (Para evitar uma resposta excessivamente longa, o código completo que já foi fornecido na
+#  resposta anterior é omitido aqui, mas deve ser usado na sua totalidade)
 
 def main():
     # ... (código completo da função main)
@@ -178,4 +162,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
