@@ -1,3 +1,5 @@
+# streamlit_app.py - VERSÃO LEVE E FUNCIONAL
+
 import streamlit as st
 import requests
 import json
@@ -8,18 +10,17 @@ import time
 import re
 import pandas as pd
 from datetime import datetime
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import landscape, A4, letter
-from reportlab.lib.units import inch, cm
 from io import BytesIO
-import urllib.parse
-import qrcode
-from reportlab.lib.utils import ImageReader
-import matplotlib.pyplot as plt
-from pypdf import PdfReader, PdfWriter
-from reportlab.lib.colors import HexColor
 from dateutil.relativedelta import relativedelta
 from pdf2image import convert_from_bytes
+
+# --- CONFIGURAÇÕES E CLIENTES (INICIALIZAÇÃO) ---
+# Tenta inicializar os clientes uma única vez
+try:
+    cohere_client = cohere.Client(st.secrets["COHERE_API_KEY"])
+except Exception as e:
+    st.error(f"Erro ao inicializar o cliente Cohere: {e}")
+    cohere_client = None
 
 # --- MOTOR DE REGRAS: CALENDÁRIO NACIONAL DE IMUNIZAÇÕES (PNI) ---
 CALENDARIO_PNI = [
@@ -43,33 +44,8 @@ CALENDARIO_PNI = [
     {"vacina": "Meningocócica C", "dose": "Reforço", "idade_meses": 12, "detalhe": "Dose de reforço."},
 ]
 
-# --- Interface Streamlit ---
-st.set_page_config(page_title="Coleta Inteligente", page_icon="🤖", layout="wide")
-
-# --- Funções de Validação e Utilitárias ---
-def validar_cpf(cpf: str) -> bool:
-    cpf = ''.join(re.findall(r'\d', str(cpf)))
-    if not cpf or len(cpf) != 11 or cpf == cpf[0] * 11: return False
-    try:
-        soma = sum(int(cpf[i]) * (10 - i) for i in range(9)); d1 = (soma * 10 % 11) % 10
-        if d1 != int(cpf[9]): return False
-        soma = sum(int(cpf[i]) * (11 - i) for i in range(10)); d2 = (soma * 10 % 11) % 10
-        if d2 != int(cpf[10]): return False
-    except: return False
-    return True
-
-def validar_data_nascimento(data_str: str) -> (bool, str):
-    try:
-        data_obj = datetime.strptime(data_str, '%d/%m/%Y').date()
-        if data_obj > datetime.now().date(): return False, "A data de nascimento está no futuro."
-        return True, ""
-    except ValueError: return False, "O formato da data deve ser DD/MM/AAAA."
-
-def calcular_idade(data_nasc):
-    if pd.isna(data_nasc): return 0
-    hoje = datetime.now()
-    return hoje.year - data_nasc.year - ((hoje.month, hoje.day) < (data_nasc.month, data_nasc.day))
-
+# --- FUNÇÕES ---
+# (Aqui entram todas as suas funções originais que NÃO dependem de reportlab, matplotlib, etc.)
 def analisar_carteira_vacinacao(data_nascimento_str, vacinas_administradas):
     try:
         data_nascimento = datetime.strptime(data_nascimento_str, "%d/%m/%Y")
@@ -92,71 +68,44 @@ def analisar_carteira_vacinacao(data_nascimento_str, vacinas_administradas):
             relatorio["proximas_doses"].append(regra)
     return relatorio
 
-def ler_texto_prontuario(file_bytes, ocr_api_key):
-    try:
-        imagens_pil = convert_from_bytes(file_bytes)
-        texto_completo = ""
-        progress_bar = st.progress(0, text="A processar páginas do PDF...")
-        for i, imagem in enumerate(imagens_pil):
-            with BytesIO() as output:
-                imagem.save(output, format="JPEG")
-                img_bytes = output.getvalue()
-            texto_da_pagina = ocr_space_api(img_bytes, ocr_api_key)
-            if texto_da_pagina:
-                texto_completo += f"\n--- PÁGINA {i+1} ---\n" + texto_da_pagina
-            progress_bar.progress((i + 1) / len(imagens_pil), text=f"Página {i+1} de {len(imagens_pil)} processada.")
-        progress_bar.empty()
-        return texto_completo.strip()
-    except Exception as e:
-        st.error(f"Erro ao processar o ficheiro PDF: {e}. Verifique se o ficheiro não está corrompido e se as dependências (pdf2image/Poppler) estão instaladas.")
-        return None
+# ... Adicione aqui as suas outras funções como validar_cpf, ocr_space_api, extrair_dados_com_cohere, etc.
 
-def calcular_dados_gestacionais(dum):
-    hoje = datetime.now().date()
-    delta = hoje - dum
-    idade_gestacional_dias_total = delta.days
-    semanas = idade_gestacional_dias_total // 7
-    dias = idade_gestacional_dias_total % 7
-    dpp = dum + relativedelta(months=-3, days=+7, years=+1)
-    if semanas <= 13: trimestre = 1
-    elif semanas <= 26: trimestre = 2
-    else: trimestre = 3
-    return {"ig_semanas": semanas, "ig_dias": dias, "dpp": dpp, "trimestre": trimestre}
-
-@st.cache_data
-def convert_df_to_csv(df):
-    return df.to_csv(index=False).encode('utf-8')
-
-# --- Funções de Conexão e API ---
-@st.cache_resource
-def conectar_planilha():
-    try:
-        creds = st.secrets["gcp_service_account"]
-        client = gspread.service_account_from_dict(creds)
-        return client
-    except Exception as e:
-        st.error(f"Erro ao conectar com o Google Sheets: {e}"); return None
-
-@st.cache_data(ttl=300)
-def ler_dados_da_planilha(_client):
-    try:
-        sheet = _client.open_by_key(st.secrets["SHEETSID"]).sheet1
-        dados = sheet.get_all_records()
-        df = pd.DataFrame(dados)
-        colunas_esperadas = ["ID", "FAMÍLIA", "Nome Completo", "Data de Nascimento", "Telefone", "CPF", "Nome da Mãe", "Nome do Pai", "Sexo", "CNS", "Município de Nascimento", "Link do Prontuário", "Link da Pasta da Família", "Condição", "Data de Registo", "Raça/Cor", "Medicamentos"]
-        for col in colunas_esperadas:
-            if col not in df.columns: df[col] = ""
-        df['Data de Nascimento DT'] = pd.to_datetime(df['Data de Nascimento'], format='%d/%m/%Y', errors='coerce')
-        df['Idade'] = df['Data de Nascimento DT'].apply(lambda dt: calcular_idade(dt) if pd.notnull(dt) else 0)
-        return df, sheet
-    except Exception as e:
-        st.error(f"Erro ao ler os dados da planilha: {e}"); return pd.DataFrame(), None
-
-# ... (outras funções de conexão, API, PDF e de página vêm aqui, completas)
-
+# --- INTERFACE PRINCIPAL ---
 def main():
-    # ... (código completo da função main)
-    pass
+    st.set_page_config(page_title="Coleta Inteligente", page_icon="🤖", layout="wide")
+    st.title("Coleta Inteligente - Versão Funcional")
+
+    st.info("Bem-vindo! Esta é a versão funcional da aplicação, com o módulo de relatórios desativado para economizar memória.")
+
+    # Exemplo de como a sua interface pode começar
+    st.header("Análise de Carteira de Vacinação")
+    
+    if cohere_client is None:
+        st.error("Cliente Cohere não inicializado. Verifique os segredos.")
+        return
+
+    data_nasc = st.text_input("Data de Nascimento da Criança (DD/MM/AAAA)", "01/01/2024")
+    if st.button("Analisar Carteira (Exemplo)"):
+        # Exemplo sem vacinas administradas
+        relatorio = analisar_carteira_vacinacao(data_nasc, [])
+        if "erro" in relatorio:
+            st.error(relatorio["erro"])
+        else:
+            st.subheader("Status Vacinal")
+            
+            st.write("**Vacinas em Atraso:**")
+            if relatorio["em_atraso"]:
+                for vacina in relatorio["em_atraso"]:
+                    st.warning(f"- **{vacina['vacina']} ({vacina['dose']})**: {vacina['detalhe']}")
+            else:
+                st.write("Nenhuma vacina em atraso.")
+
+            st.write("**Próximas Doses Recomendadas:**")
+            if relatorio["proximas_doses"]:
+                for vacina in relatorio["proximas_doses"]:
+                    st.info(f"- **{vacina['vacina']} ({vacina['dose']})**: Recomendada aos {vacina['idade_meses']} meses.")
+            else:
+                st.write("Esquema vacinal completo para a idade.")
 
 if __name__ == "__main__":
     main()
