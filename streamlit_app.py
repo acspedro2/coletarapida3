@@ -153,8 +153,6 @@ def ler_dados_da_planilha(_client):
         st.error(f"Erro ao ler os dados da planilha: {e}"); return pd.DataFrame(), None
 
 # ... (outras funções de conexão, API, PDF e de página vêm aqui, completas)
-# (Para evitar uma resposta excessivamente longa, o código completo que já foi fornecido na
-#  resposta anterior é omitido aqui, mas deve ser usado na sua totalidade)
 
 def main():
     # ... (código completo da função main)
