@@ -1,111 +1,124 @@
-# streamlit_app.py - VERSÃO LEVE E FUNCIONAL
+# streamlit_app.py - VERSÃO COM GERAÇÃO DE PDF OTIMIZADA
 
 import streamlit as st
-import requests
 import json
 import cohere
 import gspread
-from PIL import Image
 import time
 import re
 import pandas as pd
 from datetime import datetime
 from io import BytesIO
 from dateutil.relativedelta import relativedelta
-from pdf2image import convert_from_bytes
+# A biblioteca 'pdf2image' e outras pesadas podem ser importadas dentro das funções se necessário
 
 # --- CONFIGURAÇÕES E CLIENTES (INICIALIZAÇÃO) ---
-# Tenta inicializar os clientes uma única vez
 try:
     cohere_client = cohere.Client(st.secrets["COHERE_API_KEY"])
 except Exception as e:
     st.error(f"Erro ao inicializar o cliente Cohere: {e}")
     cohere_client = None
 
-# --- MOTOR DE REGRAS: CALENDÁRIO NACIONAL DE IMUNIZAÇÕES (PNI) ---
-CALENDARIO_PNI = [
-    {"vacina": "BCG", "dose": "Dose Única", "idade_meses": 0, "detalhe": "Protege contra formas graves de tuberculose."},
-    {"vacina": "Hepatite B", "dose": "1ª Dose", "idade_meses": 0, "detalhe": "Primeira dose, preferencialmente nas primeiras 12-24 horas de vida."},
-    {"vacina": "Pentavalente", "dose": "1ª Dose", "idade_meses": 2, "detalhe": "Protege contra Difteria, Tétano, Coqueluche, Hepatite B e Haemophilus influenzae B."},
-    {"vacina": "VIP (Poliomielite inativada)", "dose": "1ª Dose", "idade_meses": 2, "detalhe": "Protege contra a poliomielite."},
-    {"vacina": "Pneumocócica 10V", "dose": "1ª Dose", "idade_meses": 2, "detalhe": "Protege contra doenças pneumocócicas."},
-    {"vacina": "Rotavírus", "dose": "1ª Dose", "idade_meses": 2, "detalhe": "Idade máxima para iniciar o esquema: 3 meses e 15 dias."},
-    {"vacina": "Meningocócica C", "dose": "1ª Dose", "idade_meses": 3, "detalhe": "Protege contra a meningite C."},
-    {"vacina": "Pentavalente", "dose": "2ª Dose", "idade_meses": 4, "detalhe": "Reforço da proteção."},
-    {"vacina": "VIP (Poliomielite inativada)", "dose": "2ª Dose", "idade_meses": 4, "detalhe": "Reforço da proteção."},
-    {"vacina": "Pneumocócica 10V", "dose": "2ª Dose", "idade_meses": 4, "detalhe": "Reforço da proteção."},
-    {"vacina": "Rotavírus", "dose": "2ª Dose", "idade_meses": 4, "detalhe": "Idade máxima para a última dose: 7 meses e 29 dias."},
-    {"vacina": "Meningocócica C", "dose": "2ª Dose", "idade_meses": 5, "detalhe": "Reforço da proteção."},
-    {"vacina": "Pentavalente", "dose": "3ª Dose", "idade_meses": 6, "detalhe": "Finalização do esquema primário."},
-    {"vacina": "VIP (Poliomielite inativada)", "dose": "3ª Dose", "idade_meses": 6, "detalhe": "Finalização do esquema primário."},
-    {"vacina": "Febre Amarela", "dose": "Dose Inicial", "idade_meses": 9, "detalhe": "Proteção contra a febre amarela. Reforço aos 4 anos."},
-    {"vacina": "Tríplice Viral", "dose": "1ª Dose", "idade_meses": 12, "detalhe": "Protege contra Sarampo, Caxumba e Rubéola."},
-    {"vacina": "Pneumocócica 10V", "dose": "Reforço", "idade_meses": 12, "detalhe": "Dose de reforço."},
-    {"vacina": "Meningocócica C", "dose": "Reforço", "idade_meses": 12, "detalhe": "Dose de reforço."},
-]
-
-# --- FUNÇÕES ---
-# (Aqui entram todas as suas funções originais que NÃO dependem de reportlab, matplotlib, etc.)
-def analisar_carteira_vacinacao(data_nascimento_str, vacinas_administradas):
+# --- FUNÇÕES DE VALIDAÇÃO E OUTRAS ---
+# (Cole aqui as suas funções como validar_cpf, analisar_carteira_vacinacao, etc.)
+def validar_cpf(cpf: str) -> bool:
+    cpf = ''.join(re.findall(r'\d', str(cpf)))
+    if not cpf or len(cpf) != 11 or cpf == cpf[0] * 11: return False
     try:
-        data_nascimento = datetime.strptime(data_nascimento_str, "%d/%m/%Y")
-    except ValueError:
-        return {"erro": "Formato da data de nascimento inválido. Utilize DD/MM/AAAA."}
-    hoje = datetime.now()
-    idade = relativedelta(hoje, data_nascimento)
-    idade_total_meses = idade.years * 12 + idade.months
-    vacinas_tomadas_set = {(v['vacina'], v['dose']) for v in vacinas_administradas}
-    relatorio = {"em_dia": [], "em_atraso": [], "proximas_doses": []}
-    for regra in CALENDARIO_PNI:
-        vacina_requerida = (regra['vacina'], regra['dose'])
-        idade_recomendada_meses = regra['idade_meses']
-        if idade_total_meses >= idade_recomendada_meses:
-            if vacina_requerida in vacinas_tomadas_set:
-                relatorio["em_dia"].append(regra)
-            else:
-                relatorio["em_atraso"].append(regra)
-        else:
-            relatorio["proximas_doses"].append(regra)
-    return relatorio
+        soma = sum(int(cpf[i]) * (10 - i) for i in range(9)); d1 = (soma * 10 % 11) % 10
+        if d1 != int(cpf[9]): return False
+        soma = sum(int(cpf[i]) * (11 - i) for i in range(10)); d2 = (soma * 10 % 11) % 10
+        if d2 != int(cpf[10]): return False
+    except: return False
+    return True
 
-# ... Adicione aqui as suas outras funções como validar_cpf, ocr_space_api, extrair_dados_com_cohere, etc.
+# --- FUNÇÃO OTIMIZADA PARA GERAR PDF ---
+def gerar_capa_prontuario_pdf(dados_paciente):
+    """
+    Gera um PDF da capa do prontuário.
+    A importação da biblioteca reportlab é feita AQUI DENTRO para economizar memória.
+    """
+    try:
+        # PASSO 1: Importar a biblioteca somente quando a função é chamada
+        from reportlab.pdfgen import canvas
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.units import cm
+
+        buffer = BytesIO()
+        c = canvas.Canvas(buffer, pagesize=A4)
+        largura, altura = A4
+
+        # Título
+        c.setFont("Helvetica-Bold", 18)
+        c.drawCentredString(largura / 2, altura - 2 * cm, "Capa de Prontuário")
+
+        # Linha divisória
+        c.line(2 * cm, altura - 2.5 * cm, largura - 2 * cm, altura - 2.5 * cm)
+
+        # Dados do Paciente
+        c.setFont("Helvetica", 12)
+        y = altura - 4 * cm
+        c.drawString(3 * cm, y, f"Nome Completo: {dados_paciente.get('nome', '')}")
+        y -= 1 * cm
+        c.drawString(3 * cm, y, f"Data de Nascimento: {dados_paciente.get('data_nasc', '')}")
+        y -= 1 * cm
+        c.drawString(3 * cm, y, f"CPF: {dados_paciente.get('cpf', '')}")
+        y -= 1 * cm
+        c.drawString(3 * cm, y, f"Nome da Mãe: {dados_paciente.get('mae', '')}")
+        y -= 1 * cm
+        c.drawString(3 * cm, y, f"CNS: {dados_paciente.get('cns', '')}")
+
+        c.showPage()
+        c.save()
+
+        buffer.seek(0)
+        return buffer
+    except Exception as e:
+        st.error(f"Erro ao gerar o PDF: {e}")
+        return None
 
 # --- INTERFACE PRINCIPAL ---
 def main():
     st.set_page_config(page_title="Coleta Inteligente", page_icon="🤖", layout="wide")
-    st.title("Coleta Inteligente - Versão Funcional")
+    st.title("Coleta Inteligente")
 
-    st.info("Bem-vindo! Esta é a versão funcional da aplicação, com o módulo de relatórios desativado para economizar memória.")
+    st.header("Coleta de Dados do Paciente")
 
-    # Exemplo de como a sua interface pode começar
-    st.header("Análise de Carteira de Vacinação")
-    
-    if cohere_client is None:
-        st.error("Cliente Cohere não inicializado. Verifique os segredos.")
-        return
+    # Campos para coleta de dados
+    nome = st.text_input("Nome Completo")
+    data_nasc = st.text_input("Data de Nascimento (DD/MM/AAAA)")
+    cpf = st.text_input("CPF")
+    nome_mae = st.text_input("Nome da Mãe")
+    cns = st.text_input("Cartão Nacional de Saúde (CNS)")
 
-    data_nasc = st.text_input("Data de Nascimento da Criança (DD/MM/AAAA)", "01/01/2024")
-    if st.button("Analisar Carteira (Exemplo)"):
-        # Exemplo sem vacinas administradas
-        relatorio = analisar_carteira_vacinacao(data_nasc, [])
-        if "erro" in relatorio:
-            st.error(relatorio["erro"])
+    st.divider()
+
+    st.header("Geração de Documentos")
+
+    if st.button("Gerar Capa de Prontuário em PDF"):
+        if nome and data_nasc: # Validação simples
+            with st.spinner("A gerar PDF... A primeira vez pode demorar um pouco."):
+                dados_paciente = {
+                    "nome": nome,
+                    "data_nasc": data_nasc,
+                    "cpf": cpf,
+                    "mae": nome_mae,
+                    "cns": cns
+                }
+                
+                pdf_buffer = gerar_capa_prontuario_pdf(dados_paciente)
+
+                if pdf_buffer:
+                    st.success("PDF gerado com sucesso!")
+                    st.download_button(
+                        label="Baixar Capa do Prontuário",
+                        data=pdf_buffer,
+                        file_name=f"capa_prontuario_{nome.replace(' ', '_').lower()}.pdf",
+                        mime="application/pdf"
+                    )
         else:
-            st.subheader("Status Vacinal")
-            
-            st.write("**Vacinas em Atraso:**")
-            if relatorio["em_atraso"]:
-                for vacina in relatorio["em_atraso"]:
-                    st.warning(f"- **{vacina['vacina']} ({vacina['dose']})**: {vacina['detalhe']}")
-            else:
-                st.write("Nenhuma vacina em atraso.")
+            st.warning("Por favor, preencha pelo menos o Nome e a Data de Nascimento.")
 
-            st.write("**Próximas Doses Recomendadas:**")
-            if relatorio["proximas_doses"]:
-                for vacina in relatorio["proximas_doses"]:
-                    st.info(f"- **{vacina['vacina']} ({vacina['dose']})**: Recomendada aos {vacina['idade_meses']} meses.")
-            else:
-                st.write("Esquema vacinal completo para a idade.")
 
 if __name__ == "__main__":
     main()
