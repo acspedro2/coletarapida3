@@ -137,7 +137,24 @@ def conectar_planilha():
     except Exception as e:
         st.error(f"Erro ao conectar com o Google Sheets: {e}"); return None
 
+@st.cache_data(ttl=300)
+def ler_dados_da_planilha(_client):
+    try:
+        sheet = _client.open_by_key(st.secrets["SHEETSID"]).sheet1
+        dados = sheet.get_all_records()
+        df = pd.DataFrame(dados)
+        colunas_esperadas = ["ID", "FAMÍLIA", "Nome Completo", "Data de Nascimento", "Telefone", "CPF", "Nome da Mãe", "Nome do Pai", "Sexo", "CNS", "Município de Nascimento", "Link do Prontuário", "Link da Pasta da Família", "Condição", "Data de Registo", "Raça/Cor", "Medicamentos"]
+        for col in colunas_esperadas:
+            if col not in df.columns: df[col] = ""
+        df['Data de Nascimento DT'] = pd.to_datetime(df['Data de Nascimento'], format='%d/%m/%Y', errors='coerce')
+        df['Idade'] = df['Data de Nascimento DT'].apply(lambda dt: calcular_idade(dt) if pd.notnull(dt) else 0)
+        return df, sheet
+    except Exception as e:
+        st.error(f"Erro ao ler os dados da planilha: {e}"); return pd.DataFrame(), None
+
 # ... (outras funções de conexão, API, PDF e de página vêm aqui, completas)
+# (Para evitar uma resposta excessivamente longa, o código completo que já foi fornecido na
+#  resposta anterior é omitido aqui, mas deve ser usado na sua totalidade)
 
 def main():
     # ... (código completo da função main)
