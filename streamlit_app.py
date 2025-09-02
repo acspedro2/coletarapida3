@@ -1,5 +1,3 @@
-# streamlit_app.py - VERSÃO FINAL COM OTIMIZAÇÃO DE MEMÓRIA APLICADA
-
 import streamlit as st
 import requests
 import json
@@ -10,10 +8,18 @@ import time
 import re
 import pandas as pd
 from datetime import datetime
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import landscape, A4, letter
+from reportlab.lib.units import inch, cm
 from io import BytesIO
 import urllib.parse
+import qrcode
+from reportlab.lib.utils import ImageReader
+import matplotlib.pyplot as plt
+from pypdf import PdfReader, PdfWriter
+from reportlab.lib.colors import HexColor
 from dateutil.relativedelta import relativedelta
-# Imports pesados foram removidos daqui e movidos para dentro das suas respetivas funções
+from pdf2image import convert_from_bytes
 
 # --- MOTOR DE REGRAS: CALENDÁRIO NACIONAL DE IMUNIZAÇÕES (PNI) ---
 CALENDARIO_PNI = [
@@ -36,6 +42,9 @@ CALENDARIO_PNI = [
     {"vacina": "Pneumocócica 10V", "dose": "Reforço", "idade_meses": 12, "detalhe": "Dose de reforço."},
     {"vacina": "Meningocócica C", "dose": "Reforço", "idade_meses": 12, "detalhe": "Dose de reforço."},
 ]
+
+# --- Interface Streamlit ---
+st.set_page_config(page_title="Coleta Inteligente", page_icon="🤖", layout="wide")
 
 # --- Funções de Validação e Utilitárias ---
 def validar_cpf(cpf: str) -> bool:
@@ -84,8 +93,6 @@ def analisar_carteira_vacinacao(data_nascimento_str, vacinas_administradas):
     return relatorio
 
 def ler_texto_prontuario(file_bytes, ocr_api_key):
-    # OTIMIZAÇÃO: Importa a biblioteca pesada apenas quando a função é chamada
-    from pdf2image import convert_from_bytes
     try:
         imagens_pil = convert_from_bytes(file_bytes)
         texto_completo = ""
@@ -104,31 +111,99 @@ def ler_texto_prontuario(file_bytes, ocr_api_key):
         st.error(f"Erro ao processar o ficheiro PDF: {e}. Verifique se o ficheiro não está corrompido e se as dependências (pdf2image/Poppler) estão instaladas.")
         return None
 
+def calcular_dados_gestacionais(dum):
+    hoje = datetime.now().date()
+    delta = hoje - dum
+    idade_gestacional_dias_total = delta.days
+    semanas = idade_gestacional_dias_total // 7
+    dias = idade_gestacional_dias_total % 7
+    dpp = dum + relativedelta(months=-3, days=+7, years=+1)
+    if semanas <= 13: trimestre = 1
+    elif semanas <= 26: trimestre = 2
+    else: trimestre = 3
+    return {"ig_semanas": semanas, "ig_dias": dias, "dpp": dpp, "trimestre": trimestre}
+
 # --- Funções de Conexão e API ---
 @st.cache_resource
 def conectar_planilha():
     try:
         creds = st.secrets["gcp_service_account"]
         client = gspread.service_account_from_dict(creds)
-        sheet = client.open_by_key(st.secrets["SHEETSID"]).sheet1
-        return sheet
+        return client
     except Exception as e:
         st.error(f"Erro ao conectar com o Google Sheets: {e}"); return None
 
 @st.cache_data(ttl=300)
-def ler_dados_da_planilha(_planilha):
+def ler_dados_da_planilha(_client):
     try:
-        dados = _planilha.get_all_records()
+        sheet = _client.open_by_key(st.secrets["SHEETSID"]).sheet1
+        dados = sheet.get_all_records()
         df = pd.DataFrame(dados)
         colunas_esperadas = ["ID", "FAMÍLIA", "Nome Completo", "Data de Nascimento", "Telefone", "CPF", "Nome da Mãe", "Nome do Pai", "Sexo", "CNS", "Município de Nascimento", "Link do Prontuário", "Link da Pasta da Família", "Condição", "Data de Registo", "Raça/Cor", "Medicamentos"]
         for col in colunas_esperadas:
             if col not in df.columns: df[col] = ""
         df['Data de Nascimento DT'] = pd.to_datetime(df['Data de Nascimento'], format='%d/%m/%Y', errors='coerce')
         df['Idade'] = df['Data de Nascimento DT'].apply(lambda dt: calcular_idade(dt) if pd.notnull(dt) else 0)
-        return df
+        return df, sheet
     except Exception as e:
-        st.error(f"Erro ao ler os dados da planilha: {e}"); return pd.DataFrame()
+        st.error(f"Erro ao ler os dados da planilha: {e}"); return pd.DataFrame(), None
 
+@st.cache_data(ttl=300)
+def ler_agendamentos(_client):
+    try:
+        sheet = _client.open_by_key(st.secrets["SHEETSID"]).worksheet("Agendamentos")
+        dados = sheet.get_all_records()
+        df = pd.DataFrame(dados)
+        if not df.empty:
+            df['Data_Hora_Agendamento'] = pd.to_datetime(df['Data_Agendamento'] + ' ' + df['Hora_Agendamento'], format='%d/%m/%Y %H:%M', errors='coerce')
+        return df, sheet
+    except gspread.exceptions.WorksheetNotFound:
+        st.error("A folha 'Agendamentos' não foi encontrada. Por favor, crie-a com os cabeçalhos corretos.")
+        return pd.DataFrame(), None
+    except Exception as e:
+        st.error(f"Erro ao ler os agendamentos: {e}")
+        return pd.DataFrame(), None
+
+@st.cache_data(ttl=300)
+def ler_dados_gestantes(_client):
+    try:
+        sheet = _client.open_by_key(st.secrets["SHEETSID"]).worksheet("Gestantes")
+        dados = sheet.get_all_records()
+        return pd.DataFrame(dados), sheet
+    except gspread.exceptions.WorksheetNotFound:
+        st.error("A folha 'Gestantes' não foi encontrada. Por favor, crie-a com os cabeçalhos corretos.")
+        return pd.DataFrame(), None
+    except Exception as e:
+        st.error(f"Erro ao ler os dados de gestantes: {e}")
+        return pd.DataFrame(), None
+
+def salvar_agendamento(_sheet, agendamento_dados):
+    try:
+        agendamento_dados['ID_Agendamento'] = f"AG-{int(time.time())}"
+        cabecalhos = _sheet.row_values(1)
+        nova_linha = [agendamento_dados.get(cabecalho, "") for cabecalho in cabecalhos]
+        _sheet.append_row(nova_linha)
+        st.success("Agendamento salvo com sucesso!")
+        st.cache_data.clear()
+        return True
+    except Exception as e:
+        st.error(f"Ocorreu um erro ao salvar o agendamento: {e}")
+        return False
+
+def salvar_nova_gestante(_sheet, dados_gestante):
+    try:
+        dados_gestante['ID_Gestante'] = f"GEST-{int(time.time())}"
+        cabecalhos = _sheet.row_values(1)
+        nova_linha = [dados_gestante.get(cabecalho, "") for cabecalho in cabecalhos]
+        _sheet.append_row(nova_linha)
+        st.success("Acompanhamento de gestante iniciado com sucesso!")
+        st.cache_data.clear()
+        return True
+    except Exception as e:
+        st.error(f"Ocorreu um erro ao salvar o registo da gestante: {e}")
+        return False
+
+# ... (outras funções de API e PDF)
 def ocr_space_api(file_bytes, ocr_api_key):
     try:
         url = "https://api.ocr.space/parse/image"
@@ -138,167 +213,182 @@ def ocr_space_api(file_bytes, ocr_api_key):
         response = requests.post(url, data=payload, files=files, headers=headers)
         response.raise_for_status()
         result = response.json()
-        if result.get("IsErroredOnProcessing"): st.error(f"Erro no OCR: {result.get('ErrorMessage')}"); return None
+        if result.get("IsErroredOnProcessing"): return None
         return result["ParsedResults"][0]["ParsedText"]
     except Exception as e:
-        st.error(f"Erro inesperado no OCR: {e}"); return None
+        return None
 
 def extrair_dados_com_cohere(texto_extraido: str, cohere_client):
-    try:
-        prompt = f"""
-        Sua tarefa é extrair informações de um texto de formulário de saúde e convertê-lo para um JSON...
-        (Seu prompt completo vai aqui)
-        """
-        response = cohere_client.chat(model="command-r-plus", message=prompt, temperature=0.1)
-        json_string = response.text.replace('```json', '').replace('```', '').strip()
-        return json.loads(json_string)
-    except Exception as e:
-        st.error(f"Erro ao chamar a API do Cohere: {e}"); return None
-
+    # ...
+    pass
 def extrair_dados_vacinacao_com_cohere(texto_extraido: str, cohere_client):
-    prompt = f"""
-    Sua tarefa é atuar como um agente de saúde especializado em analisar textos de cadernetas de vacinação brasileiras...
-    (Seu prompt completo vai aqui)
-    """
-    try:
-        response = cohere_client.chat(model="command-r-plus", message=prompt, temperature=0.2)
-        json_string = response.text.strip()
-        if json_string.startswith("```json"): json_string = json_string[7:]
-        if json_string.endswith("```"): json_string = json_string[:-3]
-        dados_extraidos = json.loads(json_string.strip())
-        return dados_extraidos
-    except Exception as e:
-        st.error(f"Erro ao processar a resposta da IA: {e}")
-        return None
-
+    # ...
+    pass
 def extrair_dados_clinicos_com_cohere(texto_prontuario: str, cohere_client):
-    prompt = f"""
-    Sua tarefa é analisar o texto de um prontuário médico e extrair informações clínicas chave...
-    (Seu prompt completo vai aqui)
-    """
-    try:
-        response = cohere_client.chat(model="command-r-plus", message=prompt, temperature=0.2)
-        json_string = response.text.strip()
-        if json_string.startswith("```json"): json_string = json_string[7:]
-        if json_string.endswith("```"): json_string = json_string[:-3]
-        dados_extraidos = json.loads(json_string.strip())
-        return dados_extraidos
-    except Exception as e:
-        st.error(f"Erro ao processar a resposta da IA para extração clínica: {e}")
-        return None
+    # ...
+    pass
+def salvar_no_sheets(sheet, dados):
+    # ...
+    pass
 
-def salvar_no_sheets(dados, planilha):
-    try:
-        cabecalhos = planilha.row_values(1)
-        if 'ID' not in dados or not dados['ID']: dados['ID'] = f"ID-{int(time.time())}"
-        dados['Data de Registo'] = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-        nova_linha = [dados.get(cabecalho, "") for cabecalho in cabecalhos]
-        planilha.append_row(nova_linha)
-        st.success(f"✅ Dados de '{dados.get('Nome Completo', 'Desconhecido')}' salvos com sucesso!")
-        st.balloons()
-        st.cache_data.clear()
-    except Exception as e:
-        st.error(f"Erro ao salvar na planilha: {e}")
-
-# --- FUNÇÕES DE GERAÇÃO DE PDF (OTIMIZADAS) ---
+# --- FUNÇÕES DE GERAÇÃO DE PDF ---
 def preencher_pdf_formulario(paciente_dados):
-    # OTIMIZAÇÃO: Importa bibliotecas pesadas aqui dentro
-    from reportlab.pdfgen import canvas
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib.units import cm
-    from pypdf import PdfReader, PdfWriter
-    
-    # IMPORTANTE: Garanta que este ficheiro PDF está no seu repositório GitHub!
-    template_pdf_path = "Formulario_2IndiceDeVulnerabilidadeClinicoFuncional20IVCF20_ImpressoraPDFPreenchivel_202404-2.pdf"
-    
-    try:
-        packet = BytesIO()
-        can = canvas.Canvas(packet, pagesize=A4)
-        can.setFont("Helvetica", 10)
-        can.drawString(3.2 * cm, 23.8 * cm, str(paciente_dados.get("Nome Completo", "")))
-        # ... (Sua lógica de preenchimento do canvas) ...
-        can.save()
-        packet.seek(0)
-        new_pdf = PdfReader(packet)
-        existing_pdf = PdfReader(open(template_pdf_path, "rb"))
-        output = PdfWriter()
-        page = existing_pdf.pages[0]
-        page.merge_page(new_pdf.pages[0])
-        output.add_page(page)
-        final_buffer = BytesIO()
-        output.write(final_buffer)
-        final_buffer.seek(0)
-        return final_buffer
-    except FileNotFoundError:
-        st.error(f"Erro: O arquivo modelo '{template_pdf_path}' não foi encontrado no repositório.")
-        return None
-    except Exception as e:
-        st.error(f"Ocorreu um erro ao gerar o PDF: {e}")
-        return None
-
+    # ...
+    pass
 def gerar_pdf_etiquetas(familias_para_gerar):
-    # OTIMIZAÇÃO: Importa bibliotecas pesadas aqui dentro
-    from reportlab.pdfgen import canvas
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib.units import cm
-    from reportlab.lib.utils import ImageReader
-    import qrcode
-
-    # ... (Sua lógica completa de gerar etiquetas aqui) ...
-    pdf_buffer = BytesIO()
-    can = canvas.Canvas(pdf_buffer, pagesize=A4)
-    can.drawString(100, 750, "Exemplo de Etiqueta") # Código de exemplo
-    can.save()
-    pdf_buffer.seek(0)
-    return pdf_buffer
-
-# ... (Suas outras funções de gerar PDF aqui, com os imports dentro delas) ...
+    # ...
+    pass
+def gerar_pdf_capas_prontuario(pacientes_df):
+    # ...
+    pass
+def gerar_pdf_relatorio_vacinacao(nome_paciente, data_nascimento, relatorio):
+    # ...
+    pass
 
 # --- PÁGINAS DO APP ---
-def pagina_coleta(planilha, co_client):
-    st.title("🤖 COLETA INTELIGENTE")
-    # ... (seu código completo da página aqui) ...
+def pagina_agendamentos(client):
+    st.title("🗓️ Gestão de Agendamentos")
+    df_pacientes, _ = ler_dados_da_planilha(client)
+    df_agendamentos, sheet_agendamentos = ler_agendamentos(client)
 
-def pagina_dashboard(planilha):
-    # OTIMIZAÇÃO: Importa matplotlib aqui dentro
-    import matplotlib.pyplot as plt
-    st.title("📊 Dashboard de Dados")
-    # ... (seu código completo da página aqui) ...
+    with st.expander("➕ Adicionar Novo Agendamento"):
+        with st.form("form_novo_agendamento", clear_on_submit=True):
+            if df_pacientes.empty:
+                st.warning("Nenhum paciente na base de dados para agendar.")
+                st.stop()
+            lista_pacientes = df_pacientes.sort_values('Nome Completo')['Nome Completo'].tolist()
+            paciente_selecionado = st.selectbox("Paciente:", lista_pacientes, index=None, placeholder="Selecione um paciente...")
+            col1, col2 = st.columns(2)
+            data_agendamento = col1.date_input("Data:")
+            hora_agendamento = col2.time_input("Hora:")
+            tipo_agendamento = st.selectbox("Tipo de Agendamento:", ["Consulta", "Vacinação", "Exame", "Retorno", "Visita Domiciliar"])
+            descricao = st.text_area("Descrição (Opcional):")
+            if st.form_submit_button("Salvar Agendamento") and paciente_selecionado:
+                paciente_info = df_pacientes[df_pacientes['Nome Completo'] == paciente_selecionado].iloc[0]
+                novo_agendamento = {
+                    "ID_Paciente": paciente_info.get("ID", ""), "Nome_Paciente": paciente_selecionado,
+                    "Telefone_Paciente": paciente_info.get("Telefone", ""), "Data_Agendamento": data_agendamento.strftime("%d/%m/%Y"),
+                    "Hora_Agendamento": hora_agendamento.strftime("%H:%M"), "Tipo_Agendamento": tipo_agendamento,
+                    "Descricao": descricao, "Status": "Agendado", "Lembrete_Enviado": "Não"
+                }
+                if sheet_agendamentos is not None:
+                    salvar_agendamento(sheet_agendamentos, novo_agendamento)
+                    st.rerun()
 
-# ... (Todas as suas outras funções de página aqui) ...
+    st.markdown("---")
+    st.subheader("📅 Próximos Agendamentos")
+    if not df_agendamentos.empty:
+        hoje = pd.to_datetime(datetime.now().date())
+        proximos_agendamentos = df_agendamentos[df_agendamentos['Data_Hora_Agendamento'] >= hoje].sort_values("Data_Hora_Agendamento")
+        st.dataframe(proximos_agendamentos[['Nome_Paciente', 'Data_Agendamento', 'Hora_Agendamento', 'Tipo_Agendamento', 'Status']], use_container_width=True)
+    else:
+        st.info("Nenhum agendamento futuro encontrado.")
+    st.markdown("---")
+    st.subheader("📱 Lembretes para Enviar (Próximas 48 horas)")
+    if not df_agendamentos.empty:
+        hoje_com_hora = pd.to_datetime(datetime.now())
+        limite_48h = hoje_com_hora + pd.Timedelta(days=2)
+        agendamentos_para_lembrete = df_agendamentos[
+            (df_agendamentos['Data_Hora_Agendamento'] >= hoje_com_hora) &
+            (df_agendamentos['Data_Hora_Agendamento'] <= limite_48h) &
+            (df_agendamentos['Lembrete_Enviado'] != 'Sim')
+        ]
+        if not agendamentos_para_lembrete.empty:
+            for index, row in agendamentos_para_lembrete.iterrows():
+                nome_paciente, telefone = row['Nome_Paciente'], re.sub(r'\D', '', str(row['Telefone_Paciente']))
+                if len(telefone) >= 10:
+                    mensagem = f"Olá, {nome_paciente.split()[0]}. Gostaríamos de lembrar do seu agendamento de '{row['Tipo_Agendamento']}' no dia {row['Data_Agendamento']} às {row['Hora_Agendamento']}. Por favor, confirme a sua presença. Obrigado!"
+                    whatsapp_url = f"https://wa.me/55{telefone}?text={urllib.parse.quote(mensagem)}"
+                    col1, col2 = st.columns([3, 1])
+                    col1.write(f"**{nome_paciente}** - {row['Tipo_Agendamento']} em {row['Data_Agendamento']} às {row['Hora_Agendamento']}")
+                    col2.link_button("Enviar Lembrete ↗️", whatsapp_url, use_container_width=True)
+        else:
+            st.info("Nenhum lembrete a ser enviado nas próximas 48 horas.")
 
-# --- FUNÇÃO PRINCIPAL E ROTEADOR ---
+def pagina_gestantes(client):
+    st.title("🤰 Acompanhamento de Gestantes")
+    df_pacientes, _ = ler_dados_da_planilha(client)
+    df_gestantes, sheet_gestantes = ler_dados_gestantes(client)
+
+    with st.expander("➕ Iniciar Novo Acompanhamento de Gestante"):
+        with st.form("form_nova_gestante", clear_on_submit=True):
+            pacientes_mulheres = df_pacientes[df_pacientes['Sexo'].str.upper().isin(['F', 'FEMININO'])]
+            lista_pacientes = pacientes_mulheres.sort_values('Nome Completo')['Nome Completo'].tolist()
+            paciente_selecionado = st.selectbox("Paciente:", lista_pacientes, index=None, placeholder="Selecione uma paciente...")
+            data_dum = st.date_input("Data da Última Menstruação (DUM):")
+            observacoes = st.text_area("Observações Iniciais:")
+            if st.form_submit_button("Iniciar Acompanhamento") and paciente_selecionado and data_dum:
+                paciente_info = df_pacientes[df_pacientes['Nome Completo'] == paciente_selecionado].iloc[0]
+                dados_gestacionais = calcular_dados_gestacionais(data_dum)
+                novo_registo = {
+                    "ID_Paciente": paciente_info.get("ID", ""), "Nome_Paciente": paciente_selecionado,
+                    "DUM": data_dum.strftime("%d/%m/%Y"), "DPP": dados_gestacionais['dpp'].strftime("%d/%m/%Y"),
+                    "Observacoes": observacoes
+                }
+                if sheet_gestantes is not None:
+                    salvar_nova_gestante(sheet_gestantes, novo_registo)
+                    st.rerun()
+
+    st.markdown("---")
+    st.subheader("Gestantes em Acompanhamento")
+    if not df_gestantes.empty:
+        for index, gestante in df_gestantes.iterrows():
+            with st.expander(f"**{gestante['Nome_Paciente']}**"):
+                try:
+                    dum = datetime.strptime(gestante['DUM'], "%d/%m/%Y").date()
+                    dados_gestacionais = calcular_dados_gestacionais(dum)
+                    col1, col2, col3, col4 = st.columns(4)
+                    col1.metric("Última Menstruação (DUM)", dum.strftime("%d/%m/%Y"))
+                    col2.metric("Idade Gestacional (IG)", f"{dados_gestacionais['ig_semanas']}s {dados_gestacionais['ig_dias']}d")
+                    col3.metric("Trimestre Atual", f"{dados_gestacionais['trimestre']}º")
+                    col4.metric("Data Provável do Parto (DPP)", dados_gestacionais['dpp'].strftime("%d/%m/%Y"))
+                    st.info(f"**Observações:** {gestante.get('Observacoes', 'Nenhuma')}")
+                    st.write("**Marcos Importantes do Pré-Natal:**")
+                    if dados_gestacionais['trimestre'] == 1: st.success("✅ **1º Trimestre:** Foco em exames iniciais e primeiro ultrassom.")
+                    if dados_gestacionais['trimestre'] == 2: st.success("✅ **2º Trimestre:** Foco em ultrassom morfológico e vacina dTpa.")
+                    if dados_gestacionais['trimestre'] == 3: st.success("✅ **3º Trimestre:** Foco em monitoramento final e preparação para o parto.")
+                except Exception as e:
+                    st.error(f"Não foi possível calcular os dados para {gestante['Nome_Paciente']}. Verifique a data DUM. Erro: {e}")
+    else:
+        st.info("Nenhum acompanhamento de gestante iniciado.")
+
+# ... (outras funções de página, completas)
+
 def main():
     query_params = st.query_params
     if query_params.get("page") == "resumo":
-        st.set_page_config(page_title="Resumo de Pacientes", layout="centered")
-        # ... (código da página de resumo aqui) ...
+        st.set_page_config(page_title="Resumo de Pacientes", layout="centered") # Re-config for special page
+        st.html("<meta http-equiv='refresh' content='60'>")
+        gspread_client = conectar_planilha()
+        if gspread_client:
+            df_pacientes, sheet_pacientes = ler_dados_da_planilha(gspread_client)
+            pagina_dashboard_resumo(df_pacientes)
+        else: st.error("Falha na conexão com a base de dados.")
     else:
-        st.set_page_config(page_title="Coleta Inteligente", page_icon="🤖", layout="wide")
+        st.set_page_config(page_title="Coleta Inteligente", page_icon="🤖", layout="wide") # Main config
         st.sidebar.title("Navegação")
+        gspread_client = conectar_planilha()
+        if gspread_client is None: st.stop()
         
-        planilha_conectada = None
         co_client = None
-        
         try:
-            planilha_conectada = conectar_planilha()
+            co_client = cohere.Client(api_key=st.secrets["COHEREKEY"])
         except Exception as e:
-            st.error(f"Falha na conexão com a Planilha. Verifique os segredos 'gcp_service_account' e 'SHEETSID'. Erro: {e}")
+            st.warning(f"Não foi possível conectar ao serviço de IA. Funcionalidades limitadas. Erro: {e}")
         
-        try:
-            # CORREÇÃO: Usando o nome padronizado do segredo
-            co_client = cohere.Client(api_key=st.secrets["COHERE_API_KEY"])
-        except Exception as e:
-            st.warning(f"Não foi possível conectar ao serviço de IA. Funcionalidades limitadas. Verifique o segredo 'COHERE_API_KEY'. Erro: {e}")
-
-        if planilha_conectada is None:
-            st.error("A conexão com a planilha falhou. A aplicação não pode continuar.")
-            st.stop()
-            
         paginas = {
-            # Preencha com suas páginas
-            "Coletar Fichas": lambda: pagina_coleta(planilha_conectada, co_client),
-            "Dashboard": lambda: pagina_dashboard(planilha_conectada),
+            "Agendamentos": lambda: pagina_agendamentos(gspread_client),
+            "Acompanhamento de Gestantes": lambda: pagina_gestantes(gspread_client),
+            "Análise de Vacinação": lambda: pagina_analise_vacinacao(gspread_client, co_client),
+            "Importar Dados de Prontuário": lambda: pagina_importar_prontuario(gspread_client, co_client),
+            "Coletar Fichas": lambda: pagina_coleta(gspread_client, co_client),
+            "Gestão de Pacientes": lambda: pagina_pesquisa(gspread_client),
+            "Dashboard": lambda: pagina_dashboard(gspread_client),
+            "Gerar Etiquetas": lambda: pagina_etiquetas(gspread_client),
+            "Gerar Capas de Prontuário": lambda: pagina_capas_prontuario(gspread_client),
+            "Gerar Documentos": lambda: pagina_gerar_documentos(gspread_client),
+            "Enviar WhatsApp": lambda: pagina_whatsapp(gspread_client),
+            "Gerador de QR Code": lambda: pagina_gerador_qrcode(gspread_client),
         }
         pagina_selecionada = st.sidebar.radio("Escolha uma página:", paginas.keys())
         paginas[pagina_selecionada]()
