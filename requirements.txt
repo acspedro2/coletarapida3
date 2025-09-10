@@ -1,12 +1,12 @@
 streamlit
-gspread
-pandas
-cohere
 requests
+gspread
 Pillow
+pandas
 reportlab
 qrcode
 matplotlib
 pypdf
 python-dateutil
 pdf2image
+google-generativeai
