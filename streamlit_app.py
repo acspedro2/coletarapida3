@@ -1,7 +1,6 @@
 import streamlit as st
 import requests
 import json
-import cohere
 import gspread
 from PIL import Image
 import time
@@ -20,6 +19,9 @@ from pypdf import PdfReader, PdfWriter
 from reportlab.lib.colors import HexColor
 from dateutil.relativedelta import relativedelta
 from pdf2image import convert_from_bytes
+
+# --- NOVA IMPORTAÇÃO ---
+import google.generativeai as genai
 
 # --- MOTOR DE REGRAS: CALENDÁRIO NACIONAL DE IMUNIZAÇÕES (PNI) ---
 CALENDARIO_PNI = [
@@ -150,8 +152,10 @@ def ocr_space_api(file_bytes, ocr_api_key):
     except Exception as e:
         st.error(f"Erro inesperado no OCR: {e}"); return None
 
-def extrair_dados_com_cohere(texto_extraido: str, cohere_client):
+# --- NOVAS FUNÇÕES COM GOOGLE GEMINI ---
+def extrair_dados_com_google_gemini(texto_extraido: str, api_key: str):
     try:
+        genai.configure(api_key=api_key)
         prompt = f"""
         Sua tarefa é extrair informações de um texto de formulário de saúde e convertê-lo para um JSON.
         Procure por uma anotação à mão que pareça um código de família (ex: 'FAM111'). Este código deve ir para a chave "FAMÍLIA".
@@ -159,66 +163,67 @@ def extrair_dados_com_cohere(texto_extraido: str, cohere_client):
         Se um valor não for encontrado, retorne uma string vazia "".
         Texto para analisar: --- {texto_extraido} ---
         """
-        response = cohere_client.chat(model="command-r-plus", message=prompt, temperature=0.1)
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        response = model.generate_content(prompt)
         json_string = response.text.replace('```json', '').replace('```', '').strip()
         return json.loads(json_string)
     except Exception as e:
-        st.error(f"Erro ao chamar a API do Cohere: {e}"); return None
+        st.error(f"Erro ao chamar a API do Google Gemini: {e}"); return None
 
-def extrair_dados_vacinacao_com_cohere(texto_extraido: str, cohere_client):
-    prompt = f"""
-    Sua tarefa é atuar como um agente de saúde especializado em analisar textos de cadernetas de vacinação brasileiras.
-    O texto fornecido foi extraído por OCR e pode conter erros. Sua missão é extrair as informações e retorná-las em um formato JSON estrito.
-    Instruções:
-    1.  Identifique o Nome do Paciente.
-    2.  Identifique a Data de Nascimento no formato DD/MM/AAAA.
-    3.  Liste as Vacinas Administradas, normalizando os nomes para um padrão. Exemplos: "Penta" -> "Pentavalente"; "Polio" ou "VIP" -> "VIP (Poliomielite inativada)"; "Meningo C" -> "Meningocócica C"; "Sarampo, Caxumba, Rubéola" -> "Tríplice Viral".
-    4.  Para cada vacina, identifique a dose (ex: "1ª Dose", "Reforço"). Se não for clara, infira pela ordem.
-    5.  Retorne APENAS um objeto JSON com as chaves "nome_paciente", "data_nascimento", "vacinas_administradas" (lista de objetos com "vacina" e "dose").
-    Se uma informação não for encontrada, retorne um valor vazio ("") ou uma lista vazia ([]).
-    Texto para analisar: --- {texto_extraido} ---
-    """
+def extrair_dados_vacinacao_com_google_gemini(texto_extraido: str, api_key: str):
     try:
-        response = cohere_client.chat(model="command-r-plus", message=prompt, temperature=0.2)
-        json_string = response.text.strip()
-        if json_string.startswith("```json"): json_string = json_string[7:]
-        if json_string.endswith("```"): json_string = json_string[:-3]
-        dados_extraidos = json.loads(json_string.strip())
+        genai.configure(api_key=api_key)
+        prompt = f"""
+        Sua tarefa é atuar como um agente de saúde especializado em analisar textos de cadernetas de vacinação brasileiras.
+        O texto fornecido foi extraído por OCR e pode conter erros. Sua missão é extrair as informações e retorná-las em um formato JSON estrito.
+        Instruções:
+        1.  Identifique o Nome do Paciente.
+        2.  Identifique a Data de Nascimento no formato DD/MM/AAAA.
+        3.  Liste as Vacinas Administradas, normalizando os nomes para um padrão. Exemplos: "Penta" -> "Pentavalente"; "Polio" ou "VIP" -> "VIP (Poliomielite inativada)"; "Meningo C" -> "Meningocócica C"; "Sarampo, Caxumba, Rubéola" -> "Tríplice Viral".
+        4.  Para cada vacina, identifique a dose (ex: "1ª Dose", "Reforço"). Se não for clara, infira pela ordem.
+        5.  Retorne APENAS um objeto JSON com as chaves "nome_paciente", "data_nascimento", "vacinas_administradas" (lista de objetos com "vacina" e "dose").
+        Se uma informação não for encontrada, retorne um valor vazio ("") ou uma lista vazia ([]).
+        Texto para analisar: --- {texto_extraido} ---
+        """
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        response = model.generate_content(prompt)
+        json_string = response.text.replace('```json', '').replace('```', '').strip()
+        dados_extraidos = json.loads(json_string)
         if "nome_paciente" in dados_extraidos and "data_nascimento" in dados_extraidos and "vacinas_administradas" in dados_extraidos:
             return dados_extraidos
         else: return None
     except Exception as e:
-        st.error(f"Erro ao processar a resposta da IA: {e}")
+        st.error(f"Erro ao processar a resposta da IA (Gemini): {e}")
         return None
 
-def extrair_dados_clinicos_com_cohere(texto_prontuario: str, cohere_client):
-    prompt = f"""
-    Sua tarefa é analisar o texto de um prontuário médico e extrair informações clínicas chave.
-    O seu foco deve ser em duas categorias: Diagnósticos (especialmente condições crónicas) e Medicamentos.
-    Instruções:
-    1.  Analise o texto completo para compreender o contexto clínico do paciente.
-    2.  Extraia Diagnósticos: Identifique todas as condições médicas e diagnósticos mencionados. Dê prioridade a doenças crónicas como 'Diabetes' (Tipo 1 ou 2), 'Hipertensão Arterial Sistêmica (HAS)', 'Asma', 'DPOC'.
-    3.  Extraia Medicamentos: Identifique todos os medicamentos de uso contínuo ou relevante mencionados, incluindo a dosagem, se disponível (ex: 'Metformina 500mg', 'Losartana 50mg').
-    4.  Formato de Saída: Retorne APENAS um objeto JSON com as seguintes chaves:
-        -   "diagnosticos": (uma lista de strings com os diagnósticos encontrados)
-        -   "medicamentos": (uma lista de strings com os medicamentos encontrados)
-    Se nenhuma informação de uma categoria for encontrada, retorne uma lista vazia para essa chave.
-    Texto do Prontuário para analisar:
-    ---
-    {texto_prontuario}
-    ---
-    """
+def extrair_dados_clinicos_com_google_gemini(texto_prontuario: str, api_key: str):
     try:
-        response = cohere_client.chat(model="command-r-plus", message=prompt, temperature=0.2)
-        json_string = response.text.strip()
-        if json_string.startswith("```json"): json_string = json_string[7:]
-        if json_string.endswith("```"): json_string = json_string[:-3]
-        dados_extraidos = json.loads(json_string.strip())
+        genai.configure(api_key=api_key)
+        prompt = f"""
+        Sua tarefa é analisar o texto de um prontuário médico e extrair informações clínicas chave.
+        O seu foco deve ser em duas categorias: Diagnósticos (especialmente condições crónicas) e Medicamentos.
+        Instruções:
+        1.  Analise o texto completo para compreender o contexto clínico do paciente.
+        2.  Extraia Diagnósticos: Identifique todas as condições médicas e diagnósticos mencionados. Dê prioridade a doenças crónicas como 'Diabetes' (Tipo 1 ou 2), 'Hipertensão Arterial Sistêmica (HAS)', 'Asma', 'DPOC'.
+        3.  Extraia Medicamentos: Identifique todos os medicamentos de uso contínuo ou relevante mencionados, incluindo a dosagem, se disponível (ex: 'Metformina 500mg', 'Losartana 50mg').
+        4.  Formato de Saída: Retorne APENAS um objeto JSON com as seguintes chaves:
+            -   "diagnosticos": (uma lista de strings com os diagnósticos encontrados)
+            -   "medicamentos": (uma lista de strings com os medicamentos encontrados)
+        Se nenhuma informação de uma categoria for encontrada, retorne uma lista vazia para essa chave.
+        Texto do Prontuário para analisar:
+        ---
+        {texto_prontuario}
+        ---
+        """
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        response = model.generate_content(prompt)
+        json_string = response.text.replace('```json', '').replace('```', '').strip()
+        dados_extraidos = json.loads(json_string)
         if "diagnosticos" in dados_extraidos and "medicamentos" in dados_extraidos:
             return dados_extraidos
         else: return None
     except Exception as e:
-        st.error(f"Erro ao processar a resposta da IA para extração clínica: {e}")
+        st.error(f"Erro ao processar a resposta da IA (Gemini) para extração clínica: {e}")
         return None
 
 def salvar_no_sheets(dados, planilha):
@@ -234,7 +239,7 @@ def salvar_no_sheets(dados, planilha):
     except Exception as e:
         st.error(f"Erro ao salvar na planilha: {e}")
 
-# --- FUNÇÕES DE GERAÇÃO DE PDF ---
+# --- FUNÇÕES DE GERAÇÃO DE PDF (sem alterações) ---
 def preencher_pdf_formulario(paciente_dados):
     try:
         template_pdf_path = "Formulario_2IndiceDeVulnerabilidadeClinicoFuncional20IVCF20_ImpressoraPDFPreenchivel_202404-2.pdf"
@@ -456,7 +461,7 @@ def pagina_gerar_documentos(planilha):
                     mime="application/pdf"
                 )
 
-def pagina_coleta(planilha, co_client):
+def pagina_coleta(planilha):
     st.title("🤖 COLETA INTELIGENTE")
     st.header("1. Envie uma ou mais imagens de fichas")
     df_existente = ler_dados_da_planilha(planilha)
@@ -470,7 +475,8 @@ def pagina_coleta(planilha, co_client):
             file_bytes = proximo_arquivo.getvalue()
             texto_extraido = ocr_space_api(file_bytes, st.secrets["OCRSPACEKEY"])
             if texto_extraido:
-                dados_extraidos = extrair_dados_com_cohere(texto_extraido, co_client)
+                # --- CHAMADA ATUALIZADA PARA O GEMINI ---
+                dados_extraidos = extrair_dados_com_google_gemini(texto_extraido, st.secrets["GOOGLE_API_KEY"])
                 if dados_extraidos:
                     with st.form(key=f"form_{proximo_arquivo.file_id}"):
                         st.subheader("2. Confirme e salve os dados")
@@ -715,7 +721,7 @@ def pagina_whatsapp(planilha):
         col1.text(f"{nome} - ({row['Telefone']})")
         col2.link_button("Enviar Mensagem ↗️", whatsapp_url, use_container_width=True)
 
-def pagina_analise_vacinacao(planilha, co_client):
+def pagina_analise_vacinacao(planilha):
     st.title("💉 Análise Automatizada de Caderneta de Vacinação")
     if 'uploaded_file_id' not in st.session_state:
         st.session_state.dados_extraidos = None
@@ -727,7 +733,8 @@ def pagina_analise_vacinacao(planilha, co_client):
             with st.spinner("Processando imagem e extraindo dados com IA..."):
                 texto_extraido = ocr_space_api(uploaded_file.getvalue(), st.secrets["OCRSPACEKEY"])
                 if texto_extraido:
-                    dados = extrair_dados_vacinacao_com_cohere(texto_extraido, co_client)
+                    # --- CHAMADA ATUALIZADA PARA O GEMINI ---
+                    dados = extrair_dados_vacinacao_com_google_gemini(texto_extraido, st.secrets["GOOGLE_API_KEY"])
                     if dados:
                         st.session_state.dados_extraidos = dados
                         st.rerun()
@@ -777,7 +784,7 @@ def pagina_analise_vacinacao(planilha, co_client):
         st.session_state.clear()
         st.rerun()
 
-def pagina_importar_prontuario(planilha, co_client):
+def pagina_importar_prontuario(planilha):
     st.title("📄 Importar Dados de Prontuário Clínico")
     st.info("Esta funcionalidade extrai diagnósticos e medicamentos de um ficheiro de prontuário (PDF digitalizado) e adiciona-os ao registo do paciente.")
     try:
@@ -796,7 +803,8 @@ def pagina_importar_prontuario(planilha, co_client):
                     texto_prontuario = ler_texto_prontuario(uploaded_file.getvalue(), st.secrets["OCRSPACEKEY"])
                     if texto_prontuario:
                         st.success("Texto extraído do prontuário com sucesso!")
-                        dados_clinicos = extrair_dados_clinicos_com_cohere(texto_prontuario, co_client)
+                        # --- CHAMADA ATUALIZADA PARA O GEMINI ---
+                        dados_clinicos = extrair_dados_clinicos_com_google_gemini(texto_prontuario, st.secrets["GOOGLE_API_KEY"])
                         if dados_clinicos:
                             st.session_state.dados_clinicos_extraidos = dados_clinicos
                             st.session_state.paciente_para_atualizar = paciente_selecionado
@@ -910,15 +918,13 @@ def main():
         if planilha_conectada is None:
             st.error("A conexão com a planilha falhou.")
             st.stop()
-        co_client = None
-        try:
-            co_client = cohere.Client(api_key=st.secrets["COHEREKEY"])
-        except Exception as e:
-            st.warning(f"Não foi possível conectar ao serviço de IA. Funcionalidades limitadas. Erro: {e}")
+        
+        # --- REMOÇÃO DO CLIENTE COHERE ---
+        
         paginas = {
-            "Análise de Vacinação": lambda: pagina_analise_vacinacao(planilha_conectada, co_client),
-            "Importar Dados de Prontuário": lambda: pagina_importar_prontuario(planilha_conectada, co_client),
-            "Coletar Fichas": lambda: pagina_coleta(planilha_conectada, co_client),
+            "Análise de Vacinação": lambda: pagina_analise_vacinacao(planilha_conectada),
+            "Importar Dados de Prontuário": lambda: pagina_importar_prontuario(planilha_conectada),
+            "Coletar Fichas": lambda: pagina_coleta(planilha_conectada),
             "Gestão de Pacientes": lambda: pagina_pesquisa(planilha_conectada),
             "Dashboard": lambda: pagina_dashboard(planilha_conectada),
             "Gerar Etiquetas": lambda: pagina_etiquetas(planilha_conectada),
