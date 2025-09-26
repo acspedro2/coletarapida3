@@ -1,4 +1,4 @@
-import streamlit as st
+Import streamlit as st
 import requests
 import json
 import gspread
@@ -22,6 +22,12 @@ from pdf2image import convert_from_bytes
 
 # --- NOVA IMPORTAÇÃO ---
 import google.generativeai as genai
+
+# --- CONFIGURAÇÃO GLOBAL DA API GEMINI ---
+# Definir o nome do modelo como uma constante. 
+# 'gemini-2.5-flash' substitui o modelo anterior para evitar o erro 404.
+MODELO_GEMINI = "gemini-2.5-flash"
+
 
 # --- MOTOR DE REGRAS: CALENDÁRIO NACIONAL DE IMUNIZAÇÕES (PNI) ---
 CALENDARIO_PNI = [
@@ -152,10 +158,13 @@ def ocr_space_api(file_bytes, ocr_api_key):
     except Exception as e:
         st.error(f"Erro inesperado no OCR: {e}"); return None
 
-# --- NOVAS FUNÇÕES COM GOOGLE GEMINI ---
+# --- NOVAS FUNÇÕES COM GOOGLE GEMINI (MODELO ATUALIZADO) ---
 def extrair_dados_com_google_gemini(texto_extraido: str, api_key: str):
+    """Extrai dados cadastrais de um texto (ficha) usando Gemini."""
     try:
+        # Configura a chave API
         genai.configure(api_key=api_key)
+        
         prompt = f"""
         Sua tarefa é extrair informações de um texto de formulário de saúde e convertê-lo para um JSON.
         Procure por uma anotação à mão que pareça um código de família (ex: 'FAM111'). Este código deve ir para a chave "FAMÍLIA".
@@ -163,16 +172,20 @@ def extrair_dados_com_google_gemini(texto_extraido: str, api_key: str):
         Se um valor não for encontrado, retorne uma string vazia "".
         Texto para analisar: --- {texto_extraido} ---
         """
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        # Utiliza o modelo corrigido
+        model = genai.GenerativeModel(MODELO_GEMINI)
         response = model.generate_content(prompt)
         json_string = response.text.replace('```json', '').replace('```', '').strip()
         return json.loads(json_string)
     except Exception as e:
-        st.error(f"Erro ao chamar a API do Google Gemini: {e}"); return None
+        st.error(f"Erro ao chamar a API do Google Gemini (Extração de Ficha): {e}"); return None
 
 def extrair_dados_vacinacao_com_google_gemini(texto_extraido: str, api_key: str):
+    """Extrai nome, data de nascimento e vacinas administradas de um texto de caderneta."""
     try:
+        # Configura a chave API
         genai.configure(api_key=api_key)
+        
         prompt = f"""
         Sua tarefa é atuar como um agente de saúde especializado em analisar textos de cadernetas de vacinação brasileiras.
         O texto fornecido foi extraído por OCR e pode conter erros. Sua missão é extrair as informações e retorná-las em um formato JSON estrito.
@@ -185,7 +198,8 @@ def extrair_dados_vacinacao_com_google_gemini(texto_extraido: str, api_key: str)
         Se uma informação não for encontrada, retorne um valor vazio ("") ou uma lista vazia ([]).
         Texto para analisar: --- {texto_extraido} ---
         """
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        # Utiliza o modelo corrigido
+        model = genai.GenerativeModel(MODELO_GEMINI)
         response = model.generate_content(prompt)
         json_string = response.text.replace('```json', '').replace('```', '').strip()
         dados_extraidos = json.loads(json_string)
@@ -193,12 +207,15 @@ def extrair_dados_vacinacao_com_google_gemini(texto_extraido: str, api_key: str)
             return dados_extraidos
         else: return None
     except Exception as e:
-        st.error(f"Erro ao processar a resposta da IA (Gemini): {e}")
+        st.error(f"Erro ao processar a resposta da IA (Gemini - Vacinação): {e}")
         return None
 
 def extrair_dados_clinicos_com_google_gemini(texto_prontuario: str, api_key: str):
+    """Extrai diagnósticos e medicamentos de um texto de prontuário clínico."""
     try:
+        # Configura a chave API
         genai.configure(api_key=api_key)
+        
         prompt = f"""
         Sua tarefa é analisar o texto de um prontuário médico e extrair informações clínicas chave.
         O seu foco deve ser em duas categorias: Diagnósticos (especialmente condições crónicas) e Medicamentos.
@@ -215,7 +232,8 @@ def extrair_dados_clinicos_com_google_gemini(texto_prontuario: str, api_key: str
         {texto_prontuario}
         ---
         """
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        # Utiliza o modelo corrigido
+        model = genai.GenerativeModel(MODELO_GEMINI)
         response = model.generate_content(prompt)
         json_string = response.text.replace('```json', '').replace('```', '').strip()
         dados_extraidos = json.loads(json_string)
@@ -223,7 +241,7 @@ def extrair_dados_clinicos_com_google_gemini(texto_prontuario: str, api_key: str
             return dados_extraidos
         else: return None
     except Exception as e:
-        st.error(f"Erro ao processar a resposta da IA (Gemini) para extração clínica: {e}")
+        st.error(f"Erro ao processar a resposta da IA (Gemini - Clínico): {e}")
         return None
 
 def salvar_no_sheets(dados, planilha):
