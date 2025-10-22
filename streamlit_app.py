@@ -123,6 +123,7 @@ def ler_texto_prontuario(file_bytes, ocr_api_key):
 @st.cache_resource
 def conectar_planilha():
     try:
+        # AQUI VOCÊ DEVE TER CONFIGURADO CORRETAMENTE SEUS SECRETS NO STREAMLIT CLOUD
         creds = st.secrets["gcp_service_account"]
         client = gspread.service_account_from_dict(creds)
         sheet = client.open_by_key(st.secrets["SHEETSID"]).sheet1
@@ -157,6 +158,20 @@ def ocr_space_api(file_bytes, ocr_api_key):
         return result["ParsedResults"][0]["ParsedText"]
     except Exception as e:
         st.error(f"Erro inesperado no OCR: {e}"); return None
+
+# --- FUNÇÃO DE PADRONIZAÇÃO DE TELEFONE (NECESSÁRIA PARA A NOVA PÁGINA) ---
+def padronizar_telefone(telefone):
+    """Limpa e padroniza o número de telefone (remove formatação e 55, se houver)."""
+    if pd.isna(telefone) or telefone == "":
+        return None
+    num_limpo = re.sub(r'\D', '', str(telefone))
+    # Remove o 55 inicial se já existir
+    if num_limpo.startswith('55'):
+        num_limpo = num_limpo[2:]
+    # Um número válido (DDD + 8 ou 9 dígitos) deve ter 10 ou 11 dígitos
+    if 10 <= len(num_limpo) <= 11: 
+        return num_limpo
+    return None 
 
 # --- NOVAS FUNÇÕES COM GOOGLE GEMINI (MODELO ATUALIZADO) ---
 def extrair_dados_com_google_gemini(texto_extraido: str, api_key: str):
@@ -249,6 +264,7 @@ def salvar_no_sheets(dados, planilha):
         cabecalhos = planilha.row_values(1)
         if 'ID' not in dados or not dados['ID']: dados['ID'] = f"ID-{int(time.time())}"
         dados['Data de Registo'] = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        # Padroniza as chaves do dicionário para casar com os cabeçalhos da planilha (se necessário)
         nova_linha = [dados.get(cabecalho, "") for cabecalho in cabecalhos]
         planilha.append_row(nova_linha)
         st.success(f"✅ Dados de '{dados.get('Nome Completo', 'Desconhecido')}' salvos com sucesso!")
@@ -722,7 +738,7 @@ def pagina_capas_prontuario(planilha):
     else: st.info("Selecione pelo menos um paciente para gerar as capas.")
 
 def pagina_whatsapp(planilha):
-    st.title("📱 Enviar Mensagens de WhatsApp")
+    st.title("📱 Enviar Mensagens de WhatsApp (Manual)")
     df = ler_dados_da_planilha(planilha)
     if df.empty: st.warning("Ainda não há dados na planilha para enviar mensagens."); return
     st.subheader("1. Escreva a sua mensagem")
@@ -731,13 +747,108 @@ def pagina_whatsapp(planilha):
     df_com_telefone = df[df['Telefone'].astype(str).str.strip() != ''].copy()
     for index, row in df_com_telefone.iterrows():
         nome = row['Nome Completo']
-        telefone = re.sub(r'\D', '', str(row['Telefone']))
-        if len(telefone) < 10: continue
+        telefone = padronizar_telefone(row['Telefone']) # Usando a função padronizar_telefone
+        if telefone is None: continue
         mensagem_personalizada = mensagem_padrao.replace("[NOME]", nome.split()[0])
         whatsapp_url = f"https://wa.me/55{telefone}?text={urllib.parse.quote(mensagem_personalizada)}"
         col1, col2 = st.columns([3, 1])
         col1.text(f"{nome} - ({row['Telefone']})")
         col2.link_button("Enviar Mensagem ↗️", whatsapp_url, use_container_width=True)
+
+# --- NOVA PÁGINA: BUSCA AUTOMÁTICA E WHATSAPP ---
+def pagina_ocr_e_alerta_whatsapp(planilha):
+    st.title("📸 Verificação Rápida e Alerta WhatsApp")
+    st.warning("Fluxo: Foto/Documento ➡️ Simulação da Extração do Nome ➡️ Busca Automática ➡️ Notificação WhatsApp")
+    
+    # Lendo os dados da planilha
+    df = ler_dados_da_planilha(planilha)
+    if df.empty:
+        st.error("A planilha não possui dados para busca.")
+        return
+
+    # 1. Simulação da Captura do Documento
+    st.subheader("1. Capturar ou Carregar a Imagem do Documento")
+    foto_paciente = st.camera_input("Tire uma foto do documento do paciente:")
+    
+    st.markdown("---")
+    st.subheader("2. Simulação da Seleção/Extração do Nome")
+    
+    nome_para_buscar = None
+    
+    if foto_paciente is not None:
+        # AQUI VAMOS SIMULAR A ETAPA DO OCR/IA EXTRAINDO O NOME DA FOTO
+        # Criamos a lista de nomes válidos para o SelectBox
+        
+        # Cria uma coluna padronizada de telefone para filtrar apenas pacientes que podem receber o alerta
+        df['Telefone Limpo'] = df['Telefone'].apply(padronizar_telefone)
+        lista_pacientes_validos = df[df['Telefone Limpo'].notna()]['Nome Completo'].tolist()
+
+        if not lista_pacientes_validos:
+            st.error("Nenhum paciente na planilha tem um número de telefone válido para receber alertas.")
+            return
+
+        nome_para_buscar = st.selectbox(
+            "Selecione o nome que a IA 'extraiu' da imagem:", 
+            options=sorted(lista_pacientes_validos),
+            index=None,
+            placeholder="Selecione o nome do paciente para que o sistema possa buscá-lo..."
+        )
+    
+    if nome_para_buscar:
+        # 3. Execução da Busca (O sistema procura!)
+        
+        # Prepara o nome do input para busca (Remove espaços e converte para maiúsculo)
+        nome_limpo_busca = nome_para_buscar.strip().upper()
+        
+        # Prepara a coluna para busca no DataFrame (Remove espaços e converte para maiúsculo)
+        df['Nome Limpo'] = df['Nome Completo'].astype(str).str.strip().str.upper()
+        
+        # Filtra o DataFrame (O coração da busca, com correspondência exata)
+        resultado_busca = df[df['Nome Limpo'] == nome_limpo_busca]
+        
+        if not resultado_busca.empty:
+            paciente_data = resultado_busca.iloc[0]
+            telefone_limpo = padronizar_telefone(paciente_data['Telefone'])
+            telefone_completo = paciente_data['Telefone']
+            primeiro_nome = paciente_data['Nome Completo'].split()[0]
+            
+            # Garante que o telefone ainda é válido após a busca (redundância)
+            if telefone_limpo is None:
+                 st.error(f"❌ Paciente '{paciente_data['Nome Completo']}' encontrado, mas o telefone ({telefone_completo}) é inválido.")
+                 return
+
+            st.success(f"✅ Paciente '{paciente_data['Nome Completo']}' **CONSTA** na planilha!")
+            
+            # 4. Alerta e Ação (WhatsApp)
+            st.subheader("3. Alerta e Envio da Notificação")
+            
+            # Mensagem de notificação (Pré-preenchida)
+            mensagem_default = (
+                f"Olá, {primeiro_nome}! Seu procedimento foi LIBERADO/AUTORIZADO. "
+                f"Entre em contato com seu ACS/UBS para agendar. [SAÚDE MUNICIPAL]"
+            )
+            
+            mensagem_padrao = st.text_area(
+                f"Mensagem para {primeiro_nome}:", 
+                mensagem_default, 
+                height=100
+            )
+            
+            st.warning(f"A notificação será enviada para: **{telefone_completo}**.")
+            
+            # Geração do link
+            whatsapp_url = f"https://wa.me/55{telefone_limpo}?text={urllib.parse.quote(mensagem_padrao)}"
+            
+            col1, col2 = st.columns([1, 1])
+            with col1:
+                st.link_button("Abrir WhatsApp e Enviar ↗️", whatsapp_url, type="primary", use_container_width=True)
+            with col2:
+                st.write(f"Dados do Paciente:")
+                st.dataframe(paciente_data[['Nome Completo', 'Telefone', 'ID']].to_frame().T, hide_index=True)
+
+        else:
+            st.error(f"❌ Erro: O nome '{nome_para_buscar}' **NÃO CONSTA** na planilha de pacientes.")
+# --- FIM NOVA PÁGINA ---
 
 def pagina_analise_vacinacao(planilha):
     st.title("💉 Análise Automatizada de Caderneta de Vacinação")
@@ -937,9 +1048,11 @@ def main():
             st.error("A conexão com a planilha falhou.")
             st.stop()
         
-        # --- REMOÇÃO DO CLIENTE COHERE ---
+        # --- REMOÇÃO DO CLIENTE COHERE (Já feito no código anterior) ---
         
         paginas = {
+            # NOVA PÁGINA ADICIONADA AQUI:
+            "Verificação Rápida WhatsApp": lambda: pagina_ocr_e_alerta_whatsapp(planilha_conectada),
             "Análise de Vacinação": lambda: pagina_analise_vacinacao(planilha_conectada),
             "Importar Dados de Prontuário": lambda: pagina_importar_prontuario(planilha_conectada),
             "Coletar Fichas": lambda: pagina_coleta(planilha_conectada),
@@ -948,7 +1061,7 @@ def main():
             "Gerar Etiquetas": lambda: pagina_etiquetas(planilha_conectada),
             "Gerar Capas de Prontuário": lambda: pagina_capas_prontuario(planilha_conectada),
             "Gerar Documentos": lambda: pagina_gerar_documentos(planilha_conectada),
-            "Enviar WhatsApp": lambda: pagina_whatsapp(planilha_conectada),
+            "Enviar WhatsApp (Manual)": lambda: pagina_whatsapp(planilha_conectada),
             "Gerador de QR Code": lambda: pagina_gerador_qrcode(planilha_conectada),
         }
         pagina_selecionada = st.sidebar.radio("Escolha uma página:", paginas.keys())
