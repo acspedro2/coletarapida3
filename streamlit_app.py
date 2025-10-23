@@ -488,15 +488,18 @@ def pagina_inicial():
         st.subheader("🤖 Coleta Inteligente de Fichas")
         st.markdown("""
             Utilize a inteligência artificial para extrair automaticamente dados de fichas de pacientes 
-            (digitadas ou manuscritas) e registá-los na sua base de dados.
+            (digitadas ou manuscritas) e registrá-los na sua base de dados.
             """)
-        st.image("https://images.unsplash.com/photo-1587351021759-4001a145873d?q=80&w=2070&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D", caption="Coleta automatizada de dados", use_column_width=True)
+        # ALTERAÇÃO: use_column_width=True -> use_container_width=True
+        st.image("https://images.unsplash.com/photo-1587351021759-4001a145873d?q=80&w=2070&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D", caption="Coleta automatizada de dados", use_container_width=True)
+        
         st.subheader("💉 Análise de Vacinação")
         st.markdown("""
             Envie uma foto da caderneta de vacinação e receba um relatório detalhado sobre as vacinas 
             em dia, em atraso e as próximas doses recomendadas, tudo de forma automática.
             """)
-        st.image("https://images.unsplash.com/photo-1629891392650-db7e8340d1df?q=80&w=2070&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D", caption="Análise de caderneta de vacinação", use_column_width=True)
+        # ALTERAÇÃO: use_column_width=True -> use_container_width=True
+        st.image("https://images.unsplash.com/photo-1629891392650-db7e8340d1df?q=80&w=2070&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D", caption="Análise de caderneta de vacinação", use_container_width=True)
 
     with col2:
         st.subheader("🔎 Gestão Completa de Pacientes")
@@ -504,13 +507,16 @@ def pagina_inicial():
             Pesquise, visualize, edite e apague registos de pacientes. 
             Acesse dashboards familiares para uma visão integrada da saúde de cada núcleo.
             """)
-        st.image("https://images.unsplash.com/photo-1579684385133-722a0df8d0b2?q=80&w=2070&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D", caption="Gestão e visão familiar", use_column_width=True)
+        # ALTERAÇÃO: use_column_width=True -> use_container_width=True
+        st.image("https://images.unsplash.com/photo-1579684385133-722a0df8d0b2?q=80&w=2070&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D", caption="Gestão e visão familiar", use_container_width=True)
+        
         st.subheader("📱 Alertas e Comunicação via WhatsApp")
         st.markdown("""
             Envie mensagens personalizadas de WhatsApp para pacientes individualmente 
             ou use a verificação rápida para localizar um paciente e enviar alertas.
             """)
-        st.image("https://images.unsplash.com/photo-1596701072971-fec1256b7c52?q=80&w=2070&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D", caption="Comunicação eficiente", use_column_width=True)
+        # ALTERAÇÃO: use_column_width=True -> use_container_width=True
+        st.image("https://images.unsplash.com/photo-1596701072971-fec1256b7c52?q=80&w=2070&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D", caption="Comunicação eficiente", use_container_width=True)
 
     st.write("---")
     st.markdown("""
