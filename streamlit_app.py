@@ -472,6 +472,53 @@ def gerar_pdf_relatorio_vacinacao(nome_paciente, data_nascimento, relatorio):
     return pdf_buffer
 
 # --- PÁGINAS DO APP ---
+
+# --- NOVA PÁGINA INICIAL ---
+def pagina_inicial():
+    st.title("Bem-vindo ao Sistema de Gestão de Pacientes Inteligente")
+    st.markdown("""
+        Este aplicativo foi desenvolvido para otimizar a gestão de pacientes e a comunicação em unidades de saúde. 
+        Com ele, você pode:
+    """)
+    st.write("---")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("🤖 Coleta Inteligente de Fichas")
+        st.markdown("""
+            Utilize a inteligência artificial para extrair automaticamente dados de fichas de pacientes 
+            (digitadas ou manuscritas) e registá-los na sua base de dados.
+            """)
+        st.image("https://images.unsplash.com/photo-1587351021759-4001a145873d?q=80&w=2070&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D", caption="Coleta automatizada de dados", use_column_width=True)
+        st.subheader("💉 Análise de Vacinação")
+        st.markdown("""
+            Envie uma foto da caderneta de vacinação e receba um relatório detalhado sobre as vacinas 
+            em dia, em atraso e as próximas doses recomendadas, tudo de forma automática.
+            """)
+        st.image("https://images.unsplash.com/photo-1629891392650-db7e8340d1df?q=80&w=2070&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D", caption="Análise de caderneta de vacinação", use_column_width=True)
+
+    with col2:
+        st.subheader("🔎 Gestão Completa de Pacientes")
+        st.markdown("""
+            Pesquise, visualize, edite e apague registos de pacientes. 
+            Acesse dashboards familiares para uma visão integrada da saúde de cada núcleo.
+            """)
+        st.image("https://images.unsplash.com/photo-1579684385133-722a0df8d0b2?q=80&w=2070&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D", caption="Gestão e visão familiar", use_column_width=True)
+        st.subheader("📱 Alertas e Comunicação via WhatsApp")
+        st.markdown("""
+            Envie mensagens personalizadas de WhatsApp para pacientes individualmente 
+            ou use a verificação rápida para localizar um paciente e enviar alertas.
+            """)
+        st.image("https://images.unsplash.com/photo-1596701072971-fec1256b7c52?q=80&w=2070&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D", caption="Comunicação eficiente", use_column_width=True)
+
+    st.write("---")
+    st.markdown("""
+        Explore as opções no menu lateral para começar a utilizar as funcionalidades do sistema.
+    """)
+
+# --- FIM NOVA PÁGINA INICIAL ---
+
 def pagina_gerar_documentos(planilha):
     st.title("📄 Gerador de Documentos")
     df = ler_dados_da_planilha(planilha)
@@ -1051,7 +1098,7 @@ def main():
         # --- REMOÇÃO DO CLIENTE COHERE (Já feito no código anterior) ---
         
         paginas = {
-            # NOVA PÁGINA ADICIONADA AQUI:
+            "🏠 Início": pagina_inicial, # Adicionando a página inicial
             "Verificação Rápida WhatsApp": lambda: pagina_ocr_e_alerta_whatsapp(planilha_conectada),
             "Análise de Vacinação": lambda: pagina_analise_vacinacao(planilha_conectada),
             "Importar Dados de Prontuário": lambda: pagina_importar_prontuario(planilha_conectada),
