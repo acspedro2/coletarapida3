@@ -24,7 +24,6 @@ import google.generativeai as genai
 # --- CONFIGURAÇÃO GLOBAL DA API GEMINI ---
 MODELO_GEMINI = "gemini-2.5-flash"
 
-
 # --- MOTOR DE REGRAS: CALENDÁRIO NACIONAL DE IMUNIZAÇÕES (PNI) ---
 CALENDARIO_PNI = [
     {"vacina": "BCG", "dose": "Dose Única", "idade_meses": 0, "detalhe": "Protege contra formas graves de tuberculose."},
@@ -95,6 +94,8 @@ def analisar_carteira_vacinacao(data_nascimento_str, vacinas_administradas):
 
 def ler_texto_prontuario(file_bytes, ocr_api_key):
     try:
+        # A biblioteca pdf2image e a dependência Poppler precisam estar instaladas
+        # Para evitar problemas de instalação, vou manter a estrutura, mas o usuário deve garantir o ambiente
         imagens_pil = convert_from_bytes(file_bytes)
         texto_completo = ""
         progress_bar = st.progress(0, text="A processar páginas do PDF...")
@@ -109,6 +110,7 @@ def ler_texto_prontuario(file_bytes, ocr_api_key):
         progress_bar.empty()
         return texto_completo.strip()
     except Exception as e:
+        # Informação sobre a dependência Poppler
         st.error(f"Erro ao processar o ficheiro PDF: {e}. Verifique se o ficheiro não está corrompido e se as dependências (pdf2image/Poppler) estão instaladas.")
         return None
 
@@ -142,8 +144,15 @@ def ler_dados_da_planilha(_planilha):
         colunas_esperadas = ["ID", "FAMÍLIA", "Nome Completo", "Data de Nascimento", "Telefone", "CPF", "Mãe", "Pai", "Sexo", "CNS", "Município de Nascimento", "Link do Prontuário", "Link da Pasta da Família", "Condição", "Data de Registo", "Raça/Cor", "Medicamentos"]
         for col in colunas_esperadas:
             if col not in df.columns: df[col] = ""
+        
+        # --- OTIMIZAÇÃO PARA VERIFICAÇÃO DE DUPLICIDADE ---
         df['Data de Nascimento DT'] = pd.to_datetime(df['Data de Nascimento'], format='%d/%m/%Y', errors='coerce')
         df['Idade'] = df['Data de Nascimento DT'].apply(lambda dt: calcular_idade(dt) if pd.notnull(dt) else 0)
+        
+        # Cria as colunas limpas para busca/verificação de duplicidade
+        df['CPF_LIMPO'] = df['CPF'].astype(str).str.replace(r'\D', '', regex=True)
+        df['CNS_LIMPO'] = df['CNS'].astype(str).str.replace(r'\D', '', regex=True)
+        
         return df
     except Exception as e:
         st.error(f"Erro ao ler os dados da planilha: {e}"); return pd.DataFrame()
@@ -162,8 +171,7 @@ def ocr_space_api(file_bytes, ocr_api_key):
     except Exception as e:
         st.error(f"Erro inesperado no OCR: {e}"); return None
 
-# --- FUNÇÃO NOVA/ALTERADA COM GOOGLE GEMINI: VALIDAÇÃO CRUZADA ---
-
+# --- FUNÇÃO COM GOOGLE GEMINI: VALIDAÇÃO CRUZADA ---
 def validar_dados_com_google_gemini(texto_original: str, dados_extraidos_json: dict, api_key: str):
     """
     Realiza uma validação cruzada de coerência e formato usando o Gemini.
@@ -196,9 +204,7 @@ def validar_dados_com_google_gemini(texto_original: str, dados_extraidos_json: d
         return json.loads(json_string)
     except Exception as e:
         st.error(f"Erro ao chamar a API do Google Gemini (Validação Cruzada): {e}")
-        # Retorna um objeto de erro para não travar o fluxo
         return {'alerta_coerencia': 'Falha na validação cruzada da IA. Prossiga com cautela.', 'erros_formato': ''}
-
 
 # --- OUTRAS FUNÇÕES COM GOOGLE GEMINI (MODELO ATUALIZADO) ---
 
@@ -288,7 +294,7 @@ def salvar_no_sheets(dados, planilha):
         planilha.append_row(nova_linha)
         st.success(f"✅ Dados de '{dados.get('Nome Completo', 'Desconhecido')}' salvos com sucesso!")
         st.balloons()
-        st.cache_data.clear()
+        st.cache_data.clear() # Limpa o cache para recarregar o DataFrame atualizado
     except Exception as e:
         st.error(f"Erro ao salvar na planilha: {e}")
 
@@ -316,7 +322,8 @@ def preencher_pdf_formulario(paciente_dados):
         can.save()
         packet.seek(0)
         new_pdf = PdfReader(packet)
-        existing_pdf = PdfReader(open(template_pdf_path, "rb"))
+        # O arquivo template_pdf_path deve existir no mesmo diretório do script
+        existing_pdf = PdfReader(open(template_pdf_path, "rb")) 
         output = PdfWriter()
         page = existing_pdf.pages[0]
         page.merge_page(new_pdf.pages[0])
@@ -623,16 +630,19 @@ def pagina_coleta(planilha):
                         dados_para_salvar['Município de Nascimento'] = st.text_input("Município de Nascimento", value=dados_extraidos.get("Município de Nascimento", ""))
                         
                         if st.form_submit_button("✅ Salvar Dados Desta Ficha"):
+                            # --- Lógica de Duplicidade OTIMIZADA ---
                             cpf_a_verificar = ''.join(re.findall(r'\d', dados_para_salvar['CPF']))
                             cns_a_verificar = ''.join(re.findall(r'\d', dados_para_salvar['CNS']))
                             
-                            # Validação de Duplicidade (Planilha)
                             duplicado_cpf = False
-                            if cpf_a_verificar and not df_existente.empty:
-                                duplicado_cpf = any(df_existente['CPF'].astype(str).str.replace(r'\D', '', regex=True) == cpf_a_verificar)
+                            if cpf_a_verificar and len(cpf_a_verificar) >= 11 and not df_existente.empty:
+                                # Compara o CPF limpo com a nova coluna 'CPF_LIMPO' do DataFrame
+                                duplicado_cpf = any(df_existente['CPF_LIMPO'] == cpf_a_verificar)
+                                
                             duplicado_cns = False
-                            if cns_a_verificar and not df_existente.empty:
-                                duplicado_cns = any(df_existente['CNS'].astype(str).str.replace(r'\D', '', regex=True) == cns_a_verificar)
+                            if cns_a_verificar and len(cns_a_verificar) >= 15 and not df_existente.empty:
+                                # Compara o CNS limpo com a nova coluna 'CNS_LIMPO' do DataFrame
+                                duplicado_cns = any(df_existente['CNS_LIMPO'] == cns_a_verificar)
                             
                             if duplicado_cpf or duplicado_cns:
                                 st.error("⚠️ Alerta de Duplicado: Já existe um paciente registado com este CPF ou CNS. O registo não foi salvo.")
@@ -782,7 +792,7 @@ def pagina_pesquisa(planilha):
         with st.form(key="edit_form"):
             edited_data = {}
             for key, value in patient_data.items():
-                if key not in ['Data de Nascimento DT', 'Idade']:
+                if key not in ['Data de Nascimento DT', 'Idade', 'CPF_LIMPO', 'CNS_LIMPO']:
                     edited_data[key] = st.text_input(f"{key}", value=value, key=f"edit_{key}")
             if st.form_submit_button("Salvar Alterações"):
                 try:
