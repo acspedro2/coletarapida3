@@ -1,3 +1,9 @@
+
+
+# A biblioteca que está a causar o erro:
+google-genai
+# Outras bibliotecas utilizadas no código fornecido:
+python-dateutil 
 streamlit
 requests
 gspread
