@@ -145,13 +145,17 @@ def ler_dados_da_planilha(_planilha):
         for col in colunas_esperadas:
             if col not in df.columns: df[col] = ""
         
-        # --- OTIMIZAÇÃO PARA VERIFICAÇÃO DE DUPLICIDADE ---
+        # --- OTIMIZAÇÃO PARA VERIFICAÇÃO DE DUPLICIDADE (CORREÇÃO V2) ---
         df['Data de Nascimento DT'] = pd.to_datetime(df['Data de Nascimento'], format='%d/%m/%Y', errors='coerce')
         df['Idade'] = df['Data de Nascimento DT'].apply(lambda dt: calcular_idade(dt) if pd.notnull(dt) else 0)
         
-        # Cria as colunas limpas para busca/verificação de duplicidade
-        df['CPF_LIMPO'] = df['CPF'].astype(str).str.replace(r'\D', '', regex=True)
-        df['CNS_LIMPO'] = df['CNS'].astype(str).str.replace(r'\D', '', regex=True)
+        # 1. Converte para string (evitando floats como '123.0') e preenche nulos com string vazia
+        df['CPF'] = df['CPF'].astype(str).fillna('')
+        df['CNS'] = df['CNS'].astype(str).fillna('')
+        
+        # 2. Limpa completamente todos os caracteres não-numéricos
+        df['CPF_LIMPO'] = df['CPF'].str.replace(r'\D', '', regex=True)
+        df['CNS_LIMPO'] = df['CNS'].str.replace(r'\D', '', regex=True)
         
         return df
     except Exception as e:
@@ -630,21 +634,26 @@ def pagina_coleta(planilha):
                         dados_para_salvar['Município de Nascimento'] = st.text_input("Município de Nascimento", value=dados_extraidos.get("Município de Nascimento", ""))
                         
                         if st.form_submit_button("✅ Salvar Dados Desta Ficha"):
-                            # --- Lógica de Duplicidade OTIMIZADA ---
-                            cpf_a_verificar = ''.join(re.findall(r'\d', dados_para_salvar['CPF']))
-                            cns_a_verificar = ''.join(re.findall(r'\d', dados_para_salvar['CNS']))
+                            # --- Lógica de Duplicidade OTIMIZADA V2 ---
+                            
+                            # Limpa o CPF/CNS inserido no formulário (garantindo que é apenas número)
+                            cpf_a_verificar = re.sub(r'\D', '', str(dados_para_salvar['CPF']))
+                            cns_a_verificar = re.sub(r'\D', '', str(dados_para_salvar['CNS']))
                             
                             duplicado_cpf = False
-                            if cpf_a_verificar and len(cpf_a_verificar) >= 11 and not df_existente.empty:
-                                # Compara o CPF limpo com a nova coluna 'CPF_LIMPO' do DataFrame
+                            # Se o CPF foi preenchido E tem o tamanho correto (11 digitos) E o DF não está vazio
+                            if cpf_a_verificar and len(cpf_a_verificar) == 11 and not df_existente.empty:
+                                # Compara o CPF limpo com a coluna 'CPF_LIMPO' (que também já está limpa)
                                 duplicado_cpf = any(df_existente['CPF_LIMPO'] == cpf_a_verificar)
                                 
                             duplicado_cns = False
-                            if cns_a_verificar and len(cns_a_verificar) >= 15 and not df_existente.empty:
-                                # Compara o CNS limpo com a nova coluna 'CNS_LIMPO' do DataFrame
+                            # Se o CNS foi preenchido E tem o tamanho correto (15 digitos) E o DF não está vazio
+                            if cns_a_verificar and len(cns_a_verificar) == 15 and not df_existente.empty:
+                                # Compara o CNS limpo com a coluna 'CNS_LIMPO' (que também já está limpa)
                                 duplicado_cns = any(df_existente['CNS_LIMPO'] == cns_a_verificar)
                             
                             if duplicado_cpf or duplicado_cns:
+                                # AQUI ESTÁ O ALERTA QUE VOCÊ PRECISA
                                 st.error("⚠️ Alerta de Duplicado: Já existe um paciente registado com este CPF ou CNS. O registo não foi salvo.")
                             else:
                                 salvar_no_sheets(dados_para_salvar, planilha)
@@ -979,6 +988,7 @@ def pagina_analise_vacinacao(planilha):
                         st.session_state.nome_paciente_final = nome_validado
                         st.session_state.data_nasc_final = dn_validada
                         st.rerun()
+                    
         if st.session_state.get('relatorio_final') is not None:
             relatorio = st.session_state.relatorio_final
             st.markdown("---")
