@@ -19,10 +19,15 @@ from pypdf import PdfReader, PdfWriter
 from reportlab.lib.colors import HexColor
 from dateutil.relativedelta import relativedelta
 from pdf2image import convert_from_bytes
+
+# --- NOVA IMPORTAÇÃO ---
 import google.generativeai as genai
 
 # --- CONFIGURAÇÃO GLOBAL DA API GEMINI ---
+# Definir o nome do modelo como uma constante. 
+# 'gemini-2.5-flash' substitui o modelo anterior para evitar o erro 404.
 MODELO_GEMINI = "gemini-2.5-flash"
+
 
 # --- MOTOR DE REGRAS: CALENDÁRIO NACIONAL DE IMUNIZAÇÕES (PNI) ---
 CALENDARIO_PNI = [
@@ -45,6 +50,9 @@ CALENDARIO_PNI = [
     {"vacina": "Pneumocócica 10V", "dose": "Reforço", "idade_meses": 12, "detalhe": "Dose de reforço."},
     {"vacina": "Meningocócica C", "dose": "Reforço", "idade_meses": 12, "detalhe": "Dose de reforço."},
 ]
+
+# --- Interface Streamlit ---
+# O st.set_page_config é chamado dentro da função main para permitir o roteamento de página
 
 # --- Funções de Validação e Utilitárias ---
 def validar_cpf(cpf: str) -> bool:
@@ -94,8 +102,6 @@ def analisar_carteira_vacinacao(data_nascimento_str, vacinas_administradas):
 
 def ler_texto_prontuario(file_bytes, ocr_api_key):
     try:
-        # A biblioteca pdf2image e a dependência Poppler precisam estar instaladas
-        # Para evitar problemas de instalação, vou manter a estrutura, mas o usuário deve garantir o ambiente
         imagens_pil = convert_from_bytes(file_bytes)
         texto_completo = ""
         progress_bar = st.progress(0, text="A processar páginas do PDF...")
@@ -110,25 +116,14 @@ def ler_texto_prontuario(file_bytes, ocr_api_key):
         progress_bar.empty()
         return texto_completo.strip()
     except Exception as e:
-        # Informação sobre a dependência Poppler
         st.error(f"Erro ao processar o ficheiro PDF: {e}. Verifique se o ficheiro não está corrompido e se as dependências (pdf2image/Poppler) estão instaladas.")
         return None
-
-def padronizar_telefone(telefone):
-    """Limpa e padroniza o número de telefone (remove formatação e 55, se houver)."""
-    if pd.isna(telefone) or telefone == "":
-        return None
-    num_limpo = re.sub(r'\D', '', str(telefone))
-    if num_limpo.startswith('55'):
-        num_limpo = num_limpo[2:]
-    if 10 <= len(num_limpo) <= 11: 
-        return num_limpo
-    return None 
 
 # --- Funções de Conexão e API ---
 @st.cache_resource
 def conectar_planilha():
     try:
+        # AQUI VOCÊ DEVE TER CONFIGURADO CORRETAMENTE SEUS SECRETS NO STREAMLIT CLOUD
         creds = st.secrets["gcp_service_account"]
         client = gspread.service_account_from_dict(creds)
         sheet = client.open_by_key(st.secrets["SHEETSID"]).sheet1
@@ -144,19 +139,8 @@ def ler_dados_da_planilha(_planilha):
         colunas_esperadas = ["ID", "FAMÍLIA", "Nome Completo", "Data de Nascimento", "Telefone", "CPF", "Mãe", "Pai", "Sexo", "CNS", "Município de Nascimento", "Link do Prontuário", "Link da Pasta da Família", "Condição", "Data de Registo", "Raça/Cor", "Medicamentos"]
         for col in colunas_esperadas:
             if col not in df.columns: df[col] = ""
-        
-        # --- OTIMIZAÇÃO PARA VERIFICAÇÃO DE DUPLICIDADE (CORREÇÃO V2) ---
         df['Data de Nascimento DT'] = pd.to_datetime(df['Data de Nascimento'], format='%d/%m/%Y', errors='coerce')
         df['Idade'] = df['Data de Nascimento DT'].apply(lambda dt: calcular_idade(dt) if pd.notnull(dt) else 0)
-        
-        # 1. Converte para string (evitando floats como '123.0') e preenche nulos com string vazia
-        df['CPF'] = df['CPF'].astype(str).fillna('')
-        df['CNS'] = df['CNS'].astype(str).fillna('')
-        
-        # 2. Limpa completamente todos os caracteres não-numéricos
-        df['CPF_LIMPO'] = df['CPF'].str.replace(r'\D', '', regex=True)
-        df['CNS_LIMPO'] = df['CNS'].str.replace(r'\D', '', regex=True)
-        
         return df
     except Exception as e:
         st.error(f"Erro ao ler os dados da planilha: {e}"); return pd.DataFrame()
@@ -175,47 +159,27 @@ def ocr_space_api(file_bytes, ocr_api_key):
     except Exception as e:
         st.error(f"Erro inesperado no OCR: {e}"); return None
 
-# --- FUNÇÃO COM GOOGLE GEMINI: VALIDAÇÃO CRUZADA ---
-def validar_dados_com_google_gemini(texto_original: str, dados_extraidos_json: dict, api_key: str):
-    """
-    Realiza uma validação cruzada de coerência e formato usando o Gemini.
-    Retorna um dicionário com 'alerta_coerencia' e 'erros_formato'.
-    """
-    try:
-        genai.configure(api_key=api_key)
-        
-        dados_str = json.dumps(dados_extraidos_json)
-        
-        prompt_validacao = f"""
-        Sua tarefa é analisar o texto original da ficha de paciente e os dados extraídos pelo OCR para verificar a coerência e o formato dos campos mais importantes.
-        
-        Instruções de Análise:
-        1. **Data de Nascimento (DN):** Verifique se o formato DD/MM/AAAA é respeitado. Se a data estiver no futuro, isso é um erro grave.
-        2. **CPF/CNS:** Verifique se o CPF possui 11 dígitos e o CNS possui 15 dígitos. Se estiverem incompletos, retorne um alerta de formato.
-        3. **Nome Completo:** Verifique se o campo "Nome Completo" está vazio ou parece truncado.
+# --- FUNÇÃO DE PADRONIZAÇÃO DE TELEFONE (NECESSÁRIA PARA A NOVA PÁGINA) ---
+def padronizar_telefone(telefone):
+    """Limpa e padroniza o número de telefone (remove formatação e 55, se houver)."""
+    if pd.isna(telefone) or telefone == "":
+        return None
+    num_limpo = re.sub(r'\D', '', str(telefone))
+    # Remove o 55 inicial se já existir
+    if num_limpo.startswith('55'):
+        num_limpo = num_limpo[2:]
+    # Um número válido (DDD + 8 ou 9 dígitos) deve ter 10 ou 11 dígitos
+    if 10 <= len(num_limpo) <= 11: 
+        return num_limpo
+    return None 
 
-        Retorne APENAS um objeto JSON com as chaves: 'alerta_coerencia', 'erros_formato'.
-        - 'alerta_coerencia': Uma string descrevendo qualquer inconsistência lógica grave (ex: DN no futuro ou Nome faltando). Se não houver, retorne uma string vazia "".
-        - 'erros_formato': Uma string descrevendo erros de formatação nos dados (ex: CPF/CNS incompletos ou DN ilegível). Se não houver, retorne uma string vazia "".
-
-        Texto Original (Máximo de 500 caracteres para contexto): --- {texto_original[:500]}... ---
-        Dados Extraídos a serem validados: --- {dados_str} ---
-        """
-        
-        model = genai.GenerativeModel(MODELO_GEMINI)
-        response = model.generate_content(prompt_validacao)
-        json_string = response.text.replace('```json', '').replace('```', '').strip()
-        return json.loads(json_string)
-    except Exception as e:
-        st.error(f"Erro ao chamar a API do Google Gemini (Validação Cruzada): {e}")
-        return {'alerta_coerencia': 'Falha na validação cruzada da IA. Prossiga com cautela.', 'erros_formato': ''}
-
-# --- OUTRAS FUNÇÕES COM GOOGLE GEMINI (MODELO ATUALIZADO) ---
-
+# --- NOVAS FUNÇÕES COM GOOGLE GEMINI (MODELO ATUALIZADO) ---
 def extrair_dados_com_google_gemini(texto_extraido: str, api_key: str):
     """Extrai dados cadastrais de um texto (ficha) usando Gemini."""
     try:
+        # Configura a chave API
         genai.configure(api_key=api_key)
+        
         prompt = f"""
         Sua tarefa é extrair informações de um texto de formulário de saúde e convertê-lo para um JSON.
         Procure por uma anotação à mão que pareça um código de família (ex: 'FAM111'). Este código deve ir para a chave "FAMÍLIA".
@@ -223,6 +187,7 @@ def extrair_dados_com_google_gemini(texto_extraido: str, api_key: str):
         Se um valor não for encontrado, retorne uma string vazia "".
         Texto para analisar: --- {texto_extraido} ---
         """
+        # Utiliza o modelo corrigido
         model = genai.GenerativeModel(MODELO_GEMINI)
         response = model.generate_content(prompt)
         json_string = response.text.replace('```json', '').replace('```', '').strip()
@@ -233,7 +198,9 @@ def extrair_dados_com_google_gemini(texto_extraido: str, api_key: str):
 def extrair_dados_vacinacao_com_google_gemini(texto_extraido: str, api_key: str):
     """Extrai nome, data de nascimento e vacinas administradas de um texto de caderneta."""
     try:
+        # Configura a chave API
         genai.configure(api_key=api_key)
+        
         prompt = f"""
         Sua tarefa é atuar como um agente de saúde especializado em analisar textos de cadernetas de vacinação brasileiras.
         O texto fornecido foi extraído por OCR e pode conter erros. Sua missão é extrair as informações e retorná-las em um formato JSON estrito.
@@ -246,6 +213,7 @@ def extrair_dados_vacinacao_com_google_gemini(texto_extraido: str, api_key: str)
         Se uma informação não for encontrada, retorne um valor vazio ("") ou uma lista vazia ([]).
         Texto para analisar: --- {texto_extraido} ---
         """
+        # Utiliza o modelo corrigido
         model = genai.GenerativeModel(MODELO_GEMINI)
         response = model.generate_content(prompt)
         json_string = response.text.replace('```json', '').replace('```', '').strip()
@@ -260,6 +228,7 @@ def extrair_dados_vacinacao_com_google_gemini(texto_extraido: str, api_key: str)
 def extrair_dados_clinicos_com_google_gemini(texto_prontuario: str, api_key: str):
     """Extrai diagnósticos e medicamentos de um texto de prontuário clínico."""
     try:
+        # Configura a chave API
         genai.configure(api_key=api_key)
         
         prompt = f"""
@@ -278,6 +247,7 @@ def extrair_dados_clinicos_com_google_gemini(texto_prontuario: str, api_key: str
         {texto_prontuario}
         ---
         """
+        # Utiliza o modelo corrigido
         model = genai.GenerativeModel(MODELO_GEMINI)
         response = model.generate_content(prompt)
         json_string = response.text.replace('```json', '').replace('```', '').strip()
@@ -294,11 +264,12 @@ def salvar_no_sheets(dados, planilha):
         cabecalhos = planilha.row_values(1)
         if 'ID' not in dados or not dados['ID']: dados['ID'] = f"ID-{int(time.time())}"
         dados['Data de Registo'] = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        # Padroniza as chaves do dicionário para casar com os cabeçalhos da planilha (se necessário)
         nova_linha = [dados.get(cabecalho, "") for cabecalho in cabecalhos]
         planilha.append_row(nova_linha)
         st.success(f"✅ Dados de '{dados.get('Nome Completo', 'Desconhecido')}' salvos com sucesso!")
         st.balloons()
-        st.cache_data.clear() # Limpa o cache para recarregar o DataFrame atualizado
+        st.cache_data.clear()
     except Exception as e:
         st.error(f"Erro ao salvar na planilha: {e}")
 
@@ -326,8 +297,7 @@ def preencher_pdf_formulario(paciente_dados):
         can.save()
         packet.seek(0)
         new_pdf = PdfReader(packet)
-        # O arquivo template_pdf_path deve existir no mesmo diretório do script
-        existing_pdf = PdfReader(open(template_pdf_path, "rb")) 
+        existing_pdf = PdfReader(open(template_pdf_path, "rb"))
         output = PdfWriter()
         page = existing_pdf.pages[0]
         page.merge_page(new_pdf.pages[0])
@@ -503,6 +473,7 @@ def gerar_pdf_relatorio_vacinacao(nome_paciente, data_nascimento, relatorio):
 
 # --- PÁGINAS DO APP ---
 
+# --- NOVA PÁGINA INICIAL ---
 def pagina_inicial():
     st.title("Bem-vindo ao Sistema de Gestão de Pacientes Inteligente")
     st.markdown("""
@@ -519,6 +490,7 @@ def pagina_inicial():
             Utilize a inteligência artificial para extrair automaticamente dados de fichas de pacientes 
             (digitadas ou manuscritas) e registrá-los na sua base de dados.
             """)
+        # ALTERAÇÃO: use_column_width=True -> use_container_width=True
         st.image("https://images.unsplash.com/photo-1587351021759-4001a145873d?q=80&w=2070&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D", caption="Coleta automatizada de dados", use_container_width=True)
         
         st.subheader("💉 Análise de Vacinação")
@@ -526,6 +498,7 @@ def pagina_inicial():
             Envie uma foto da caderneta de vacinação e receba um relatório detalhado sobre as vacinas 
             em dia, em atraso e as próximas doses recomendadas, tudo de forma automática.
             """)
+        # ALTERAÇÃO: use_column_width=True -> use_container_width=True
         st.image("https://images.unsplash.com/photo-1629891392650-db7e8340d1df?q=80&w=2070&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D", caption="Análise de caderneta de vacinação", use_container_width=True)
 
     with col2:
@@ -534,6 +507,7 @@ def pagina_inicial():
             Pesquise, visualize, edite e apague registos de pacientes. 
             Acesse dashboards familiares para uma visão integrada da saúde de cada núcleo.
             """)
+        # ALTERAÇÃO: use_column_width=True -> use_container_width=True
         st.image("https://images.unsplash.com/photo-1579684385133-722a0df8d0b2?q=80&w=2070&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D", caption="Gestão e visão familiar", use_container_width=True)
         
         st.subheader("📱 Alertas e Comunicação via WhatsApp")
@@ -541,12 +515,15 @@ def pagina_inicial():
             Envie mensagens personalizadas de WhatsApp para pacientes individualmente 
             ou use a verificação rápida para localizar um paciente e enviar alertas.
             """)
+        # ALTERAÇÃO: use_column_width=True -> use_container_width=True
         st.image("https://images.unsplash.com/photo-1596701072971-fec1256b7c52?q=80&w=2070&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D", caption="Comunicação eficiente", use_container_width=True)
 
     st.write("---")
     st.markdown("""
         Explore as opções no menu lateral para começar a utilizar as funcionalidades do sistema.
     """)
+
+# --- FIM NOVA PÁGINA INICIAL ---
 
 def pagina_gerar_documentos(planilha):
     st.title("📄 Gerador de Documentos")
@@ -577,97 +554,52 @@ def pagina_coleta(planilha):
     df_existente = ler_dados_da_planilha(planilha)
     uploaded_files = st.file_uploader("Pode selecionar vários arquivos de uma vez", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
     if 'processados' not in st.session_state: st.session_state.processados = []
-    
-    # Inicializa o estado para o feedback de validação
-    if 'feedback_ia' not in st.session_state: st.session_state.feedback_ia = None
-    
     if uploaded_files:
         proximo_arquivo = next((f for f in uploaded_files if f.file_id not in st.session_state.processados), None)
-        
         if proximo_arquivo:
             st.subheader(f"Processando Ficha: `{proximo_arquivo.name}`")
             st.image(Image.open(proximo_arquivo), width=400)
             file_bytes = proximo_arquivo.getvalue()
-            
-            # 1. OCR para extrair texto bruto
-            with st.spinner("Extraindo texto da ficha (OCR)..."):
-                texto_extraido = ocr_space_api(file_bytes, st.secrets["OCRSPACEKEY"])
-            
+            texto_extraido = ocr_space_api(file_bytes, st.secrets["OCRSPACEKEY"])
             if texto_extraido:
-                # 2. Gemini para extrair dados estruturados (JSON)
-                with st.spinner("Estruturando dados com IA (Gemini)..."):
-                    dados_extraidos = extrair_dados_com_google_gemini(texto_extraido, st.secrets["GOOGLE_API_KEY"])
-                
+                # --- CHAMADA ATUALIZADA PARA O GEMINI ---
+                dados_extraidos = extrair_dados_com_google_gemini(texto_extraido, st.secrets["GOOGLE_API_KEY"])
                 if dados_extraidos:
-                    # 3. Gemini para validação cruzada
-                    with st.spinner("Executando validação de coerência e formato..."):
-                        # Nova chamada para a validação cruzada
-                        feedback_ia = validar_dados_com_google_gemini(texto_extraido, dados_extraidos, st.secrets["GOOGLE_API_KEY"])
-                        st.session_state.feedback_ia = feedback_ia # Armazena para exibir
-
                     with st.form(key=f"form_{proximo_arquivo.file_id}"):
                         st.subheader("2. Confirme e salve os dados")
-                        
-                        # Exibir alertas de validação da IA
-                        if st.session_state.feedback_ia:
-                            alerta = st.session_state.feedback_ia.get('alerta_coerencia')
-                            erros = st.session_state.feedback_ia.get('erros_formato')
-                            if alerta:
-                                st.warning(f"⚠️ Alerta de Coerência (IA): {alerta}")
-                            if erros:
-                                st.error(f"❌ Erro de Formato (IA): {erros}")
-                            if not alerta and not erros:
-                                st.info("👍 Validação da IA concluída: Nenhum erro grave de coerência ou formato encontrado.")
-
-                        # Campos para edição e salvamento
                         dados_para_salvar = {}
                         dados_para_salvar['ID'] = st.text_input("ID", value=dados_extraidos.get("ID", ""))
                         dados_para_salvar['FAMÍLIA'] = st.text_input("FAMÍLIA", value=dados_extraidos.get("FAMÍLIA", ""))
                         dados_para_salvar['Nome Completo'] = st.text_input("Nome Completo", value=dados_extraidos.get("Nome Completo", ""))
-                        dados_para_salvar['Data de Nascimento'] = st.text_input("Data de Nascimento (DD/MM/AAAA)", value=dados_extraidos.get("Data de Nascimento", ""))
+                        dados_para_salvar['Data de Nascimento'] = st.text_input("Data de Nascimento", value=dados_extraidos.get("Data de Nascimento", ""))
                         dados_para_salvar['CPF'] = st.text_input("CPF", value=dados_extraidos.get("CPF", ""))
                         dados_para_salvar['CNS'] = st.text_input("CNS", value=dados_extraidos.get("CNS", ""))
                         dados_para_salvar['Telefone'] = st.text_input("Telefone", value=dados_extraidos.get("Telefone", ""))
                         dados_para_salvar['Nome da Mãe'] = st.text_input("Nome da Mãe", value=dados_extraidos.get("Nome da Mãe", ""))
                         dados_para_salvar['Nome do Pai'] = st.text_input("Nome do Pai", value=dados_extraidos.get("Nome do Pai", ""))
-                        dados_para_salvar['Sexo'] = st.text_input("Sexo (M/F)", value=dados_extraidos.get("Sexo", ""))
+                        dados_para_salvar['Sexo'] = st.text_input("Sexo", value=dados_extraidos.get("Sexo", ""))
                         dados_para_salvar['Município de Nascimento'] = st.text_input("Município de Nascimento", value=dados_extraidos.get("Município de Nascimento", ""))
-                        
                         if st.form_submit_button("✅ Salvar Dados Desta Ficha"):
-                            # --- Lógica de Duplicidade OTIMIZADA V2 ---
-                            
-                            # Limpa o CPF/CNS inserido no formulário (garantindo que é apenas número)
-                            cpf_a_verificar = re.sub(r'\D', '', str(dados_para_salvar['CPF']))
-                            cns_a_verificar = re.sub(r'\D', '', str(dados_para_salvar['CNS']))
-                            
+                            cpf_a_verificar = ''.join(re.findall(r'\d', dados_para_salvar['CPF']))
+                            cns_a_verificar = ''.join(re.findall(r'\d', dados_para_salvar['CNS']))
                             duplicado_cpf = False
-                            # Se o CPF foi preenchido E tem o tamanho correto (11 digitos) E o DF não está vazio
-                            if cpf_a_verificar and len(cpf_a_verificar) == 11 and not df_existente.empty:
-                                # Compara o CPF limpo com a coluna 'CPF_LIMPO' (que também já está limpa)
-                                duplicado_cpf = any(df_existente['CPF_LIMPO'] == cpf_a_verificar)
-                                
+                            if cpf_a_verificar and not df_existente.empty:
+                                duplicado_cpf = any(df_existente['CPF'].astype(str).str.replace(r'\D', '', regex=True) == cpf_a_verificar)
                             duplicado_cns = False
-                            # Se o CNS foi preenchido E tem o tamanho correto (15 digitos) E o DF não está vazio
-                            if cns_a_verificar and len(cns_a_verificar) == 15 and not df_existente.empty:
-                                # Compara o CNS limpo com a coluna 'CNS_LIMPO' (que também já está limpa)
-                                duplicado_cns = any(df_existente['CNS_LIMPO'] == cns_a_verificar)
-                            
+                            if cns_a_verificar and not df_existente.empty:
+                                duplicado_cns = any(df_existente['CNS'].astype(str).str.replace(r'\D', '', regex=True) == cns_a_verificar)
                             if duplicado_cpf or duplicado_cns:
-                                # AQUI ESTÁ O ALERTA QUE VOCÊ PRECISA
                                 st.error("⚠️ Alerta de Duplicado: Já existe um paciente registado com este CPF ou CNS. O registo não foi salvo.")
                             else:
                                 salvar_no_sheets(dados_para_salvar, planilha)
                                 st.session_state.processados.append(proximo_arquivo.file_id)
-                                st.session_state.feedback_ia = None # Limpa o feedback para o próximo arquivo
                                 st.rerun()
                 else: st.error("A IA não conseguiu extrair dados deste texto.")
             else: st.error("Não foi possível extrair texto desta imagem.")
         elif len(uploaded_files) > 0:
             st.success("🎉 Todas as fichas enviadas foram processadas e salvas!")
             if st.button("Limpar lista para enviar novas imagens"):
-                st.session_state.processados = []
-                st.session_state.feedback_ia = None 
-                st.rerun()
+                st.session_state.processados = []; st.rerun()
 
 def pagina_dashboard(planilha):
     st.title("📊 Dashboard de Dados")
@@ -801,7 +733,7 @@ def pagina_pesquisa(planilha):
         with st.form(key="edit_form"):
             edited_data = {}
             for key, value in patient_data.items():
-                if key not in ['Data de Nascimento DT', 'Idade', 'CPF_LIMPO', 'CNS_LIMPO']:
+                if key not in ['Data de Nascimento DT', 'Idade']:
                     edited_data[key] = st.text_input(f"{key}", value=value, key=f"edit_{key}")
             if st.form_submit_button("Salvar Alterações"):
                 try:
@@ -868,7 +800,7 @@ def pagina_whatsapp(planilha):
     df_com_telefone = df[df['Telefone'].astype(str).str.strip() != ''].copy()
     for index, row in df_com_telefone.iterrows():
         nome = row['Nome Completo']
-        telefone = padronizar_telefone(row['Telefone'])
+        telefone = padronizar_telefone(row['Telefone']) # Usando a função padronizar_telefone
         if telefone is None: continue
         mensagem_personalizada = mensagem_padrao.replace("[NOME]", nome.split()[0])
         whatsapp_url = f"https://wa.me/55{telefone}?text={urllib.parse.quote(mensagem_personalizada)}"
@@ -876,15 +808,18 @@ def pagina_whatsapp(planilha):
         col1.text(f"{nome} - ({row['Telefone']})")
         col2.link_button("Enviar Mensagem ↗️", whatsapp_url, use_container_width=True)
 
+# --- NOVA PÁGINA: BUSCA AUTOMÁTICA E WHATSAPP ---
 def pagina_ocr_e_alerta_whatsapp(planilha):
     st.title("📸 Verificação Rápida e Alerta WhatsApp")
     st.warning("Fluxo: Foto/Documento ➡️ Simulação da Extração do Nome ➡️ Busca Automática ➡️ Notificação WhatsApp")
     
+    # Lendo os dados da planilha
     df = ler_dados_da_planilha(planilha)
     if df.empty:
         st.error("A planilha não possui dados para busca.")
         return
 
+    # 1. Simulação da Captura do Documento
     st.subheader("1. Capturar ou Carregar a Imagem do Documento")
     foto_paciente = st.camera_input("Tire uma foto do documento do paciente:")
     
@@ -894,6 +829,10 @@ def pagina_ocr_e_alerta_whatsapp(planilha):
     nome_para_buscar = None
     
     if foto_paciente is not None:
+        # AQUI VAMOS SIMULAR A ETAPA DO OCR/IA EXTRAINDO O NOME DA FOTO
+        # Criamos a lista de nomes válidos para o SelectBox
+        
+        # Cria uma coluna padronizada de telefone para filtrar apenas pacientes que podem receber o alerta
         df['Telefone Limpo'] = df['Telefone'].apply(padronizar_telefone)
         lista_pacientes_validos = df[df['Telefone Limpo'].notna()]['Nome Completo'].tolist()
 
@@ -909,8 +848,15 @@ def pagina_ocr_e_alerta_whatsapp(planilha):
         )
     
     if nome_para_buscar:
+        # 3. Execução da Busca (O sistema procura!)
+        
+        # Prepara o nome do input para busca (Remove espaços e converte para maiúsculo)
         nome_limpo_busca = nome_para_buscar.strip().upper()
+        
+        # Prepara a coluna para busca no DataFrame (Remove espaços e converte para maiúsculo)
         df['Nome Limpo'] = df['Nome Completo'].astype(str).str.strip().str.upper()
+        
+        # Filtra o DataFrame (O coração da busca, com correspondência exata)
         resultado_busca = df[df['Nome Limpo'] == nome_limpo_busca]
         
         if not resultado_busca.empty:
@@ -919,14 +865,17 @@ def pagina_ocr_e_alerta_whatsapp(planilha):
             telefone_completo = paciente_data['Telefone']
             primeiro_nome = paciente_data['Nome Completo'].split()[0]
             
+            # Garante que o telefone ainda é válido após a busca (redundância)
             if telefone_limpo is None:
                  st.error(f"❌ Paciente '{paciente_data['Nome Completo']}' encontrado, mas o telefone ({telefone_completo}) é inválido.")
                  return
 
             st.success(f"✅ Paciente '{paciente_data['Nome Completo']}' **CONSTA** na planilha!")
             
+            # 4. Alerta e Ação (WhatsApp)
             st.subheader("3. Alerta e Envio da Notificação")
             
+            # Mensagem de notificação (Pré-preenchida)
             mensagem_default = (
                 f"Olá, {primeiro_nome}! Seu procedimento foi LIBERADO/AUTORIZADO. "
                 f"Entre em contato com seu ACS/UBS para agendar. [SAÚDE MUNICIPAL]"
@@ -940,6 +889,7 @@ def pagina_ocr_e_alerta_whatsapp(planilha):
             
             st.warning(f"A notificação será enviada para: **{telefone_completo}**.")
             
+            # Geração do link
             whatsapp_url = f"https://wa.me/55{telefone_limpo}?text={urllib.parse.quote(mensagem_padrao)}"
             
             col1, col2 = st.columns([1, 1])
@@ -951,6 +901,7 @@ def pagina_ocr_e_alerta_whatsapp(planilha):
 
         else:
             st.error(f"❌ Erro: O nome '{nome_para_buscar}' **NÃO CONSTA** na planilha de pacientes.")
+# --- FIM NOVA PÁGINA ---
 
 def pagina_analise_vacinacao(planilha):
     st.title("💉 Análise Automatizada de Caderneta de Vacinação")
@@ -964,6 +915,7 @@ def pagina_analise_vacinacao(planilha):
             with st.spinner("Processando imagem e extraindo dados com IA..."):
                 texto_extraido = ocr_space_api(uploaded_file.getvalue(), st.secrets["OCRSPACEKEY"])
                 if texto_extraido:
+                    # --- CHAMADA ATUALIZADA PARA O GEMINI ---
                     dados = extrair_dados_vacinacao_com_google_gemini(texto_extraido, st.secrets["GOOGLE_API_KEY"])
                     if dados:
                         st.session_state.dados_extraidos = dados
@@ -988,7 +940,6 @@ def pagina_analise_vacinacao(planilha):
                         st.session_state.nome_paciente_final = nome_validado
                         st.session_state.data_nasc_final = dn_validada
                         st.rerun()
-                    
         if st.session_state.get('relatorio_final') is not None:
             relatorio = st.session_state.relatorio_final
             st.markdown("---")
@@ -1034,6 +985,7 @@ def pagina_importar_prontuario(planilha):
                     texto_prontuario = ler_texto_prontuario(uploaded_file.getvalue(), st.secrets["OCRSPACEKEY"])
                     if texto_prontuario:
                         st.success("Texto extraído do prontuário com sucesso!")
+                        # --- CHAMADA ATUALIZADA PARA O GEMINI ---
                         dados_clinicos = extrair_dados_clinicos_com_google_gemini(texto_prontuario, st.secrets["GOOGLE_API_KEY"])
                         if dados_clinicos:
                             st.session_state.dados_clinicos_extraidos = dados_clinicos
@@ -1149,8 +1101,10 @@ def main():
             st.error("A conexão com a planilha falhou.")
             st.stop()
         
+        # --- REMOÇÃO DO CLIENTE COHERE (Já feito no código anterior) ---
+        
         paginas = {
-            "🏠 Início": pagina_inicial,
+            "🏠 Início": pagina_inicial, # Adicionando a página inicial
             "Verificação Rápida WhatsApp": lambda: pagina_ocr_e_alerta_whatsapp(planilha_conectada),
             "Análise de Vacinação": lambda: pagina_analise_vacinacao(planilha_conectada),
             "Importar Dados de Prontuário": lambda: pagina_importar_prontuario(planilha_conectada),
