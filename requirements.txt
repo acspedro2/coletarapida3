@@ -15,4 +15,3 @@ matplotlib
 pypdf
 python-dateutil
 pdf2image
-google-generativeai
