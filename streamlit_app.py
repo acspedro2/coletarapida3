@@ -20,13 +20,65 @@ from reportlab.lib.colors import HexColor
 from dateutil.relativedelta import relativedelta
 from pdf2image import convert_from_bytes
 
-# --- NOVA IMPORTAÇÃO ---
+# --- NOVA IMPORTAÇÃO E CONFIGURAÇÃO ---
 import google.generativeai as genai
+# Importação necessária para Saída Estruturada (Structured Output)
+from google.generativeai.types import Schema, Type
 
 # --- CONFIGURAÇÃO GLOBAL DA API GEMINI ---
-# Definir o nome do modelo como uma constante. 
-# 'gemini-2.5-flash' substitui o modelo anterior para evitar o erro 404.
 MODELO_GEMINI = "gemini-2.5-flash"
+
+# --- ESQUEMAS JSON PARA SAÍDA ESTRUTURADA GEMINI ---
+# Esquema 1: Extração de Dados Cadastrais
+CADASTRO_SCHEMA = Schema(
+    type=Type.OBJECT,
+    properties={
+        "ID": Schema(type=Type.STRING),
+        "FAMÍLIA": Schema(type=Type.STRING, description="Código de família (ex: FAM111). Se não for claro, retorne string vazia."),
+        "Nome Completo": Schema(type=Type.STRING),
+        "Data de Nascimento": Schema(type=Type.STRING, description="Data no formato DD/MM/AAAA. Se ausente, retorne string vazia."),
+        "Telefone": Schema(type=Type.STRING),
+        "CPF": Schema(type=Type.STRING),
+        "Nome da Mãe": Schema(type=Type.STRING),
+        "Nome do Pai": Schema(type=Type.STRING),
+        "Sexo": Schema(type=Type.STRING, description="M, F, I (Ignorado)."),
+        "CNS": Schema(type=Type.STRING, description="Número do Cartão Nacional de Saúde."),
+        "Município de Nascimento": Schema(type=Type.STRING)
+    },
+    required=["Nome Completo", "Data de Nascimento"]
+)
+
+# Esquema 2: Extração de Vacinação
+VACINACAO_SCHEMA = Schema(
+    type=Type.OBJECT,
+    properties={
+        "nome_paciente": Schema(type=Type.STRING),
+        "data_nascimento": Schema(type=Type.STRING, description="Data no formato DD/MM/AAAA."),
+        "vacinas_administradas": Schema(
+            type=Type.ARRAY,
+            description="Lista de vacinas e doses normalizadas.",
+            items=Schema(
+                type=Type.OBJECT,
+                properties={
+                    "vacina": Schema(type=Type.STRING, description="Nome normalizado da vacina (ex: Pentavalente, Tríplice Viral)."),
+                    "dose": Schema(type=Type.STRING, description="Dose (ex: 1ª Dose, Reforço).")
+                },
+                required=["vacina", "dose"]
+            )
+        )
+    },
+    required=["nome_paciente", "data_nascimento", "vacinas_administradas"]
+)
+
+# Esquema 3: Extração de Dados Clínicos
+CLINICO_SCHEMA = Schema(
+    type=Type.OBJECT,
+    properties={
+        "diagnosticos": Schema(type=Type.ARRAY, items=Schema(type=Type.STRING), description="Lista de condições médicas ou diagnósticos, priorizando crônicas."),
+        "medicamentos": Schema(type=Type.ARRAY, items=Schema(type=Type.STRING), description="Lista de medicamentos, incluindo dosagem se disponível.")
+    },
+    required=["diagnosticos", "medicamentos"]
+)
 
 
 # --- MOTOR DE REGRAS: CALENDÁRIO NACIONAL DE IMUNIZAÇÕES (PNI) ---
@@ -50,9 +102,6 @@ CALENDARIO_PNI = [
     {"vacina": "Pneumocócica 10V", "dose": "Reforço", "idade_meses": 12, "detalhe": "Dose de reforço."},
     {"vacina": "Meningocócica C", "dose": "Reforço", "idade_meses": 12, "detalhe": "Dose de reforço."},
 ]
-
-# --- Interface Streamlit ---
-# O st.set_page_config é chamado dentro da função main para permitir o roteamento de página
 
 # --- Funções de Validação e Utilitárias ---
 def validar_cpf(cpf: str) -> bool:
@@ -102,6 +151,7 @@ def analisar_carteira_vacinacao(data_nascimento_str, vacinas_administradas):
 
 def ler_texto_prontuario(file_bytes, ocr_api_key):
     try:
+        # Nota: 'convert_from_bytes' requer que o utilitário Poppler esteja instalado no sistema
         imagens_pil = convert_from_bytes(file_bytes)
         texto_completo = ""
         progress_bar = st.progress(0, text="A processar páginas do PDF...")
@@ -118,6 +168,19 @@ def ler_texto_prontuario(file_bytes, ocr_api_key):
     except Exception as e:
         st.error(f"Erro ao processar o ficheiro PDF: {e}. Verifique se o ficheiro não está corrompido e se as dependências (pdf2image/Poppler) estão instaladas.")
         return None
+
+def padronizar_telefone(telefone):
+    """Limpa e padroniza o número de telefone (remove formatação e 55, se houver)."""
+    if pd.isna(telefone) or telefone == "":
+        return None
+    num_limpo = re.sub(r'\D', '', str(telefone))
+    # Remove o 55 inicial se já existir
+    if num_limpo.startswith('55'):
+        num_limpo = num_limpo[2:]
+    # Um número válido (DDD + 8 ou 9 dígitos) deve ter 10 ou 11 dígitos
+    if 10 <= len(num_limpo) <= 11: 
+        return num_limpo
+    return None 
 
 # --- Funções de Conexão e API ---
 @st.cache_resource
@@ -159,102 +222,123 @@ def ocr_space_api(file_bytes, ocr_api_key):
     except Exception as e:
         st.error(f"Erro inesperado no OCR: {e}"); return None
 
-# --- FUNÇÃO DE PADRONIZAÇÃO DE TELEFONE (NECESSÁRIA PARA A NOVA PÁGINA) ---
-def padronizar_telefone(telefone):
-    """Limpa e padroniza o número de telefone (remove formatação e 55, se houver)."""
-    if pd.isna(telefone) or telefone == "":
-        return None
-    num_limpo = re.sub(r'\D', '', str(telefone))
-    # Remove o 55 inicial se já existir
-    if num_limpo.startswith('55'):
-        num_limpo = num_limpo[2:]
-    # Um número válido (DDD + 8 ou 9 dígitos) deve ter 10 ou 11 dígitos
-    if 10 <= len(num_limpo) <= 11: 
-        return num_limpo
-    return None 
-
-# --- NOVAS FUNÇÕES COM GOOGLE GEMINI (MODELO ATUALIZADO) ---
+# --- FUNÇÕES COM GOOGLE GEMINI (MODELO ATUALIZADO E SAÍDA ESTRUTURADA) ---
 def extrair_dados_com_google_gemini(texto_extraido: str, api_key: str):
-    """Extrai dados cadastrais de um texto (ficha) usando Gemini."""
+    """
+    Extrai dados cadastrais de um texto (ficha) usando Gemini,
+    garantindo que a saída seja um JSON válido através do response_schema.
+    """
     try:
         # Configura a chave API
         genai.configure(api_key=api_key)
         
         prompt = f"""
-        Sua tarefa é extrair informações de um texto de formulário de saúde e convertê-lo para um JSON.
-        Procure por uma anotação à mão que pareça um código de família (ex: 'FAM111'). Este código deve ir para a chave "FAMÍLIA".
-        Retorne APENAS um objeto JSON com as chaves: 'ID', 'FAMÍLIA', 'Nome Completo', 'Data de Nascimento', 'Telefone', 'CPF', 'Nome da Mãe', 'Nome do Pai', 'Sexo', 'CNS', 'Município de Nascimento'.
-        Se um valor não for encontrado, retorne uma string vazia "".
+        Sua tarefa é extrair informações de um texto de formulário de saúde extraído por OCR e convertê-lo para um objeto JSON estrito com as chaves fornecidas no esquema.
+        Procure pelo código de família (ex: 'FAM111') e coloque-o na chave "FAMÍLIA".
+        Se um valor não for encontrado para uma chave, retorne uma string vazia "".
         Texto para analisar: --- {texto_extraido} ---
         """
-        # Utiliza o modelo corrigido
+        
         model = genai.GenerativeModel(MODELO_GEMINI)
-        response = model.generate_content(prompt)
-        json_string = response.text.replace('```json', '').replace('```', '').strip()
-        return json.loads(json_string)
+        
+        # Uso do Structured Output para forçar o retorno JSON
+        response = model.generate_content(
+            prompt,
+            config={
+                "response_mime_type": "application/json",
+                "response_schema": CADASTRO_SCHEMA, # Utiliza o esquema cadastral
+            }
+        )
+        
+        # O retorno 'response.text' JÁ É um JSON válido
+        dados_extraidos = json.loads(response.text)
+        
+        return dados_extraidos
+        
     except Exception as e:
-        st.error(f"Erro ao chamar a API do Google Gemini (Extração de Ficha): {e}"); return None
+        st.error(f"Erro ao chamar a API do Google Gemini (Extração de Ficha): {e}")
+        return None
 
 def extrair_dados_vacinacao_com_google_gemini(texto_extraido: str, api_key: str):
-    """Extrai nome, data de nascimento e vacinas administradas de um texto de caderneta."""
+    """
+    Extrai nome, data de nascimento e vacinas administradas de um texto de caderneta,
+    usando Saída Estruturada.
+    """
     try:
         # Configura a chave API
         genai.configure(api_key=api_key)
         
         prompt = f"""
         Sua tarefa é atuar como um agente de saúde especializado em analisar textos de cadernetas de vacinação brasileiras.
-        O texto fornecido foi extraído por OCR e pode conter erros. Sua missão é extrair as informações e retorná-las em um formato JSON estrito.
-        Instruções:
-        1.  Identifique o Nome do Paciente.
-        2.  Identifique a Data de Nascimento no formato DD/MM/AAAA.
-        3.  Liste as Vacinas Administradas, normalizando os nomes para um padrão. Exemplos: "Penta" -> "Pentavalente"; "Polio" ou "VIP" -> "VIP (Poliomielite inativada)"; "Meningo C" -> "Meningocócica C"; "Sarampo, Caxumba, Rubéola" -> "Tríplice Viral".
-        4.  Para cada vacina, identifique a dose (ex: "1ª Dose", "Reforço"). Se não for clara, infira pela ordem.
-        5.  Retorne APENAS um objeto JSON com as chaves "nome_paciente", "data_nascimento", "vacinas_administradas" (lista de objetos com "vacina" e "dose").
+        O texto fornecido foi extraído por OCR e pode conter erros. Sua missão é extrair as informações e retorná-las em um formato JSON estrito, conforme o esquema.
+        Instruções de Normalização:
+        - Pentavalente: "Penta", "DTP+HB+Hib" -> "Pentavalente"
+        - VIP (Poliomielite inativada): "Polio", "VIP" -> "VIP (Poliomielite inativada)"
+        - Meningocócica C: "Meningo C", "MNG C" -> "Meningocócica C"
+        - Tríplice Viral: "Sarampo, Caxumba, Rubéola", "SCR" -> "Tríplice Viral"
+        - Para cada vacina, identifique a dose (ex: "1ª Dose", "Reforço").
         Se uma informação não for encontrada, retorne um valor vazio ("") ou uma lista vazia ([]).
         Texto para analisar: --- {texto_extraido} ---
         """
-        # Utiliza o modelo corrigido
+        
         model = genai.GenerativeModel(MODELO_GEMINI)
-        response = model.generate_content(prompt)
-        json_string = response.text.replace('```json', '').replace('```', '').strip()
-        dados_extraidos = json.loads(json_string)
+        
+        response = model.generate_content(
+            prompt,
+            config={
+                "response_mime_type": "application/json",
+                "response_schema": VACINACAO_SCHEMA, # Utiliza o esquema de vacinação
+            }
+        )
+        
+        dados_extraidos = json.loads(response.text)
+        
         if "nome_paciente" in dados_extraidos and "data_nascimento" in dados_extraidos and "vacinas_administradas" in dados_extraidos:
             return dados_extraidos
         else: return None
+        
     except Exception as e:
         st.error(f"Erro ao processar a resposta da IA (Gemini - Vacinação): {e}")
         return None
 
 def extrair_dados_clinicos_com_google_gemini(texto_prontuario: str, api_key: str):
-    """Extrai diagnósticos e medicamentos de um texto de prontuário clínico."""
+    """
+    Extrai diagnósticos e medicamentos de um texto de prontuário clínico,
+    usando Saída Estruturada.
+    """
     try:
         # Configura a chave API
         genai.configure(api_key=api_key)
         
         prompt = f"""
-        Sua tarefa é analisar o texto de um prontuário médico e extrair informações clínicas chave.
-        O seu foco deve ser em duas categorias: Diagnósticos (especialmente condições crónicas) e Medicamentos.
+        Sua tarefa é analisar o texto de um prontuário médico e extrair informações clínicas chave, focando em Diagnósticos e Medicamentos.
         Instruções:
-        1.  Analise o texto completo para compreender o contexto clínico do paciente.
-        2.  Extraia Diagnósticos: Identifique todas as condições médicas e diagnósticos mencionados. Dê prioridade a doenças crónicas como 'Diabetes' (Tipo 1 ou 2), 'Hipertensão Arterial Sistêmica (HAS)', 'Asma', 'DPOC'.
-        3.  Extraia Medicamentos: Identifique todos os medicamentos de uso contínuo ou relevante mencionados, incluindo a dosagem, se disponível (ex: 'Metformina 500mg', 'Losartana 50mg').
-        4.  Formato de Saída: Retorne APENAS um objeto JSON com as seguintes chaves:
-            -   "diagnosticos": (uma lista de strings com os diagnósticos encontrados)
-            -   "medicamentos": (uma lista de strings com os medicamentos encontrados)
+        1.  Extraia Diagnósticos: Identifique todas as condições médicas. Dê prioridade a doenças crónicas (Diabetes, HAS, Asma, DPOC).
+        2.  Extraia Medicamentos: Identifique todos os medicamentos de uso contínuo ou relevante mencionados (ex: 'Metformina 500mg').
+        3.  Retorne APENAS um objeto JSON estrito com as listas de "diagnosticos" e "medicamentos".
         Se nenhuma informação de uma categoria for encontrada, retorne uma lista vazia para essa chave.
         Texto do Prontuário para analisar:
         ---
         {texto_prontuario}
         ---
         """
-        # Utiliza o modelo corrigido
+        
         model = genai.GenerativeModel(MODELO_GEMINI)
-        response = model.generate_content(prompt)
-        json_string = response.text.replace('```json', '').replace('```', '').strip()
-        dados_extraidos = json.loads(json_string)
+        
+        response = model.generate_content(
+            prompt,
+            config={
+                "response_mime_type": "application/json",
+                "response_schema": CLINICO_SCHEMA, # Utiliza o esquema clínico
+            }
+        )
+        
+        dados_extraidos = json.loads(response.text)
+        
         if "diagnosticos" in dados_extraidos and "medicamentos" in dados_extraidos:
             return dados_extraidos
         else: return None
+            
     except Exception as e:
         st.error(f"Erro ao processar a resposta da IA (Gemini - Clínico): {e}")
         return None
@@ -264,7 +348,7 @@ def salvar_no_sheets(dados, planilha):
         cabecalhos = planilha.row_values(1)
         if 'ID' not in dados or not dados['ID']: dados['ID'] = f"ID-{int(time.time())}"
         dados['Data de Registo'] = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-        # Padroniza as chaves do dicionário para casar com os cabeçalhos da planilha (se necessário)
+        # Padroniza as chaves do dicionário para casar com os cabeçalhos da planilha
         nova_linha = [dados.get(cabecalho, "") for cabecalho in cabecalhos]
         planilha.append_row(nova_linha)
         st.success(f"✅ Dados de '{dados.get('Nome Completo', 'Desconhecido')}' salvos com sucesso!")
@@ -273,7 +357,7 @@ def salvar_no_sheets(dados, planilha):
     except Exception as e:
         st.error(f"Erro ao salvar na planilha: {e}")
 
-# --- FUNÇÕES DE GERAÇÃO DE PDF (sem alterações) ---
+# --- FUNÇÕES DE GERAÇÃO DE PDF (Sem Alterações) ---
 def preencher_pdf_formulario(paciente_dados):
     try:
         template_pdf_path = "Formulario_2IndiceDeVulnerabilidadeClinicoFuncional20IVCF20_ImpressoraPDFPreenchivel_202404-2.pdf"
@@ -473,7 +557,6 @@ def gerar_pdf_relatorio_vacinacao(nome_paciente, data_nascimento, relatorio):
 
 # --- PÁGINAS DO APP ---
 
-# --- NOVA PÁGINA INICIAL ---
 def pagina_inicial():
     st.title("Bem-vindo ao Sistema de Gestão de Pacientes Inteligente")
     st.markdown("""
@@ -490,7 +573,6 @@ def pagina_inicial():
             Utilize a inteligência artificial para extrair automaticamente dados de fichas de pacientes 
             (digitadas ou manuscritas) e registrá-los na sua base de dados.
             """)
-        # ALTERAÇÃO: use_column_width=True -> use_container_width=True
         st.image("https://images.unsplash.com/photo-1587351021759-4001a145873d?q=80&w=2070&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D", caption="Coleta automatizada de dados", use_container_width=True)
         
         st.subheader("💉 Análise de Vacinação")
@@ -498,7 +580,6 @@ def pagina_inicial():
             Envie uma foto da caderneta de vacinação e receba um relatório detalhado sobre as vacinas 
             em dia, em atraso e as próximas doses recomendadas, tudo de forma automática.
             """)
-        # ALTERAÇÃO: use_column_width=True -> use_container_width=True
         st.image("https://images.unsplash.com/photo-1629891392650-db7e8340d1df?q=80&w=2070&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D", caption="Análise de caderneta de vacinação", use_container_width=True)
 
     with col2:
@@ -507,7 +588,6 @@ def pagina_inicial():
             Pesquise, visualize, edite e apague registos de pacientes. 
             Acesse dashboards familiares para uma visão integrada da saúde de cada núcleo.
             """)
-        # ALTERAÇÃO: use_column_width=True -> use_container_width=True
         st.image("https://images.unsplash.com/photo-1579684385133-722a0df8d0b2?q=80&w=2070&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D", caption="Gestão e visão familiar", use_container_width=True)
         
         st.subheader("📱 Alertas e Comunicação via WhatsApp")
@@ -515,15 +595,12 @@ def pagina_inicial():
             Envie mensagens personalizadas de WhatsApp para pacientes individualmente 
             ou use a verificação rápida para localizar um paciente e enviar alertas.
             """)
-        # ALTERAÇÃO: use_column_width=True -> use_container_width=True
         st.image("https://images.unsplash.com/photo-1596701072971-fec1256b7c52?q=80&w=2070&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D", caption="Comunicação eficiente", use_container_width=True)
 
     st.write("---")
     st.markdown("""
         Explore as opções no menu lateral para começar a utilizar as funcionalidades do sistema.
     """)
-
-# --- FIM NOVA PÁGINA INICIAL ---
 
 def pagina_gerar_documentos(planilha):
     st.title("📄 Gerador de Documentos")
@@ -560,14 +637,19 @@ def pagina_coleta(planilha):
             st.subheader(f"Processando Ficha: `{proximo_arquivo.name}`")
             st.image(Image.open(proximo_arquivo), width=400)
             file_bytes = proximo_arquivo.getvalue()
+            
+            # Etapa 1: OCR
             texto_extraido = ocr_space_api(file_bytes, st.secrets["OCRSPACEKEY"])
+            
             if texto_extraido:
-                # --- CHAMADA ATUALIZADA PARA O GEMINI ---
+                # Etapa 2: Extração com Gemini (Structured Output)
                 dados_extraidos = extrair_dados_com_google_gemini(texto_extraido, st.secrets["GOOGLE_API_KEY"])
+                
                 if dados_extraidos:
                     with st.form(key=f"form_{proximo_arquivo.file_id}"):
                         st.subheader("2. Confirme e salve os dados")
                         dados_para_salvar = {}
+                        # Preenchimento dos inputs com os dados extraídos pelo Gemini
                         dados_para_salvar['ID'] = st.text_input("ID", value=dados_extraidos.get("ID", ""))
                         dados_para_salvar['FAMÍLIA'] = st.text_input("FAMÍLIA", value=dados_extraidos.get("FAMÍLIA", ""))
                         dados_para_salvar['Nome Completo'] = st.text_input("Nome Completo", value=dados_extraidos.get("Nome Completo", ""))
@@ -577,9 +659,11 @@ def pagina_coleta(planilha):
                         dados_para_salvar['Telefone'] = st.text_input("Telefone", value=dados_extraidos.get("Telefone", ""))
                         dados_para_salvar['Nome da Mãe'] = st.text_input("Nome da Mãe", value=dados_extraidos.get("Nome da Mãe", ""))
                         dados_para_salvar['Nome do Pai'] = st.text_input("Nome do Pai", value=dados_extraidos.get("Nome do Pai", ""))
-                        dados_para_salvar['Sexo'] = st.text_input("Sexo", value=dados_extraidos.get("Sexo", ""))
+                        dados_para_salvar['Sexo'] = st.selectbox("Sexo", options=["", "M", "F", "I (Ignorado)"], index=["", "M", "F", "I (Ignorado)"].index(dados_extraidos.get("Sexo", "").strip().upper()[:1] if dados_extraidos.get("Sexo") else "") if dados_extraidos.get("Sexo", "").strip().upper()[:1] in ["M", "F", "I"] else 0)
                         dados_para_salvar['Município de Nascimento'] = st.text_input("Município de Nascimento", value=dados_extraidos.get("Município de Nascimento", ""))
+                        
                         if st.form_submit_button("✅ Salvar Dados Desta Ficha"):
+                            # Validação de Duplicidade
                             cpf_a_verificar = ''.join(re.findall(r'\d', dados_para_salvar['CPF']))
                             cns_a_verificar = ''.join(re.findall(r'\d', dados_para_salvar['CNS']))
                             duplicado_cpf = False
@@ -588,6 +672,7 @@ def pagina_coleta(planilha):
                             duplicado_cns = False
                             if cns_a_verificar and not df_existente.empty:
                                 duplicado_cns = any(df_existente['CNS'].astype(str).str.replace(r'\D', '', regex=True) == cns_a_verificar)
+                            
                             if duplicado_cpf or duplicado_cns:
                                 st.error("⚠️ Alerta de Duplicado: Já existe um paciente registado com este CPF ou CNS. O registo não foi salvo.")
                             else:
@@ -808,7 +893,6 @@ def pagina_whatsapp(planilha):
         col1.text(f"{nome} - ({row['Telefone']})")
         col2.link_button("Enviar Mensagem ↗️", whatsapp_url, use_container_width=True)
 
-# --- NOVA PÁGINA: BUSCA AUTOMÁTICA E WHATSAPP ---
 def pagina_ocr_e_alerta_whatsapp(planilha):
     st.title("📸 Verificação Rápida e Alerta WhatsApp")
     st.warning("Fluxo: Foto/Documento ➡️ Simulação da Extração do Nome ➡️ Busca Automática ➡️ Notificação WhatsApp")
@@ -829,8 +913,6 @@ def pagina_ocr_e_alerta_whatsapp(planilha):
     nome_para_buscar = None
     
     if foto_paciente is not None:
-        # AQUI VAMOS SIMULAR A ETAPA DO OCR/IA EXTRAINDO O NOME DA FOTO
-        # Criamos a lista de nomes válidos para o SelectBox
         
         # Cria uma coluna padronizada de telefone para filtrar apenas pacientes que podem receber o alerta
         df['Telefone Limpo'] = df['Telefone'].apply(padronizar_telefone)
@@ -850,13 +932,8 @@ def pagina_ocr_e_alerta_whatsapp(planilha):
     if nome_para_buscar:
         # 3. Execução da Busca (O sistema procura!)
         
-        # Prepara o nome do input para busca (Remove espaços e converte para maiúsculo)
         nome_limpo_busca = nome_para_buscar.strip().upper()
-        
-        # Prepara a coluna para busca no DataFrame (Remove espaços e converte para maiúsculo)
         df['Nome Limpo'] = df['Nome Completo'].astype(str).str.strip().str.upper()
-        
-        # Filtra o DataFrame (O coração da busca, com correspondência exata)
         resultado_busca = df[df['Nome Limpo'] == nome_limpo_busca]
         
         if not resultado_busca.empty:
@@ -865,7 +942,6 @@ def pagina_ocr_e_alerta_whatsapp(planilha):
             telefone_completo = paciente_data['Telefone']
             primeiro_nome = paciente_data['Nome Completo'].split()[0]
             
-            # Garante que o telefone ainda é válido após a busca (redundância)
             if telefone_limpo is None:
                  st.error(f"❌ Paciente '{paciente_data['Nome Completo']}' encontrado, mas o telefone ({telefone_completo}) é inválido.")
                  return
@@ -875,7 +951,6 @@ def pagina_ocr_e_alerta_whatsapp(planilha):
             # 4. Alerta e Ação (WhatsApp)
             st.subheader("3. Alerta e Envio da Notificação")
             
-            # Mensagem de notificação (Pré-preenchida)
             mensagem_default = (
                 f"Olá, {primeiro_nome}! Seu procedimento foi LIBERADO/AUTORIZADO. "
                 f"Entre em contato com seu ACS/UBS para agendar. [SAÚDE MUNICIPAL]"
@@ -901,27 +976,35 @@ def pagina_ocr_e_alerta_whatsapp(planilha):
 
         else:
             st.error(f"❌ Erro: O nome '{nome_para_buscar}' **NÃO CONSTA** na planilha de pacientes.")
-# --- FIM NOVA PÁGINA ---
 
 def pagina_analise_vacinacao(planilha):
     st.title("💉 Análise Automatizada de Caderneta de Vacinação")
+    # Resetar estados se um novo arquivo for carregado
     if 'uploaded_file_id' not in st.session_state:
         st.session_state.dados_extraidos = None
         st.session_state.relatorio_final = None
+        
     uploaded_file = st.file_uploader("Envie a foto da caderneta de vacinação:", type=["jpg", "jpeg", "png"])
+    
     if uploaded_file is not None:
-        st.session_state.uploaded_file_id = uploaded_file.id
+        if st.session_state.get('uploaded_file_id') != uploaded_file.id:
+            st.session_state.dados_extraidos = None
+            st.session_state.relatorio_final = None
+            st.session_state.uploaded_file_id = uploaded_file.id
+            st.rerun() # Para forçar o processamento do novo arquivo
+            
         if st.session_state.get('dados_extraidos') is None:
             with st.spinner("Processando imagem e extraindo dados com IA..."):
                 texto_extraido = ocr_space_api(uploaded_file.getvalue(), st.secrets["OCRSPACEKEY"])
                 if texto_extraido:
-                    # --- CHAMADA ATUALIZADA PARA O GEMINI ---
+                    # Chamada com Saída Estruturada
                     dados = extrair_dados_vacinacao_com_google_gemini(texto_extraido, st.secrets["GOOGLE_API_KEY"])
                     if dados:
                         st.session_state.dados_extraidos = dados
                         st.rerun()
                     else: st.error("A IA não conseguiu estruturar os dados. Tente uma imagem melhor.")
                 else: st.error("O OCR não conseguiu extrair texto da imagem.")
+                
         if st.session_state.get('dados_extraidos') is not None and st.session_state.get('relatorio_final') is None:
             st.markdown("---")
             st.subheader("2. Validação dos Dados Extraídos")
@@ -933,13 +1016,16 @@ def pagina_analise_vacinacao(planilha):
                 st.write("Vacinas Administradas (edite se necessário):")
                 vacinas_validadas_df = pd.DataFrame(dados.get("vacinas_administradas", []))
                 vacinas_editadas = st.data_editor(vacinas_validadas_df, num_rows="dynamic")
+                
                 if st.form_submit_button("✅ Confirmar Dados e Analisar"):
                     with st.spinner("Analisando..."):
+                        # Analisa o esquema de vacinação validado
                         relatorio = analisar_carteira_vacinacao(dn_validada, vacinas_editadas.to_dict('records'))
                         st.session_state.relatorio_final = relatorio
                         st.session_state.nome_paciente_final = nome_validado
                         st.session_state.data_nasc_final = dn_validada
                         st.rerun()
+                        
         if st.session_state.get('relatorio_final') is not None:
             relatorio = st.session_state.relatorio_final
             st.markdown("---")
@@ -950,18 +1036,22 @@ def pagina_analise_vacinacao(planilha):
                 if relatorio["em_dia"]:
                     for vac in relatorio["em_dia"]: st.write(f"- **{vac['vacina']} ({vac['dose']})**")
                 else: st.write("Nenhuma vacina registrada como em dia.")
+                
                 st.warning("⚠️ Vacinas em Atraso")
                 if relatorio["em_atraso"]:
                     for vac in relatorio["em_atraso"]: st.write(f"- **{vac['vacina']} ({vac['dose']})** - Recomendada aos {vac['idade_meses']} meses.")
                 else: st.write("Nenhuma vacina em atraso identificada.")
+                
                 st.info("🗓️ Próximas Doses")
                 if relatorio["proximas_doses"]:
                     proximas_ordenadas = sorted(relatorio["proximas_doses"], key=lambda x: x['idade_meses'])
                     for vac in proximas_ordenadas: st.write(f"- **{vac['vacina']} ({vac['dose']})** - Recomendada aos **{vac['idade_meses']} meses**.")
                 else: st.write("Nenhuma próxima dose identificada.")
+                
                 pdf_bytes = gerar_pdf_relatorio_vacinacao(st.session_state.nome_paciente_final, st.session_state.data_nasc_final, st.session_state.relatorio_final)
                 file_name = f"relatorio_vacinacao_{st.session_state.nome_paciente_final.replace(' ', '_')}.pdf"
                 st.download_button(label="📥 Descarregar Relatório (PDF)", data=pdf_bytes, file_name=file_name, mime="application/pdf")
+                
     if st.button("Analisar Nova Caderneta"):
         st.session_state.clear()
         st.rerun()
@@ -974,53 +1064,70 @@ def pagina_importar_prontuario(planilha):
         if df.empty:
             st.warning("Não há pacientes na base de dados.")
             return
+            
         lista_pacientes = sorted(df['Nome Completo'].tolist())
         st.subheader("1. Selecione o Paciente e o Ficheiro do Prontuário")
         paciente_selecionado = st.selectbox("Selecione o paciente:", lista_pacientes, index=None, placeholder="Escolha um paciente...")
         uploaded_file = st.file_uploader("Carregue o prontuário em formato PDF:", type=["pdf"])
+        
         if paciente_selecionado and uploaded_file:
             if st.button("🔍 Iniciar Extração de Dados"):
                 st.session_state.dados_clinicos_extraidos = None
                 with st.spinner("A processar PDF e a analisar com IA... Este processo pode demorar um pouco."):
+                    # Etapa 1: OCR do PDF
                     texto_prontuario = ler_texto_prontuario(uploaded_file.getvalue(), st.secrets["OCRSPACEKEY"])
+                    
                     if texto_prontuario:
                         st.success("Texto extraído do prontuário com sucesso!")
-                        # --- CHAMADA ATUALIZADA PARA O GEMINI ---
+                        # Etapa 2: Extração com Gemini (Structured Output)
                         dados_clinicos = extrair_dados_clinicos_com_google_gemini(texto_prontuario, st.secrets["GOOGLE_API_KEY"])
+                        
                         if dados_clinicos:
                             st.session_state.dados_clinicos_extraidos = dados_clinicos
                             st.session_state.paciente_para_atualizar = paciente_selecionado
                             st.rerun()
                         else: st.error("A IA não conseguiu extrair informações clínicas do texto.")
                     else: st.error("Não foi possível extrair texto do PDF.")
+                    
         if 'dados_clinicos_extraidos' in st.session_state and st.session_state.dados_clinicos_extraidos is not None:
             st.markdown("---")
             st.subheader("2. Valide os Dados e Salve na Planilha")
             st.warning("Verifique as informações extraídas pela IA. Pode adicionar ou remover itens antes de salvar.")
             dados = st.session_state.dados_clinicos_extraidos
+            
             with st.form(key="clinical_data_form"):
                 st.write(f"**Paciente:** {st.session_state.paciente_para_atualizar}")
+                
+                # Campos Multiselect para validação fácil
                 diagnosticos_validados = st.multiselect("Diagnósticos Encontrados:", options=dados.get('diagnosticos', []), default=dados.get('diagnosticos', []))
                 medicamentos_validados = st.multiselect("Medicamentos Encontrados:", options=dados.get('medicamentos', []), default=dados.get('medicamentos', []))
+                
                 if st.form_submit_button("✅ Salvar Informações no Registo do Paciente"):
                     with st.spinner("A atualizar a planilha..."):
                         try:
                             diagnosticos_str = ", ".join(diagnosticos_validados)
                             medicamentos_str = ", ".join(medicamentos_validados)
+                            
+                            # Lógica para encontrar a linha do paciente e atualizar as colunas
                             cell = planilha.find(st.session_state.paciente_para_atualizar)
                             headers = planilha.row_values(1)
+                            
                             col_condicao_index = headers.index("Condição") + 1 if "Condição" in headers else None
                             col_medicamentos_index = headers.index("Medicamentos") + 1 if "Medicamentos" in headers else None
+                            
                             if col_condicao_index: planilha.update_cell(cell.row, col_condicao_index, diagnosticos_str)
                             if col_medicamentos_index: planilha.update_cell(cell.row, col_medicamentos_index, medicamentos_str)
+                            
                             st.success(f"Os dados do paciente {st.session_state.paciente_para_atualizar} foram atualizados com sucesso!")
                             st.session_state.dados_clinicos_extraidos = None
                             st.session_state.paciente_para_atualizar = None
                             st.cache_data.clear()
+                            
                         except gspread.exceptions.CellNotFound:
                             st.error(f"Não foi possível encontrar o paciente '{st.session_state.paciente_para_atualizar}' na planilha.")
                         except Exception as e:
                             st.error(f"Ocorreu um erro ao salvar na planilha: {e}")
+                            
     except Exception as e:
         st.error(f"Ocorreu um erro ao carregar a página: {e}")
 
@@ -1031,25 +1138,31 @@ def pagina_dashboard_resumo(planilha):
         df = ler_dados_da_planilha(planilha)
         if df.empty:
             st.warning("A base de dados de pacientes está vazia."); return
+            
         total_pacientes = len(df)
         sexo_counts = df['Sexo'].str.strip().str.upper().value_counts()
         total_homens = sexo_counts.get('M', 0) + sexo_counts.get('MASCULINO', 0)
         total_mulheres = sexo_counts.get('F', 0) + sexo_counts.get('FEMININO', 0)
+        
         df['Idade'] = df['Data de Nascimento DT'].apply(lambda dt: calcular_idade(dt) if pd.notnull(dt) else -1)
         total_criancas = df[df['Idade'].between(0, 11)].shape[0]
         total_adolescentes = df[df['Idade'].between(12, 17)].shape[0]
         total_idosos = df[df['Idade'] >= 60].shape[0]
+        
         st.header("Visão Geral")
         st.metric("Total de Pacientes", f"{total_pacientes}")
+        
         st.header("Distribuição por Sexo")
         col1, col2 = st.columns(2)
         col1.metric("Homens", f"{total_homens}")
         col2.metric("Mulheres", f"{total_mulheres}")
+        
         st.header("Distribuição por Faixa Etária")
         col1, col2, col3 = st.columns(3)
-        col1.metric("Crianças", f"{total_criancas}")
-        col2.metric("Adolescentes", f"{total_adolescentes}")
-        col3.metric("Idosos", f"{total_idosos}")
+        col1.metric("Crianças (0-11)", f"{total_criancas}")
+        col2.metric("Adolescentes (12-17)", f"{total_adolescentes}")
+        col3.metric("Idosos (60+)", f"{total_idosos}")
+        
     except Exception as e:
         st.error(f"Ocorreu um erro ao carregar as estatísticas: {e}")
 
@@ -1078,10 +1191,13 @@ def pagina_gerador_qrcode(planilha):
 
 def main():
     query_params = st.query_params
+    
+    # Rota para o Dashboard de Resumo (uso em TV/Totem)
     if query_params.get("page") == "resumo":
         try:
             st.set_page_config(page_title="Resumo de Pacientes", layout="centered")
-            st.html("<meta http-equiv='refresh' content='60'>")
+            # Atualiza a página a cada 60 segundos
+            st.html("<meta http-equiv='refresh' content='60'>") 
             planilha_conectada = conectar_planilha()
             if planilha_conectada:
                 pagina_dashboard_resumo(planilha_conectada)
@@ -1090,21 +1206,22 @@ def main():
         except Exception as e:
             st.error(f"Ocorreu um erro crítico: {e}")
     else:
+        # Rota Principal da Aplicação
         st.set_page_config(page_title="Coleta Inteligente", page_icon="🤖", layout="wide")
         st.sidebar.title("Navegação")
+        
         try:
             planilha_conectada = conectar_planilha()
         except Exception as e:
             st.error(f"Não foi possível inicializar os serviços. Verifique seus segredos. Erro: {e}")
             st.stop()
+            
         if planilha_conectada is None:
             st.error("A conexão com a planilha falhou.")
             st.stop()
         
-        # --- REMOÇÃO DO CLIENTE COHERE (Já feito no código anterior) ---
-        
         paginas = {
-            "🏠 Início": pagina_inicial, # Adicionando a página inicial
+            "🏠 Início": pagina_inicial,
             "Verificação Rápida WhatsApp": lambda: pagina_ocr_e_alerta_whatsapp(planilha_conectada),
             "Análise de Vacinação": lambda: pagina_analise_vacinacao(planilha_conectada),
             "Importar Dados de Prontuário": lambda: pagina_importar_prontuario(planilha_conectada),
@@ -1117,6 +1234,7 @@ def main():
             "Enviar WhatsApp (Manual)": lambda: pagina_whatsapp(planilha_conectada),
             "Gerador de QR Code": lambda: pagina_gerador_qrcode(planilha_conectada),
         }
+        
         pagina_selecionada = st.sidebar.radio("Escolha uma página:", paginas.keys())
         paginas[pagina_selecionada]()
 
