@@ -1,17 +1,12 @@
-
-
-# A biblioteca que está a causar o erro:
-google-genai
-# Outras bibliotecas utilizadas no código fornecido:
-python-dateutil 
 streamlit
-requests
 gspread
+requests
 Pillow
 pandas
 reportlab
 qrcode
 matplotlib
 pypdf
-python-dateutil
 pdf2image
+pydantic # Necessário para o Structured Output
+google-genai
