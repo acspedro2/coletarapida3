@@ -1,5 +1,4 @@
-
-import streamlit as st
+Import streamlit as st
 import requests
 import json
 import gspread
@@ -20,11 +19,21 @@ from pypdf import PdfReader, PdfWriter
 from reportlab.lib.colors import HexColor
 from dateutil.relativedelta import relativedelta
 from pdf2image import convert_from_bytes
+import os
 
 # --- NOVA IMPORTAÇÃO E CONFIGURAÇÃO ---
-import google.genai as genai
-# Importação necessária para Saída Estruturada (Structured Output)
-from google.genai.types import Schema, Type
+# CORREÇÃO: Usando a nova SDK (google-genai)
+try:
+    import google.genai as genai
+    # Importação necessária para Saída Estruturada (Structured Output)
+    from google.genai.types import Schema, Type
+    # Importação para Pydantic - Adicionada se estiver usando Python 3.9+ e 'google-genai'
+    # Se você estivesse usando a Pydantic V2, a importação seria:
+    # from pydantic import BaseModel, Field
+except ImportError as e:
+    st.error(f"Erro de importação: {e}. Verifique se 'google-genai' e 'pydantic' estão no seu requirements.txt.")
+    st.stop()
+
 
 # --- CONFIGURAÇÃO GLOBAL DA API GEMINI ---
 MODELO_GEMINI = "gemini-2.5-flash"
@@ -153,6 +162,8 @@ def analisar_carteira_vacinacao(data_nascimento_str, vacinas_administradas):
 def ler_texto_prontuario(file_bytes, ocr_api_key):
     try:
         # Nota: 'convert_from_bytes' requer que o utilitário Poppler esteja instalado no sistema
+        # A OCRSpace não é mais necessária para PDFs se o Gemini for capaz de processar o PDF diretamente.
+        # Contudo, mantemos a lógica de OCRSpace, já que o código usa a chave e a função.
         imagens_pil = convert_from_bytes(file_bytes)
         texto_completo = ""
         progress_bar = st.progress(0, text="A processar páginas do PDF...")
@@ -224,14 +235,13 @@ def ocr_space_api(file_bytes, ocr_api_key):
         st.error(f"Erro inesperado no OCR: {e}"); return None
 
 # --- FUNÇÕES COM GOOGLE GEMINI (MODELO ATUALIZADO E SAÍDA ESTRUTURADA) ---
-def extrair_dados_com_google_gemini(texto_extraido: str, api_key: str):
+# CORREÇÃO: Recebe o objeto client em vez da api_key
+def extrair_dados_com_google_gemini(texto_extraido: str, client: genai.Client):
     """
     Extrai dados cadastrais de um texto (ficha) usando Gemini,
     garantindo que a saída seja um JSON válido através do response_schema.
     """
     try:
-        # Configura a chave API
-        genai.configure(api_key=api_key)
         
         prompt = f"""
         Sua tarefa é extrair informações de um texto de formulário de saúde extraído por OCR e convertê-lo para um objeto JSON estrito com as chaves fornecidas no esquema.
@@ -240,11 +250,13 @@ def extrair_dados_com_google_gemini(texto_extraido: str, api_key: str):
         Texto para analisar: --- {texto_extraido} ---
         """
         
-        model = genai.GenerativeModel(MODELO_GEMINI)
+        # O cliente já está configurado na função main()
+        # model = genai.GenerativeModel(MODELO_GEMINI) # Não é mais necessário criar o modelo assim
         
         # Uso do Structured Output para forçar o retorno JSON
-        response = model.generate_content(
-            prompt,
+        response = client.models.generate_content( # Utiliza o client.models
+            model=MODELO_GEMINI, # Especifica o modelo
+            contents=[prompt],
             config={
                 "response_mime_type": "application/json",
                 "response_schema": CADASTRO_SCHEMA, # Utiliza o esquema cadastral
@@ -260,14 +272,13 @@ def extrair_dados_com_google_gemini(texto_extraido: str, api_key: str):
         st.error(f"Erro ao chamar a API do Google Gemini (Extração de Ficha): {e}")
         return None
 
-def extrair_dados_vacinacao_com_google_gemini(texto_extraido: str, api_key: str):
+# CORREÇÃO: Recebe o objeto client em vez da api_key
+def extrair_dados_vacinacao_com_google_gemini(texto_extraido: str, client: genai.Client):
     """
     Extrai nome, data de nascimento e vacinas administradas de um texto de caderneta,
     usando Saída Estruturada.
     """
     try:
-        # Configura a chave API
-        genai.configure(api_key=api_key)
         
         prompt = f"""
         Sua tarefa é atuar como um agente de saúde especializado em analisar textos de cadernetas de vacinação brasileiras.
@@ -282,10 +293,10 @@ def extrair_dados_vacinacao_com_google_gemini(texto_extraido: str, api_key: str)
         Texto para analisar: --- {texto_extraido} ---
         """
         
-        model = genai.GenerativeModel(MODELO_GEMINI)
-        
-        response = model.generate_content(
-            prompt,
+        # Uso do Structured Output para forçar o retorno JSON
+        response = client.models.generate_content( # Utiliza o client.models
+            model=MODELO_GEMINI, # Especifica o modelo
+            contents=[prompt],
             config={
                 "response_mime_type": "application/json",
                 "response_schema": VACINACAO_SCHEMA, # Utiliza o esquema de vacinação
@@ -302,14 +313,13 @@ def extrair_dados_vacinacao_com_google_gemini(texto_extraido: str, api_key: str)
         st.error(f"Erro ao processar a resposta da IA (Gemini - Vacinação): {e}")
         return None
 
-def extrair_dados_clinicos_com_google_gemini(texto_prontuario: str, api_key: str):
+# CORREÇÃO: Recebe o objeto client em vez da api_key
+def extrair_dados_clinicos_com_google_gemini(texto_prontuario: str, client: genai.Client):
     """
     Extrai diagnósticos e medicamentos de um texto de prontuário clínico,
     usando Saída Estruturada.
     """
     try:
-        # Configura a chave API
-        genai.configure(api_key=api_key)
         
         prompt = f"""
         Sua tarefa é analisar o texto de um prontuário médico e extrair informações clínicas chave, focando em Diagnósticos e Medicamentos.
@@ -324,10 +334,10 @@ def extrair_dados_clinicos_com_google_gemini(texto_prontuario: str, api_key: str
         ---
         """
         
-        model = genai.GenerativeModel(MODELO_GEMINI)
-        
-        response = model.generate_content(
-            prompt,
+        # Uso do Structured Output para forçar o retorno JSON
+        response = client.models.generate_content( # Utiliza o client.models
+            model=MODELO_GEMINI, # Especifica o modelo
+            contents=[prompt],
             config={
                 "response_mime_type": "application/json",
                 "response_schema": CLINICO_SCHEMA, # Utiliza o esquema clínico
@@ -382,7 +392,8 @@ def preencher_pdf_formulario(paciente_dados):
         can.save()
         packet.seek(0)
         new_pdf = PdfReader(packet)
-        existing_pdf = PdfReader(open(template_pdf_path, "rb"))
+        # É possível que esta linha falhe se o ficheiro não estiver presente no Streamlit Cloud!
+        existing_pdf = PdfReader(open(template_pdf_path, "rb")) 
         output = PdfWriter()
         page = existing_pdf.pages[0]
         page.merge_page(new_pdf.pages[0])
@@ -392,7 +403,7 @@ def preencher_pdf_formulario(paciente_dados):
         final_buffer.seek(0)
         return final_buffer
     except FileNotFoundError:
-        st.error(f"Erro: O arquivo modelo '{template_pdf_path}' não foi encontrado.")
+        st.error(f"Erro: O arquivo modelo '{template_pdf_path}' não foi encontrado. Certifique-se de que ele foi incluído no seu deploy.")
         return None
     except Exception as e:
         st.error(f"Ocorreu um erro ao gerar o PDF: {e}")
@@ -626,7 +637,7 @@ def pagina_gerar_documentos(planilha):
                     mime="application/pdf"
                 )
 
-def pagina_coleta(planilha):
+def pagina_coleta(planilha, gemini_client):
     st.title("🤖 COLETA INTELIGENTE")
     st.header("1. Envie uma ou mais imagens de fichas")
     df_existente = ler_dados_da_planilha(planilha)
@@ -640,11 +651,14 @@ def pagina_coleta(planilha):
             file_bytes = proximo_arquivo.getvalue()
             
             # Etapa 1: OCR
+            # NOTA: O Gemini 2.5 Flash é multimodal e pode processar a imagem diretamente, 
+            # eliminando a necessidade do OCRSpace para fichas simples. 
+            # Mas, como seu código usa OCRSpace, mantive a lógica:
             texto_extraido = ocr_space_api(file_bytes, st.secrets["OCRSPACEKEY"])
             
             if texto_extraido:
-                # Etapa 2: Extração com Gemini (Structured Output)
-                dados_extraidos = extrair_dados_com_google_gemini(texto_extraido, st.secrets["GOOGLE_API_KEY"])
+                # Etapa 2: Extração com Gemini (Structured Output) - Passa o cliente
+                dados_extraidos = extrair_dados_com_google_gemini(texto_extraido, gemini_client)
                 
                 if dados_extraidos:
                     with st.form(key=f"form_{proximo_arquivo.file_id}"):
@@ -978,7 +992,7 @@ def pagina_ocr_e_alerta_whatsapp(planilha):
         else:
             st.error(f"❌ Erro: O nome '{nome_para_buscar}' **NÃO CONSTA** na planilha de pacientes.")
 
-def pagina_analise_vacinacao(planilha):
+def pagina_analise_vacinacao(planilha, gemini_client):
     st.title("💉 Análise Automatizada de Caderneta de Vacinação")
     # Resetar estados se um novo arquivo for carregado
     if 'uploaded_file_id' not in st.session_state:
@@ -998,8 +1012,8 @@ def pagina_analise_vacinacao(planilha):
             with st.spinner("Processando imagem e extraindo dados com IA..."):
                 texto_extraido = ocr_space_api(uploaded_file.getvalue(), st.secrets["OCRSPACEKEY"])
                 if texto_extraido:
-                    # Chamada com Saída Estruturada
-                    dados = extrair_dados_vacinacao_com_google_gemini(texto_extraido, st.secrets["GOOGLE_API_KEY"])
+                    # Chamada com Saída Estruturada - Passa o cliente
+                    dados = extrair_dados_vacinacao_com_google_gemini(texto_extraido, gemini_client)
                     if dados:
                         st.session_state.dados_extraidos = dados
                         st.rerun()
@@ -1057,7 +1071,7 @@ def pagina_analise_vacinacao(planilha):
         st.session_state.clear()
         st.rerun()
 
-def pagina_importar_prontuario(planilha):
+def pagina_importar_prontuario(planilha, gemini_client):
     st.title("📄 Importar Dados de Prontuário Clínico")
     st.info("Esta funcionalidade extrai diagnósticos e medicamentos de um ficheiro de prontuário (PDF digitalizado) e adiciona-os ao registo do paciente.")
     try:
@@ -1080,8 +1094,8 @@ def pagina_importar_prontuario(planilha):
                     
                     if texto_prontuario:
                         st.success("Texto extraído do prontuário com sucesso!")
-                        # Etapa 2: Extração com Gemini (Structured Output)
-                        dados_clinicos = extrair_dados_clinicos_com_google_gemini(texto_prontuario, st.secrets["GOOGLE_API_KEY"])
+                        # Etapa 2: Extração com Gemini (Structured Output) - Passa o cliente
+                        dados_clinicos = extrair_dados_clinicos_com_google_gemini(texto_prontuario, gemini_client)
                         
                         if dados_clinicos:
                             st.session_state.dados_clinicos_extraidos = dados_clinicos
@@ -1193,6 +1207,18 @@ def pagina_gerador_qrcode(planilha):
 def main():
     query_params = st.query_params
     
+    # 1. Configuração da Chave API e Cliente Gemini (FEITA AQUI PARA REUTILIZAÇÃO)
+    try:
+        API_KEY = st.secrets["GOOGLE_API_KEY"]
+        # CORREÇÃO CRÍTICA: Cria o objeto Client. Não use mais genai.configure()
+        gemini_client = genai.Client(api_key=API_KEY)
+    except KeyError:
+        st.error("ERRO: Chave API do Gemini não encontrada. Verifique se 'GOOGLE_API_KEY' está no seu secrets.toml.")
+        return
+    except Exception as e:
+        st.error(f"Falha ao inicializar o cliente Gemini: {e}")
+        return
+    
     # Rota para o Dashboard de Resumo (uso em TV/Totem)
     if query_params.get("page") == "resumo":
         try:
@@ -1214,19 +1240,20 @@ def main():
         try:
             planilha_conectada = conectar_planilha()
         except Exception as e:
-            st.error(f"Não foi possível inicializar os serviços. Verifique seus segredos. Erro: {e}")
+            st.error(f"Não foi possível inicializar os serviços de Sheets. Erro: {e}")
             st.stop()
             
         if planilha_conectada is None:
             st.error("A conexão com a planilha falhou.")
             st.stop()
         
+        # Paginas que precisam do cliente Gemini recebem o objeto 'gemini_client'
         paginas = {
             "🏠 Início": pagina_inicial,
             "Verificação Rápida WhatsApp": lambda: pagina_ocr_e_alerta_whatsapp(planilha_conectada),
-            "Análise de Vacinação": lambda: pagina_analise_vacinacao(planilha_conectada),
-            "Importar Dados de Prontuário": lambda: pagina_importar_prontuario(planilha_conectada),
-            "Coletar Fichas": lambda: pagina_coleta(planilha_conectada),
+            "Análise de Vacinação": lambda: pagina_analise_vacinacao(planilha_conectada, gemini_client),
+            "Importar Dados de Prontuário": lambda: pagina_importar_prontuario(planilha_conectada, gemini_client),
+            "Coletar Fichas": lambda: pagina_coleta(planilha_conectada, gemini_client),
             "Gestão de Pacientes": lambda: pagina_pesquisa(planilha_conectada),
             "Dashboard": lambda: pagina_dashboard(planilha_conectada),
             "Gerar Etiquetas": lambda: pagina_etiquetas(planilha_conectada),
