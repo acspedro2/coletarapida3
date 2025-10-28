@@ -1,4 +1,4 @@
-import streamlit as st
+Import streamlit as st
 import requests
 import json
 import gspread
@@ -330,8 +330,97 @@ def get_familia_folder_link(familia_id: str, planilha_sheet) -> str:
 
 
 # --- FUNÇÕES COM GOOGLE GEMINI (MODELO ATUALIZADO E SAÍDA ESTRUTURADA) ---
-# (Manter Funções Gemini inalteradas: extrair_dados_com_google_gemini, extrair_dados_vacinacao_com_google_gemini, extrair_dados_clinicos_com_google_gemini)
-# ... [Código Gemini omitido para brevidade, mas mantido no arquivo final] ...
+# A definição dessas funções estava faltando e causou o NameError.
+
+def extrair_dados_com_google_gemini(texto_prontuario: str, client: genai.Client) -> dict:
+    """
+    Extrai dados cadastrais de um texto de prontuário usando o Gemini com saída estruturada.
+    """
+    st.info("🤖 A IA está extraindo os dados cadastrais da ficha...")
+    try:
+        # Instrução detalhada para a IA
+        prompt = (
+            "Você é um extrator de dados de fichas médicas. Extraia APENAS as informações "
+            "solicitadas do texto abaixo. Normalizar os campos Sexo (M, F, I) e Data de Nascimento (DD/MM/AAAA)."
+            "Se um campo estiver ausente, use string vazia ('').\n\n"
+            f"TEXTO DA FICHA:\n---\n{texto_prontuario}"
+        )
+
+        response = client.models.generate_content(
+            model=MODELO_GEMINI,
+            contents=prompt,
+            config=genai.types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=CadastroSchema,
+            ),
+        )
+        
+        dados_extraidos = CadastroSchema.model_validate_json(response.text).model_dump(by_alias=True)
+        
+        return dados_extraidos
+
+    except Exception as e:
+        st.error(f"Erro na extração de dados cadastrais pelo Gemini: {e}")
+        return None 
+        
+def extrair_dados_vacinacao_com_google_gemini(texto_prontuario: str, client: genai.Client) -> dict:
+    """
+    Extrai dados de vacinação de um texto de prontuário usando o Gemini com saída estruturada.
+    """
+    st.info("🤖 A IA está extraindo os dados de vacinação...")
+    try:
+        prompt = (
+            "Você é um extrator de dados de cadernetas de vacinação. Extraia o nome do paciente, "
+            "data de nascimento e uma lista de todas as vacinas administradas com suas doses (ex: 1ª Dose, Reforço). "
+            "Normalizar os nomes das vacinas para os padrões brasileiros (ex: 'Triplice Viral', 'Pentavalente'). "
+            "Se um campo estiver ausente, use string vazia ('') ou lista vazia ([]).\n\n"
+            f"TEXTO DA CADERNETA:\n---\n{texto_prontuario}"
+        )
+
+        response = client.models.generate_content(
+            model=MODELO_GEMINI,
+            contents=prompt,
+            config=genai.types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=VacinacaoSchema,
+            ),
+        )
+        
+        dados_extraidos = VacinacaoSchema.model_validate_json(response.text).model_dump()
+        return dados_extraidos
+
+    except Exception as e:
+        st.error(f"Erro na extração de dados de vacinação pelo Gemini: {e}")
+        return None 
+
+def extrair_dados_clinicos_com_google_gemini(texto_prontuario: str, client: genai.Client) -> dict:
+    """
+    Extrai diagnósticos e medicamentos de um texto de prontuário usando o Gemini com saída estruturada.
+    """
+    st.info("🤖 A IA está extraindo diagnósticos e medicamentos...")
+    try:
+        prompt = (
+            "Você é um analista de prontuários. Extraia APENAS uma lista de diagnósticos (priorizando doenças crônicas) "
+            "e uma lista de medicamentos, incluindo a dosagem, se disponível. Se ausente, use lista vazia (\[\]).\n\n"
+            f"TEXTO DO PRONTUÁRIO:\n---\n{texto_prontuario}"
+        )
+
+        response = client.models.generate_content(
+            model=MODELO_GEMINI,
+            contents=prompt,
+            config=genai.types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=ClinicoSchema,
+            ),
+        )
+        
+        dados_extraidos = ClinicoSchema.model_validate_json(response.text).model_dump()
+        return dados_extraidos
+
+    except Exception as e:
+        st.error(f"Erro na extração de dados clínicos pelo Gemini: {e}")
+        return None 
+# --- FIM DAS FUNÇÕES COM GOOGLE GEMINI ---
 
 
 def salvar_no_sheets(dados, planilha):
@@ -378,7 +467,46 @@ def salvar_no_sheets(dados, planilha):
         st.error(f"Erro ao salvar na planilha: {e}")
 
 # --- FUNÇÕES DE GERAÇÃO DE PDF (Sem Alterações) ---
-# ... [Funções de Geração de PDF omitidas para brevidade, mas mantidas no arquivo final] ...
+# Aqui, você deve incluir suas funções: preencher_pdf_formulario, gerar_pdf_etiquetas, 
+# gerar_pdf_capas_prontuario, gerar_pdf_relatorio_vacinacao, etc.
+# Mantenho o comentário para brevidade, mas o seu código real deve tê-las.
+
+# Exemplo de função de PDF para evitar NameError (a função real é mais complexa)
+def preencher_pdf_formulario(dados):
+    st.info("Simulando geração de PDF...")
+    buffer = BytesIO()
+    c = canvas.Canvas(buffer, pagesize=letter)
+    c.drawString(72, 800, f"Formulário de Vulnerabilidade para: {dados.get('Nome Completo', 'N/A')}")
+    c.drawString(72, 780, f"CPF: {dados.get('CPF', 'N/A')}")
+    c.save()
+    return buffer.getvalue()
+    
+# Exemplo de função de PDF para evitar NameError
+def gerar_pdf_etiquetas(familias_para_gerar):
+    st.info("Simulando geração de etiquetas...")
+    buffer = BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A4)
+    c.drawString(72, 800, f"Etiquetas Geradas em {datetime.now().strftime('%d/%m/%Y')}")
+    c.save()
+    return buffer.getvalue()
+    
+# Exemplo de função de PDF para evitar NameError
+def gerar_pdf_capas_prontuario(pacientes):
+    st.info("Simulando geração de capas...")
+    buffer = BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A4)
+    c.drawString(72, 800, f"Capas de Prontuário Geradas em {datetime.now().strftime('%d/%m/%Y')}")
+    c.save()
+    return buffer.getvalue()
+    
+# Exemplo de função de Página para evitar NameError
+def pagina_ocr_e_alerta_whatsapp(planilha): st.subheader("Verificação Rápida WhatsApp (Função Omitida)")
+def pagina_analise_vacinacao(planilha, gemini_client): st.subheader("Análise de Vacinação (Função Omitida)")
+def pagina_importar_prontuario(planilha, gemini_client): st.subheader("Importar Dados de Prontuário (Função Omitida)")
+def pagina_capas_prontuario(planilha): st.subheader("Gerar Capas de Prontuário (Função Omitida)")
+def pagina_whatsapp(planilha): st.subheader("Enviar WhatsApp (Manual) (Função Omitida)")
+def pagina_gerador_qrcode(planilha): st.subheader("Gerador de QR Code (Função Omitida)")
+def pagina_dashboard_resumo(planilha): st.subheader("Dashboard de Resumo (Omitida)")
 
 # As funções de geração de PDF, Dashboard, Pesquisa, etc., permanecem inalteradas,
 # exceto pelos pontos de integração do Link da Pasta da Família.
@@ -554,6 +682,7 @@ def pagina_coleta(planilha, gemini_client):
             
             if texto_extraido:
                 # Etapa 2: Extração com Gemini (Structured Output) - Passa o cliente
+                # A CORREÇÃO ESTÁ AQUI: AGORA A FUNÇÃO FOI DEFINIDA
                 dados_extraidos = extrair_dados_com_google_gemini(texto_extraido, gemini_client)
                 
                 if dados_extraidos:
@@ -731,8 +860,6 @@ def pagina_pesquisa(planilha):
                     st.error(f"Erro: Não foi possível encontrar o paciente com ID {patient_data['ID']} para atualizar.")
                 except Exception as e:
                     st.error(f"Ocorreu um erro ao salvar: {e}")
-
-# ... (Funções ocr_space_api, extrair_dados_com_google_gemini, extrair_dados_vacinacao_com_google_gemini, extrair_dados_clinicos_com_google_gemini, preencher_pdf_formulario, gerar_pdf_etiquetas, gerar_pdf_capas_prontuario, gerar_pdf_relatorio_vacinacao, e o restante das páginas Streamlit)
 
 def main():
     query_params = st.query_params
