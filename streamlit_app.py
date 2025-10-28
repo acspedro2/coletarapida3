@@ -25,11 +25,10 @@ import os
 # CORREÇÃO: Usando a nova SDK (google-genai)
 try:
     import google.genai as genai
-    # Importação necessária para Saída Estruturada (Structured Output)
-    from google.genai.types import Schema, Type
-    # Importação para Pydantic - Adicionada se estiver usando Python 3.9+ e 'google-genai'
-    # Se você estivesse usando a Pydantic V2, a importação seria:
-    # from pydantic import BaseModel, Field
+    # Importação para Pydantic - Essencial para Saída Estruturada
+    from pydantic import BaseModel, Field
+    # Importação da SDK para tipos
+    from google.genai.types import Part
 except ImportError as e:
     st.error(f"Erro de importação: {e}. Verifique se 'google-genai' e 'pydantic' estão no seu requirements.txt.")
     st.stop()
@@ -38,57 +37,61 @@ except ImportError as e:
 # --- CONFIGURAÇÃO GLOBAL DA API GEMINI ---
 MODELO_GEMINI = "gemini-2.5-flash"
 
-# --- ESQUEMAS JSON PARA SAÍDA ESTRUTURADA GEMINI ---
+# --- ESQUEMAS PYDANTIC PARA SAÍDA ESTRUTURADA GEMINI ---
+
 # Esquema 1: Extração de Dados Cadastrais
-CADASTRO_SCHEMA = Schema(
-    type=Type.OBJECT,
-    properties={
-        "ID": Schema(type=Type.STRING),
-        "FAMÍLIA": Schema(type=Type.STRING, description="Código de família (ex: FAM111). Se não for claro, retorne string vazia."),
-        "Nome Completo": Schema(type=Type.STRING),
-        "Data de Nascimento": Schema(type=Type.STRING, description="Data no formato DD/MM/AAAA. Se ausente, retorne string vazia."),
-        "Telefone": Schema(type=Type.STRING),
-        "CPF": Schema(type=Type.STRING),
-        "Nome da Mãe": Schema(type=Type.STRING),
-        "Nome do Pai": Schema(type=Type.STRING),
-        "Sexo": Schema(type=Type.STRING, description="M, F, I (Ignorado)."),
-        "CNS": Schema(type=Type.STRING, description="Número do Cartão Nacional de Saúde."),
-        "Município de Nascimento": Schema(type=Type.STRING)
-    },
-    required=["Nome Completo", "Data de Nascimento"]
-)
+class CadastroSchema(BaseModel):
+    """Esquema de extração para dados cadastrais do paciente."""
+    ID: str = Field(description="ID único gerado. Se não for claro, retorne string vazia.")
+    FAMÍLIA: str = Field(description="Código de família (ex: FAM111). Se não for claro, retorne string vazia.")
+    nome_completo: str = Field(alias="Nome Completo")
+    data_nascimento: str = Field(alias="Data de Nascimento", description="Data no formato DD/MM/AAAA. Se ausente, retorne string vazia.")
+    Telefone: str
+    CPF: str
+    nome_da_mae: str = Field(alias="Nome da Mãe")
+    nome_do_pai: str = Field(alias="Nome do Pai")
+    Sexo: str = Field(description="M, F, I (Ignorado).")
+    CNS: str = Field(description="Número do Cartão Nacional de Saúde.")
+    municipio_nascimento: str = Field(alias="Município de Nascimento")
+
+    # Configuração Pydantic para aceitar a chave 'Data de Nascimento' e forçá-la no output
+    model_config = {
+        "populate_by_name": True,
+        "json_schema_extra": {
+            "required": ["Nome Completo", "Data de Nascimento"]
+        }
+    }
 
 # Esquema 2: Extração de Vacinação
-VACINACAO_SCHEMA = Schema(
-    type=Type.OBJECT,
-    properties={
-        "nome_paciente": Schema(type=Type.STRING),
-        "data_nascimento": Schema(type=Type.STRING, description="Data no formato DD/MM/AAAA."),
-        "vacinas_administradas": Schema(
-            type=Type.ARRAY,
-            description="Lista de vacinas e doses normalizadas.",
-            items=Schema(
-                type=Type.OBJECT,
-                properties={
-                    "vacina": Schema(type=Type.STRING, description="Nome normalizado da vacina (ex: Pentavalente, Tríplice Viral)."),
-                    "dose": Schema(type=Type.STRING, description="Dose (ex: 1ª Dose, Reforço).")
-                },
-                required=["vacina", "dose"]
-            )
-        )
-    },
-    required=["nome_paciente", "data_nascimento", "vacinas_administradas"]
-)
+class VacinaAdministrada(BaseModel):
+    """Representa uma vacina administrada com dose normalizada."""
+    vacina: str = Field(description="Nome normalizado da vacina (ex: Pentavalente, Tríplice Viral).")
+    dose: str = Field(description="Dose (ex: 1ª Dose, Reforço).")
+
+class VacinacaoSchema(BaseModel):
+    """Esquema de extração para dados de vacinação e doses."""
+    nome_paciente: str
+    data_nascimento: str = Field(description="Data no formato DD/MM/AAAA.")
+    vacinas_administradas: list[VacinaAdministrada] = Field(
+        description="Lista de vacinas e doses normalizadas."
+    )
+    model_config = {
+        "json_schema_extra": {
+            "required": ["nome_paciente", "data_nascimento", "vacinas_administradas"]
+        }
+    }
 
 # Esquema 3: Extração de Dados Clínicos
-CLINICO_SCHEMA = Schema(
-    type=Type.OBJECT,
-    properties={
-        "diagnosticos": Schema(type=Type.ARRAY, items=Schema(type=Type.STRING), description="Lista de condições médicas ou diagnósticos, priorizando crônicas."),
-        "medicamentos": Schema(type=Type.ARRAY, items=Schema(type=Type.STRING), description="Lista de medicamentos, incluindo dosagem se disponível.")
-    },
-    required=["diagnosticos", "medicamentos"]
-)
+class ClinicoSchema(BaseModel):
+    """Esquema de extração para diagnósticos e medicamentos."""
+    diagnosticos: list[str] = Field(description="Lista de condições médicas ou diagnósticos, priorizando crônicas.")
+    medicamentos: list[str] = Field(description="Lista de medicamentos, incluindo dosagem se disponível.")
+    
+    model_config = {
+        "json_schema_extra": {
+            "required": ["diagnosticos", "medicamentos"]
+        }
+    }
 
 
 # --- MOTOR DE REGRAS: CALENDÁRIO NACIONAL DE IMUNIZAÇÕES (PNI) ---
@@ -162,8 +165,6 @@ def analisar_carteira_vacinacao(data_nascimento_str, vacinas_administradas):
 def ler_texto_prontuario(file_bytes, ocr_api_key):
     try:
         # Nota: 'convert_from_bytes' requer que o utilitário Poppler esteja instalado no sistema
-        # A OCRSpace não é mais necessária para PDFs se o Gemini for capaz de processar o PDF diretamente.
-        # Contudo, mantemos a lógica de OCRSpace, já que o código usa a chave e a função.
         imagens_pil = convert_from_bytes(file_bytes)
         texto_completo = ""
         progress_bar = st.progress(0, text="A processar páginas do PDF...")
@@ -235,48 +236,48 @@ def ocr_space_api(file_bytes, ocr_api_key):
         st.error(f"Erro inesperado no OCR: {e}"); return None
 
 # --- FUNÇÕES COM GOOGLE GEMINI (MODELO ATUALIZADO E SAÍDA ESTRUTURADA) ---
-# CORREÇÃO: Recebe o objeto client em vez da api_key
 def extrair_dados_com_google_gemini(texto_extraido: str, client: genai.Client):
     """
     Extrai dados cadastrais de um texto (ficha) usando Gemini,
-    garantindo que a saída seja um JSON válido através do response_schema.
+    garantindo que a saída seja um JSON válido através do esquema Pydantic.
     """
     try:
         
         prompt = f"""
         Sua tarefa é extrair informações de um texto de formulário de saúde extraído por OCR e convertê-lo para um objeto JSON estrito com as chaves fornecidas no esquema.
         Procure pelo código de família (ex: 'FAM111') e coloque-o na chave "FAMÍLIA".
+        Mantenha o formato da data como DD/MM/AAAA.
         Se um valor não for encontrado para uma chave, retorne uma string vazia "".
         Texto para analisar: --- {texto_extraido} ---
         """
         
-        # O cliente já está configurado na função main()
-        # model = genai.GenerativeModel(MODELO_GEMINI) # Não é mais necessário criar o modelo assim
-        
         # Uso do Structured Output para forçar o retorno JSON
-        response = client.models.generate_content( # Utiliza o client.models
-            model=MODELO_GEMINI, # Especifica o modelo
+        response = client.models.generate_content(
+            model=MODELO_GEMINI,
             contents=[prompt],
             config={
                 "response_mime_type": "application/json",
-                "response_schema": CADASTRO_SCHEMA, # Utiliza o esquema cadastral
+                "response_schema": CadastroSchema, # Usa a classe Pydantic
             }
         )
         
-        # O retorno 'response.text' JÁ É um JSON válido
-        dados_extraidos = json.loads(response.text)
+        # Validação Pydantic
+        dados_pydantic = CadastroSchema.model_validate_json(response.text)
+        
+        # Converte o objeto Pydantic validado para um dicionário Python padrão.
+        # Usa by_alias=True para obter as chaves formatadas (e.g., "Nome Completo")
+        dados_extraidos = dados_pydantic.model_dump(by_alias=True)
         
         return dados_extraidos
         
     except Exception as e:
-        st.error(f"Erro ao chamar a API do Google Gemini (Extração de Ficha): {e}")
+        st.error(f"Erro ao chamar a API do Google Gemini (Extração de Ficha) ou na validação Pydantic: {e}")
         return None
 
-# CORREÇÃO: Recebe o objeto client em vez da api_key
 def extrair_dados_vacinacao_com_google_gemini(texto_extraido: str, client: genai.Client):
     """
     Extrai nome, data de nascimento e vacinas administradas de um texto de caderneta,
-    usando Saída Estruturada.
+    usando Saída Estruturada com Pydantic.
     """
     try:
         
@@ -294,30 +295,31 @@ def extrair_dados_vacinacao_com_google_gemini(texto_extraido: str, client: genai
         """
         
         # Uso do Structured Output para forçar o retorno JSON
-        response = client.models.generate_content( # Utiliza o client.models
-            model=MODELO_GEMINI, # Especifica o modelo
+        response = client.models.generate_content(
+            model=MODELO_GEMINI,
             contents=[prompt],
             config={
                 "response_mime_type": "application/json",
-                "response_schema": VACINACAO_SCHEMA, # Utiliza o esquema de vacinação
+                "response_schema": VacinacaoSchema, # Usa a classe Pydantic
             }
         )
         
-        dados_extraidos = json.loads(response.text)
+        # Validação Pydantic
+        dados_pydantic = VacinacaoSchema.model_validate_json(response.text)
         
-        if "nome_paciente" in dados_extraidos and "data_nascimento" in dados_extraidos and "vacinas_administradas" in dados_extraidos:
-            return dados_extraidos
-        else: return None
+        # Converte o objeto Pydantic validado para um dicionário Python padrão.
+        dados_extraidos = dados_pydantic.model_dump()
+        
+        return dados_extraidos
         
     except Exception as e:
-        st.error(f"Erro ao processar a resposta da IA (Gemini - Vacinação): {e}")
+        st.error(f"Erro ao processar a resposta da IA (Gemini - Vacinação) ou na validação Pydantic: {e}")
         return None
 
-# CORREÇÃO: Recebe o objeto client em vez da api_key
 def extrair_dados_clinicos_com_google_gemini(texto_prontuario: str, client: genai.Client):
     """
     Extrai diagnósticos e medicamentos de um texto de prontuário clínico,
-    usando Saída Estruturada.
+    usando Saída Estruturada com Pydantic.
     """
     try:
         
@@ -335,23 +337,25 @@ def extrair_dados_clinicos_com_google_gemini(texto_prontuario: str, client: gena
         """
         
         # Uso do Structured Output para forçar o retorno JSON
-        response = client.models.generate_content( # Utiliza o client.models
-            model=MODELO_GEMINI, # Especifica o modelo
+        response = client.models.generate_content(
+            model=MODELO_GEMINI,
             contents=[prompt],
             config={
                 "response_mime_type": "application/json",
-                "response_schema": CLINICO_SCHEMA, # Utiliza o esquema clínico
+                "response_schema": ClinicoSchema, # Usa a classe Pydantic
             }
         )
         
-        dados_extraidos = json.loads(response.text)
+        # Validação Pydantic
+        dados_pydantic = ClinicoSchema.model_validate_json(response.text)
         
-        if "diagnosticos" in dados_extraidos and "medicamentos" in dados_extraidos:
-            return dados_extraidos
-        else: return None
+        # Converte o objeto Pydantic validado para um dicionário Python padrão.
+        dados_extraidos = dados_pydantic.model_dump()
+        
+        return dados_extraidos
             
     except Exception as e:
-        st.error(f"Erro ao processar a resposta da IA (Gemini - Clínico): {e}")
+        st.error(f"Erro ao processar a resposta da IA (Gemini - Clínico) ou na validação Pydantic: {e}")
         return None
 
 def salvar_no_sheets(dados, planilha):
@@ -359,10 +363,22 @@ def salvar_no_sheets(dados, planilha):
         cabecalhos = planilha.row_values(1)
         if 'ID' not in dados or not dados['ID']: dados['ID'] = f"ID-{int(time.time())}"
         dados['Data de Registo'] = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        
+        # Mapeia as chaves do Pydantic (com underscore) para os cabeçalhos da planilha (com espaço/alias)
+        dados_formatados = {}
+        for k, v in dados.items():
+            if isinstance(k, str) and k in CadastroSchema.model_fields:
+                # Usa o alias (e.g., "Nome Completo") se disponível
+                alias = CadastroSchema.model_fields[k].alias or k
+                dados_formatados[alias] = v
+            else:
+                # Mantém as chaves que não são do Pydantic (e.g., 'ID', 'FAMÍLIA', 'Data de Registo')
+                dados_formatados[k] = v
+
         # Padroniza as chaves do dicionário para casar com os cabeçalhos da planilha
-        nova_linha = [dados.get(cabecalho, "") for cabecalho in cabecalhos]
+        nova_linha = [dados_formatados.get(cabecalho, "") for cabecalho in cabecalhos]
         planilha.append_row(nova_linha)
-        st.success(f"✅ Dados de '{dados.get('Nome Completo', 'Desconhecido')}' salvos com sucesso!")
+        st.success(f"✅ Dados de '{dados_formatados.get('Nome Completo', 'Desconhecido')}' salvos com sucesso!")
         st.balloons()
         st.cache_data.clear()
     except Exception as e:
@@ -650,10 +666,7 @@ def pagina_coleta(planilha, gemini_client):
             st.image(Image.open(proximo_arquivo), width=400)
             file_bytes = proximo_arquivo.getvalue()
             
-            # Etapa 1: OCR
-            # NOTA: O Gemini 2.5 Flash é multimodal e pode processar a imagem diretamente, 
-            # eliminando a necessidade do OCRSpace para fichas simples. 
-            # Mas, como seu código usa OCRSpace, mantive a lógica:
+            # Etapa 1: OCR - Mantido o OCRSpace conforme o código original, mas o Gemini poderia fazer isso.
             texto_extraido = ocr_space_api(file_bytes, st.secrets["OCRSPACEKEY"])
             
             if texto_extraido:
@@ -663,8 +676,11 @@ def pagina_coleta(planilha, gemini_client):
                 if dados_extraidos:
                     with st.form(key=f"form_{proximo_arquivo.file_id}"):
                         st.subheader("2. Confirme e salve os dados")
+                        # Mapeia as chaves do Pydantic (snake_case) para as chaves de input (camelCase/Alias)
                         dados_para_salvar = {}
+                        
                         # Preenchimento dos inputs com os dados extraídos pelo Gemini
+                        # Usando get() para lidar com possíveis retornos vazios
                         dados_para_salvar['ID'] = st.text_input("ID", value=dados_extraidos.get("ID", ""))
                         dados_para_salvar['FAMÍLIA'] = st.text_input("FAMÍLIA", value=dados_extraidos.get("FAMÍLIA", ""))
                         dados_para_salvar['Nome Completo'] = st.text_input("Nome Completo", value=dados_extraidos.get("Nome Completo", ""))
@@ -674,7 +690,13 @@ def pagina_coleta(planilha, gemini_client):
                         dados_para_salvar['Telefone'] = st.text_input("Telefone", value=dados_extraidos.get("Telefone", ""))
                         dados_para_salvar['Nome da Mãe'] = st.text_input("Nome da Mãe", value=dados_extraidos.get("Nome da Mãe", ""))
                         dados_para_salvar['Nome do Pai'] = st.text_input("Nome do Pai", value=dados_extraidos.get("Nome do Pai", ""))
-                        dados_para_salvar['Sexo'] = st.selectbox("Sexo", options=["", "M", "F", "I (Ignorado)"], index=["", "M", "F", "I (Ignorado)"].index(dados_extraidos.get("Sexo", "").strip().upper()[:1] if dados_extraidos.get("Sexo") else "") if dados_extraidos.get("Sexo", "").strip().upper()[:1] in ["M", "F", "I"] else 0)
+                        
+                        sexo_extraido = dados_extraidos.get("Sexo", "").strip().upper()[:1]
+                        sexo_selecionado = ""
+                        if sexo_extraido in ["M", "F", "I"]:
+                            sexo_selecionado = sexo_extraido
+                        
+                        dados_para_salvar['Sexo'] = st.selectbox("Sexo", options=["", "M", "F", "I (Ignorado)"], index=["", "M", "F", "I (Ignorado)"].index(sexo_selecionado) if sexo_selecionado else 0)
                         dados_para_salvar['Município de Nascimento'] = st.text_input("Município de Nascimento", value=dados_extraidos.get("Município de Nascimento", ""))
                         
                         if st.form_submit_button("✅ Salvar Dados Desta Ficha"):
@@ -1210,7 +1232,7 @@ def main():
     # 1. Configuração da Chave API e Cliente Gemini (FEITA AQUI PARA REUTILIZAÇÃO)
     try:
         API_KEY = st.secrets["GOOGLE_API_KEY"]
-        # CORREÇÃO CRÍTICA: Cria o objeto Client. Não use mais genai.configure()
+        # CRÍTICO: Cria o objeto Client.
         gemini_client = genai.Client(api_key=API_KEY)
     except KeyError:
         st.error("ERRO: Chave API do Gemini não encontrada. Verifique se 'GOOGLE_API_KEY' está no seu secrets.toml.")
