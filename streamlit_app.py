@@ -1,7 +1,3 @@
-# --- NOVA IMPORTAÇÃO E CONFIGURAÇÃO ---
-import google.genai as genai # Corrija aqui se estiver usando google-genai
-# Importação necessária para Saída Estruturada (Structured Output)
-from google.genai.types import Schema, Type # Corrija aqui
 
 import streamlit as st
 import requests
