@@ -26,9 +26,9 @@ from dateutil.relativedelta import relativedelta
 from pdf2image import convert_from_bytes
 
 # --- NOVA IMPORTAÇÃO E CONFIGURAÇÃO ---
-import google.google-genai as genai
+import google.genai as genai
 # Importação necessária para Saída Estruturada (Structured Output)
-from google.google-genai.types import Schema, Type
+from google.genai.types import Schema, Type
 
 # --- CONFIGURAÇÃO GLOBAL DA API GEMINI ---
 MODELO_GEMINI = "gemini-2.5-flash"
