@@ -242,8 +242,6 @@ def ler_dados_da_planilha(_planilha):
     except Exception as e:
         st.error(f"Erro ao ler os dados da planilha: {e}"); return pd.DataFrame()
 
-# REMOVIDA A FUNÇÃO 'ocr_space_api'
-
 # --- FUNÇÕES COM GOOGLE GEMINI (MODELO ATUALIZADO E SAÍDA ESTRUTURADA) ---
 def extrair_dados_com_google_gemini(texto_extraido: str, client: genai.Client):
     """
@@ -941,24 +939,89 @@ def pagina_capas_prontuario(planilha):
 def pagina_whatsapp(planilha):
     st.title("📱 Enviar Mensagens de WhatsApp (Manual)")
     df = ler_dados_da_planilha(planilha)
-    if df.empty: st.warning("Ainda não há dados na planilha para enviar mensagens."); return
-    st.subheader("1. Escreva a sua mensagem")
-    mensagem_padrao = st.text_area("Mensagem:", "Olá, [NOME]! A sua autorização de exame para [ESCREVA AQUI O NOME DO EXAME] foi liberada. Por favor, entre em contato para mais detalhes.", height=150)
-    st.subheader("2. Escolha o paciente e envie")
+
+    # 1. Pré-processamento e Validação
     df_com_telefone = df[df['Telefone'].astype(str).str.strip() != ''].copy()
-    for index, row in df_com_telefone.iterrows():
-        nome = row['Nome Completo']
-        telefone = padronizar_telefone(row['Telefone']) # Usando a função padronizar_telefone
-        if telefone is None: continue
-        mensagem_personalizada = mensagem_padrao.replace("[NOME]", nome.split()[0])
-        whatsapp_url = f"https://wa.me/55{telefone}?text={urllib.parse.quote(mensagem_personalizada)}"
+    df_com_telefone['Telefone Limpo'] = df_com_telefone['Telefone'].apply(padronizar_telefone)
+    df_com_telefone.dropna(subset=['Telefone Limpo'], inplace=True)
+
+    if df_com_telefone.empty: 
+        st.warning("Ainda não há pacientes com números de telefone válidos na planilha para enviar mensagens.")
+        return
+
+    # Lista de pacientes para seleção
+    lista_pacientes = sorted(df_com_telefone['Nome Completo'].tolist())
+
+    st.subheader("1. Escreva a sua mensagem e use Placeholders")
+    st.info("Utilize as variáveis (placeholders) na mensagem, como **[NOME]**, **[CPF]** e **[DATA_NASCIMENTO]** para personalização automática.", icon="💡")
+    
+    # Mensagem Padrão
+    mensagem_padrao = st.text_area(
+        "Mensagem:", 
+        "Olá, [NOME]! O seu agendamento para [ESCREVA AQUI O PROCEDIMENTO] foi marcado. Por favor, confirme o seu CPF: [CPF]. [SAÚDE MUNICIPAL]", 
+        height=150
+    )
+
+    st.subheader("2. Escolha o paciente e pré-visualize")
+    
+    # Campo de seleção com pesquisa (Selectbox)
+    paciente_selecionado_nome = st.selectbox(
+        "Selecione o paciente para enviar:", 
+        options=lista_pacientes, 
+        index=None, 
+        placeholder="Digite para pesquisar o nome..."
+    )
+
+    if paciente_selecionado_nome:
+        paciente_data = df_com_telefone[df_com_telefone['Nome Completo'] == paciente_selecionado_nome].iloc[0]
+        
+        # Obter dados para substituição
+        nome_completo = paciente_data['Nome Completo']
+        primeiro_nome = nome_completo.split()[0]
+        telefone_limpo = paciente_data['Telefone Limpo']
+        
+        # Dicionário de substituições
+        substituicoes = {
+            "[NOME]": primeiro_nome,
+            "[NOME_COMPLETO]": nome_completo,
+            "[CPF]": paciente_data.get('CPF', 'Não Informado'),
+            "[CNS]": paciente_data.get('CNS', 'Não Informado'),
+            "[DATA_NASCIMENTO]": paciente_data.get('Data de Nascimento', 'Não Informado')
+        }
+
+        # Aplicar substituições na mensagem
+        mensagem_personalizada = mensagem_padrao
+        for placeholder, valor in substituicoes.items():
+            mensagem_personalizada = mensagem_personalizada.replace(placeholder, str(valor))
+        
+        # Geração do link final
+        whatsapp_url = f"https://wa.me/55{telefone_limpo}?text={urllib.parse.quote(mensagem_personalizada)}"
+        
+        st.markdown("---")
+        st.subheader("3. Mensagem Final e Envio")
+
+        # Pré-visualização da mensagem
+        with st.expander("Pré-visualização da Mensagem Personalizada"):
+            st.code(mensagem_personalizada, language='text')
+
         col1, col2 = st.columns([3, 1])
-        col1.text(f"{nome} - ({row['Telefone']})")
-        col2.link_button("Enviar Mensagem ↗️", whatsapp_url, use_container_width=True)
+        col1.write(f"Paciente selecionado: **{nome_completo}**")
+        col1.write(f"Número (Limpo): **+55 {telefone_limpo}**")
+        
+        col2.link_button(
+            "Abrir WhatsApp para Enviar ↗️", 
+            whatsapp_url, 
+            type="primary",
+            use_container_width=True
+        )
+
+        st.dataframe(paciente_data[['ID', 'FAMÍLIA', 'Telefone', 'CPF']].to_frame().T, hide_index=True)
+    else:
+        st.info("Selecione um paciente para continuar.")
 
 def pagina_ocr_e_alerta_whatsapp(planilha):
     st.title("📸 Verificação Rápida e Alerta WhatsApp")
-    st.warning("Fluxo: Foto/Documento ➡️ Simulação da Extração do Nome ➡️ Busca Automática ➡️ Notificação WhatsApp")
+    st.info("Fluxo: Foto/Documento ➡️ Simulação da Extração do Nome ➡️ Busca Automática ➡️ Notificação WhatsApp")
     
     # Lendo os dados da planilha
     df = ler_dados_da_planilha(planilha)
@@ -966,8 +1029,18 @@ def pagina_ocr_e_alerta_whatsapp(planilha):
         st.error("A planilha não possui dados para busca.")
         return
 
+    # Pré-processamento e Validação de Telefones
+    df_com_telefone = df[df['Telefone'].astype(str).str.strip() != ''].copy()
+    df_com_telefone['Telefone Limpo'] = df_com_telefone['Telefone'].apply(padronizar_telefone)
+    df_com_telefone.dropna(subset=['Telefone Limpo'], inplace=True)
+    
+    if df_com_telefone.empty:
+         st.error("Nenhum paciente na planilha tem um número de telefone válido para receber alertas.")
+         return
+
     # 1. Simulação da Captura do Documento
     st.subheader("1. Capturar ou Carregar a Imagem do Documento")
+    # Mantemos o input da câmera/arquivo como gatilho
     foto_paciente = st.camera_input("Tire uma foto do documento do paciente:")
     
     st.markdown("---")
@@ -977,46 +1050,39 @@ def pagina_ocr_e_alerta_whatsapp(planilha):
     
     if foto_paciente is not None:
         
-        # Cria uma coluna padronizada de telefone para filtrar apenas pacientes que podem receber o alerta
-        df['Telefone Limpo'] = df['Telefone'].apply(padronizar_telefone)
-        lista_pacientes_validos = df[df['Telefone Limpo'].notna()]['Nome Completo'].tolist()
-
-        if not lista_pacientes_validos:
-            st.error("Nenhum paciente na planilha tem um número de telefone válido para receber alertas.")
-            return
+        lista_pacientes_validos = df_com_telefone['Nome Completo'].tolist()
 
         nome_para_buscar = st.selectbox(
-            "Selecione o nome que a IA 'extraiu' da imagem:", 
+            "Simule o nome que a IA 'extraiu' da imagem:", 
             options=sorted(lista_pacientes_validos),
             index=None,
             placeholder="Selecione o nome do paciente para que o sistema possa buscá-lo..."
         )
     
     if nome_para_buscar:
-        # 3. Execução da Busca (O sistema procura!)
-        
+        # 3. Execução da Busca
         nome_limpo_busca = nome_para_buscar.strip().upper()
-        df['Nome Limpo'] = df['Nome Completo'].astype(str).str.strip().str.upper()
-        resultado_busca = df[df['Nome Limpo'] == nome_limpo_busca]
+        df_com_telefone['Nome Limpo'] = df_com_telefone['Nome Completo'].astype(str).str.strip().str.upper()
+        resultado_busca = df_com_telefone[df_com_telefone['Nome Limpo'] == nome_limpo_busca]
         
         if not resultado_busca.empty:
             paciente_data = resultado_busca.iloc[0]
-            telefone_limpo = padronizar_telefone(paciente_data['Telefone'])
-            telefone_completo = paciente_data['Telefone']
-            primeiro_nome = paciente_data['Nome Completo'].split()[0]
             
-            if telefone_limpo is None:
-                 st.error(f"❌ Paciente '{paciente_data['Nome Completo']}' encontrado, mas o telefone ({telefone_completo}) é inválido.")
-                 return
-
-            st.success(f"✅ Paciente '{paciente_data['Nome Completo']}' **CONSTA** na planilha!")
+            # Dados para personalização
+            nome_completo = paciente_data['Nome Completo']
+            primeiro_nome = nome_completo.split()[0]
+            telefone_limpo = paciente_data['Telefone Limpo']
+            
+            st.success(f"✅ Paciente '{nome_completo}' **CONSTA** na planilha!")
             
             # 4. Alerta e Ação (WhatsApp)
             st.subheader("3. Alerta e Envio da Notificação")
             
+            st.info("Utilize as variáveis (placeholders) na mensagem, como **[NOME]**, **[CPF]** e **[CNS]** para personalização automática.", icon="💡")
+
             mensagem_default = (
-                f"Olá, {primeiro_nome}! Seu procedimento foi LIBERADO/AUTORIZADO. "
-                f"Entre em contato com seu ACS/UBS para agendar. [SAÚDE MUNICIPAL]"
+                f"Olá, [NOME]! Seu procedimento/exame foi LIBERADO/AUTORIZADO. "
+                f"Entre em contato com sua UBS. [SAÚDE MUNICIPAL]"
             )
             
             mensagem_padrao = st.text_area(
@@ -1025,20 +1091,38 @@ def pagina_ocr_e_alerta_whatsapp(planilha):
                 height=100
             )
             
-            st.warning(f"A notificação será enviada para: **{telefone_completo}**.")
+            # Dicionário de substituições (reutilizado)
+            substituicoes = {
+                "[NOME]": primeiro_nome,
+                "[NOME_COMPLETO]": nome_completo,
+                "[CPF]": paciente_data.get('CPF', 'Não Informado'),
+                "[CNS]": paciente_data.get('CNS', 'Não Informado'),
+                "[DATA_NASCIMENTO]": paciente_data.get('Data de Nascimento', 'Não Informado')
+            }
             
+            # Aplica substituições na mensagem
+            mensagem_personalizada = mensagem_padrao
+            for placeholder, valor in substituicoes.items():
+                mensagem_personalizada = mensagem_personalizada.replace(placeholder, str(valor))
+                
             # Geração do link
-            whatsapp_url = f"https://wa.me/55{telefone_limpo}?text={urllib.parse.quote(mensagem_padrao)}"
+            whatsapp_url = f"https://wa.me/55{telefone_limpo}?text={urllib.parse.quote(mensagem_personalizada)}"
+            
+            st.warning(f"A notificação será enviada para: **{paciente_data['Telefone']}**.")
+            
+            with st.expander("Pré-visualização da Mensagem Personalizada"):
+                st.code(mensagem_personalizada, language='text')
             
             col1, col2 = st.columns([1, 1])
             with col1:
                 st.link_button("Abrir WhatsApp e Enviar ↗️", whatsapp_url, type="primary", use_container_width=True)
             with col2:
                 st.write(f"Dados do Paciente:")
-                st.dataframe(paciente_data[['Nome Completo', 'Telefone', 'ID']].to_frame().T, hide_index=True)
+                st.dataframe(paciente_data[['Nome Completo', 'Telefone', 'ID', 'CPF']].to_frame().T, hide_index=True)
 
         else:
-            st.error(f"❌ Erro: O nome '{nome_para_buscar}' **NÃO CONSTA** na planilha de pacientes.")
+            st.error(f"❌ Erro: O nome '{nome_para_buscar}' **NÃO CONSTA** na planilha de pacientes com telefone válido.")
+
 
 def pagina_analise_vacinacao(planilha, gemini_client):
     st.title("💉 Análise Automatizada de Caderneta de Vacinação")
