@@ -588,6 +588,144 @@ def gerar_pdf_relatorio_vacinacao(nome_paciente, data_nascimento, relatorio):
     pdf_buffer.seek(0)
     return pdf_buffer
 
+# --- FUNÇÕES AUXILIARES PARA WHATSAPP (NOVAS) ---
+def mascarar_cpf_cns(valor: str, tipo: str = 'cpf') -> str:
+    """Mascara CPF ou CNS para privacidade."""
+    if pd.isna(valor) or not valor: return 'Não Informado'
+    digits = re.sub(r'\D', '', str(valor))
+    if tipo == 'cpf' and len(digits) == 11:
+        return f"{digits[:3]}.***.***-{digits[-2:]}"
+    elif len(digits) >= 6:
+        return f"{digits[:3]}********{digits[-3:]}"
+    return valor
+
+def buscar_dados_completos_paciente(nome_paciente, df):
+    """Busca e retorna todos os dados do paciente da planilha."""
+    paciente_row = df[df['Nome Completo'] == nome_paciente]
+    if paciente_row.empty:
+        return None
+    dados = paciente_row.iloc[0].to_dict()
+    # Máscara para preview (não afeta o envio)
+    dados['CPF_Mascarado'] = mascarar_cpf_cns(dados.get('CPF', ''), 'cpf')
+    dados['CNS_Mascarado'] = mascarar_cpf_cns(dados.get('CNS', ''), 'cns')
+    return dados
+
+def aplicar_substituicoes_completas(mensagem, dados_paciente):
+    """Aplica todos os placeholders com dados existentes."""
+    substituicoes = {
+        "[NOME]": dados_paciente.get('Nome Completo', '').split()[0],
+        "[NOME_COMPLETO]": dados_paciente.get('Nome Completo', 'Não Informado'),
+        "[IDADE]": f"{dados_paciente.get('Idade', 'N/A')} anos",
+        "[CPF]": dados_paciente.get('CPF', 'Não Informado'),  # Completo pro envio
+        "[CNS]": dados_paciente.get('CNS', 'Não Informado'),
+        "[DATA_NASCIMENTO]": dados_paciente.get('Data de Nascimento', 'Não Informado'),
+        "[TELEFONE]": dados_paciente.get('Telefone', 'Não Informado'),
+        "[CONDICOES]": dados_paciente.get('Condição', 'Nenhuma registrada'),
+        "[MEDICAMENTOS]": dados_paciente.get('Medicamentos', 'Nenhum registrado'),
+        "[FAMILIA]": dados_paciente.get('FAMÍLIA', 'N/A'),
+        "[MUNICIPIO_NASC]": dados_paciente.get('Município de Nascimento', 'N/A')
+    }
+    for placeholder, valor in substituicoes.items():
+        mensagem = mensagem.replace(placeholder, str(valor))
+    return mensagem
+
+# --- PÁGINA WHATSAPP ATUALIZADA ---
+def pagina_whatsapp(planilha):
+    st.title("📱 Enviar Mensagens de WhatsApp para Pacientes")
+    df = ler_dados_da_planilha(planilha)
+
+    # Pré-processamento (igual antes)
+    df_com_telefone = df[df['Telefone'].astype(str).str.strip() != ''].copy()
+    df_com_telefone['Telefone Limpo'] = df_com_telefone['Telefone'].apply(padronizar_telefone)
+    df_com_telefone.dropna(subset=['Telefone Limpo'], inplace=True)
+
+    if df_com_telefone.empty: 
+        st.warning("Não há pacientes com telefones válidos. Cadastre-os na planilha!")
+        return
+
+    lista_pacientes = sorted(df_com_telefone['Nome Completo'].tolist())
+
+    st.subheader("1. Configure a Mensagem")
+    col1, col2 = st.columns(2)
+    with col1:
+        tipo_mensagem = st.selectbox("Tipo de Notificação:", 
+                                     options=["Exames", "Marcação Médica", "Orientações Gerais", "Personalizada"])
+    with col2:
+        enviar_para = st.selectbox("Enviar para:", 
+                                   options=["Um paciente", "Múltiplos pacientes (em massa)"])
+
+    # Templates por tipo
+    templates = {
+        "Exames": """Olá, [NOME]! Seu exame [TIPO_EXAME] está agendado para [DATA_HORA]. Leve jejum de 8h e seu CNS: [CNS]. Histórico: [IDADE] anos, condições: [CONDICOES]. Dúvidas? Ligue [TELEFONE_UBS]. [SAÚDE MUNICIPAL]""",
+        "Marcação Médica": """Olá, [NOME]! Consulta com [MEDICO_ESPECIALIDADE] marcada para [DATA_HORA]. Traga medicamentos: [MEDICAMENTOS]. Família: [FAMILIA]. Confirme presença! [SAÚDE MUNICIPAL]""",
+        "Orientações Gerais": """Olá, [NOME]! Orientação: Mantenha hidratação e monitore [CONDICOES]. Próxima dose vacinal em [DATA_PROXIMA]. Idade: [IDADE] | Nasc.: [DATA_NASCIMENTO]. Suporte: [TELEFONE_UBS]. [SAÚDE MUNICIPAL]""",
+        "Personalizada": "Olá, [NOME]! [SUA_MENSAGEM_AQUI]. Histórico: [CONDICOES] | Medicamentos: [MEDICAMENTOS]. [SAÚDE MUNICIPAL]"
+    }
+    mensagem_base = templates.get(tipo_mensagem, templates["Personalizada"])
+
+    # Campos customizáveis baseados no tipo
+    custom_fields = {}
+    if tipo_mensagem == "Exames":
+        custom_fields["TIPO_EXAME"] = st.text_input("Tipo de Exame:", placeholder="ex: hemograma")
+        custom_fields["DATA_HORA"] = st.text_input("Data/Hora:", placeholder="DD/MM/YYYY HH:MM")
+    elif tipo_mensagem == "Marcação Médica":
+        custom_fields["MEDICO_ESPECIALIDADE"] = st.text_input("Médico/Especialidade:", placeholder="ex: Dr. Silva - Cardiologia")
+        custom_fields["DATA_HORA"] = st.text_input("Data/Hora:", placeholder="DD/MM/YYYY HH:MM")
+    elif tipo_mensagem == "Orientações Gerais":
+        custom_fields["DATA_PROXIMA"] = st.text_input("Próxima Ação/Data:", placeholder="ex: 15/12/2025")
+    
+    # Ajusta mensagem base com custom fields
+    for key, value in custom_fields.items():
+        if value:
+            mensagem_base = mensagem_base.replace(f"[{key}]", value)
+
+    mensagem_padrao = st.text_area("Edite a Mensagem:", mensagem_base, height=150)
+
+    # Configurações comuns
+    TELEFONE_UBS = st.text_input("Telefone da UBS (pra suporte):", placeholder="+55 11 99999-9999")
+    if TELEFONE_UBS:
+        mensagem_padrao = mensagem_padrao.replace("[TELEFONE_UBS]", TELEFONE_UBS)
+
+    st.subheader("2. Selecione Paciente(s)")
+    if enviar_para == "Um paciente":
+        paciente_selecionado_nome = st.selectbox("Paciente:", lista_pacientes)
+        pacientes_selecionados = [paciente_selecionado_nome] if paciente_selecionado_nome else []
+    else:
+        pacientes_selecionados = st.multiselect("Pacientes (em massa):", lista_pacientes)
+
+    if pacientes_selecionados:
+        st.markdown("---")
+        st.subheader("3. Pré-visualize e Envie")
+
+        for nome_paciente in pacientes_selecionados:
+            with st.expander(f"Preview para {nome_paciente}"):
+                dados_paciente = buscar_dados_completos_paciente(nome_paciente, df_com_telefone)
+                if dados_paciente:
+                    mensagem_final = aplicar_substituicoes_completas(mensagem_padrao, dados_paciente)
+                    st.code(mensagem_final, language='text')
+                    
+                    telefone_limpo = dados_paciente['Telefone Limpo']
+                    whatsapp_url = f"https://wa.me/55{telefone_limpo}?text={urllib.parse.quote(mensagem_final)}"
+                    
+                    if st.button(f"📤 Enviar para {nome_paciente.split()[0]}", key=f"send_{nome_paciente}"):
+                        st.link_button("Abrir WhatsApp Agora ↗️", whatsapp_url, type="primary")
+                        st.success(f"Mensagem pronta para {nome_paciente}!")
+
+        # Resumo em massa
+        if enviar_para == "Múltiplos pacientes (em massa)" and len(pacientes_selecionados) > 1:
+            st.info(f"Serão enviadas {len(pacientes_selecionados)} mensagens. Revise cada preview acima.")
+            if st.button("Gerar Links em Massa (Copie e Cole no WhatsApp Web)"):
+                links = []
+                for nome in pacientes_selecionados:
+                    dados = buscar_dados_completos_paciente(nome, df_com_telefone)
+                    if dados:
+                        msg = aplicar_substituicoes_completas(mensagem_padrao, dados)
+                        url = f"https://wa.me/55{dados['Telefone Limpo']}?text={urllib.parse.quote(msg)}"
+                        links.append(f"{nome}: {url}")
+                st.code("\n\n".join(links), language='text')
+    else:
+        st.info("Selecione pelo menos um paciente.")
+
 # --- PÁGINAS DO APP ---
 
 def pagina_inicial():
@@ -666,7 +804,8 @@ def pagina_coleta(planilha, gemini_client):
     if 'processados' not in st.session_state: st.session_state.processados = []
     
     if uploaded_files:
-        proximo_arquivo = next((f for f in uploaded_files if f.file_id not in st.session_state.processados), None)
+        # FIX: Use get_file_id em vez de f.file_id
+        proximo_arquivo = next((f for f in uploaded_files if get_file_id(f) not in st.session_state.processados), None)
         
         if proximo_arquivo:
             st.subheader(f"Processando Ficha: `{proximo_arquivo.name}`")
@@ -674,7 +813,7 @@ def pagina_coleta(planilha, gemini_client):
             file_bytes = proximo_arquivo.getvalue()
             texto_extraido = None
             
-            # --- NOVO: OCR COM GEMINI VISION ---
+            # --- OCR COM GEMINI VISION ---
             with st.spinner("Extraindo texto da imagem com Gemini Vision..."):
                 try:
                     image_part = Part.from_bytes(data=file_bytes, mime_type=proximo_arquivo.type)
@@ -688,14 +827,13 @@ def pagina_coleta(planilha, gemini_client):
                     
                 except Exception as e:
                     st.error(f"Falha no OCR com Gemini Vision: {e}")
-            # --- FIM NOVO OCR ---
+            # --- FIM OCR ---
 
             if texto_extraido:
-                # Etapa 2: Extração com Gemini (Structured Output) - Passa o cliente
                 dados_extraidos = extrair_dados_com_google_gemini(texto_extraido, gemini_client)
                 
                 if dados_extraidos:
-                    with st.form(key=f"form_{proximo_arquivo.file_id}"):
+                    with st.form(key=f"form_{get_file_id(proximo_arquivo)}"):  # FIX: Use get_file_id
                         st.subheader("2. Confirme e salve os dados")
                         dados_para_salvar = {}
                         
@@ -733,10 +871,12 @@ def pagina_coleta(planilha, gemini_client):
                                 st.error("⚠️ Alerta de Duplicado: Já existe um paciente registado com este CPF ou CNS. O registo não foi salvo.")
                             else:
                                 salvar_no_sheets(dados_para_salvar, planilha)
-                                st.session_state.processados.append(proximo_arquivo.file_id)
+                                st.session_state.processados.append(get_file_id(proximo_arquivo))  # FIX
                                 st.rerun()
-                else: st.error("A IA não conseguiu extrair dados deste texto.")
-            else: st.error("Não foi possível extrair texto desta imagem.")
+                else: 
+                    st.error("A IA não conseguiu extrair dados deste texto.")
+            else: 
+                st.error("Não foi possível extrair texto desta imagem.")
         elif len(uploaded_files) > 0:
             st.success("🎉 Todas as fichas enviadas foram processadas e salvas!")
             if st.button("Limpar lista para enviar novas imagens"):
@@ -936,100 +1076,15 @@ def pagina_capas_prontuario(planilha):
             st.download_button(label="Descarregar PDF das Capas", data=pdf_bytes, file_name=f"capas_prontuario_{datetime.now().strftime('%Y%m%d')}.pdf", mime="application/pdf")
     else: st.info("Selecione pelo menos um paciente para gerar as capas.")
 
-def pagina_whatsapp(planilha):
-    st.title("📱 Enviar Mensagens de WhatsApp (Manual)")
-    df = ler_dados_da_planilha(planilha)
-
-    # 1. Pré-processamento e Validação
-    df_com_telefone = df[df['Telefone'].astype(str).str.strip() != ''].copy()
-    df_com_telefone['Telefone Limpo'] = df_com_telefone['Telefone'].apply(padronizar_telefone)
-    df_com_telefone.dropna(subset=['Telefone Limpo'], inplace=True)
-
-    if df_com_telefone.empty: 
-        st.warning("Ainda não há pacientes com números de telefone válidos na planilha para enviar mensagens.")
-        return
-
-    # Lista de pacientes para seleção
-    lista_pacientes = sorted(df_com_telefone['Nome Completo'].tolist())
-
-    st.subheader("1. Escreva a sua mensagem e use Placeholders")
-    st.info("Utilize as variáveis (placeholders) na mensagem, como **[NOME]**, **[CPF]** e **[DATA_NASCIMENTO]** para personalização automática.", icon="💡")
-    
-    # Mensagem Padrão
-    mensagem_padrao = st.text_area(
-        "Mensagem:", 
-        "Olá, [NOME]! O seu agendamento para [ESCREVA AQUI O PROCEDIMENTO] foi marcado. Por favor, confirme o seu CPF: [CPF]. [SAÚDE MUNICIPAL]", 
-        height=150
-    )
-
-    st.subheader("2. Escolha o paciente e pré-visualize")
-    
-    # Campo de seleção com pesquisa (Selectbox)
-    paciente_selecionado_nome = st.selectbox(
-        "Selecione o paciente para enviar:", 
-        options=lista_pacientes, 
-        index=None, 
-        placeholder="Digite para pesquisar o nome..."
-    )
-
-    if paciente_selecionado_nome:
-        paciente_data = df_com_telefone[df_com_telefone['Nome Completo'] == paciente_selecionado_nome].iloc[0]
-        
-        # Obter dados para substituição
-        nome_completo = paciente_data['Nome Completo']
-        primeiro_nome = nome_completo.split()[0]
-        telefone_limpo = paciente_data['Telefone Limpo']
-        
-        # Dicionário de substituições
-        substituicoes = {
-            "[NOME]": primeiro_nome,
-            "[NOME_COMPLETO]": nome_completo,
-            "[CPF]": paciente_data.get('CPF', 'Não Informado'),
-            "[CNS]": paciente_data.get('CNS', 'Não Informado'),
-            "[DATA_NASCIMENTO]": paciente_data.get('Data de Nascimento', 'Não Informado')
-        }
-
-        # Aplicar substituições na mensagem
-        mensagem_personalizada = mensagem_padrao
-        for placeholder, valor in substituicoes.items():
-            mensagem_personalizada = mensagem_personalizada.replace(placeholder, str(valor))
-        
-        # Geração do link final
-        whatsapp_url = f"https://wa.me/55{telefone_limpo}?text={urllib.parse.quote(mensagem_personalizada)}"
-        
-        st.markdown("---")
-        st.subheader("3. Mensagem Final e Envio")
-
-        # Pré-visualização da mensagem
-        with st.expander("Pré-visualização da Mensagem Personalizada"):
-            st.code(mensagem_personalizada, language='text')
-
-        col1, col2 = st.columns([3, 1])
-        col1.write(f"Paciente selecionado: **{nome_completo}**")
-        col1.write(f"Número (Limpo): **+55 {telefone_limpo}**")
-        
-        col2.link_button(
-            "Abrir WhatsApp para Enviar ↗️", 
-            whatsapp_url, 
-            type="primary",
-            use_container_width=True
-        )
-
-        st.dataframe(paciente_data[['ID', 'FAMÍLIA', 'Telefone', 'CPF']].to_frame().T, hide_index=True)
-    else:
-        st.info("Selecione um paciente para continuar.")
-
 def pagina_ocr_e_alerta_whatsapp(planilha):
     st.title("📸 Verificação Rápida e Alerta WhatsApp")
-    st.info("Fluxo: Foto/Documento ➡️ Simulação da Extração do Nome ➡️ Busca Automática ➡️ Notificação WhatsApp")
+    st.info("Fluxo: Foto/Documento ➡️ Simulação da Extração do Nome ➡️ Busca Automática ➡️ Notificação WhatsApp com Dados Completos")
     
-    # Lendo os dados da planilha
     df = ler_dados_da_planilha(planilha)
     if df.empty:
         st.error("A planilha não possui dados para busca.")
         return
 
-    # Pré-processamento e Validação de Telefones
     df_com_telefone = df[df['Telefone'].astype(str).str.strip() != ''].copy()
     df_com_telefone['Telefone Limpo'] = df_com_telefone['Telefone'].apply(padronizar_telefone)
     df_com_telefone.dropna(subset=['Telefone Limpo'], inplace=True)
@@ -1038,9 +1093,7 @@ def pagina_ocr_e_alerta_whatsapp(planilha):
          st.error("Nenhum paciente na planilha tem um número de telefone válido para receber alertas.")
          return
 
-    # 1. Simulação da Captura do Documento
     st.subheader("1. Capturar ou Carregar a Imagem do Documento")
-    # Mantemos o input da câmera/arquivo como gatilho
     foto_paciente = st.camera_input("Tire uma foto do documento do paciente:")
     
     st.markdown("---")
@@ -1049,9 +1102,7 @@ def pagina_ocr_e_alerta_whatsapp(planilha):
     nome_para_buscar = None
     
     if foto_paciente is not None:
-        
         lista_pacientes_validos = df_com_telefone['Nome Completo'].tolist()
-
         nome_para_buscar = st.selectbox(
             "Simule o nome que a IA 'extraiu' da imagem:", 
             options=sorted(lista_pacientes_validos),
@@ -1060,69 +1111,52 @@ def pagina_ocr_e_alerta_whatsapp(planilha):
         )
     
     if nome_para_buscar:
-        # 3. Execução da Busca
-        nome_limpo_busca = nome_para_buscar.strip().upper()
-        df_com_telefone['Nome Limpo'] = df_com_telefone['Nome Completo'].astype(str).str.strip().str.upper()
-        resultado_busca = df_com_telefone[df_com_telefone['Nome Limpo'] == nome_limpo_busca]
-        
-        if not resultado_busca.empty:
-            paciente_data = resultado_busca.iloc[0]
-            
-            # Dados para personalização
-            nome_completo = paciente_data['Nome Completo']
-            primeiro_nome = nome_completo.split()[0]
-            telefone_limpo = paciente_data['Telefone Limpo']
-            
-            st.success(f"✅ Paciente '{nome_completo}' **CONSTA** na planilha!")
-            
-            # 4. Alerta e Ação (WhatsApp)
-            st.subheader("3. Alerta e Envio da Notificação")
-            
-            st.info("Utilize as variáveis (placeholders) na mensagem, como **[NOME]**, **[CPF]** e **[CNS]** para personalização automática.", icon="💡")
-
-            mensagem_default = (
-                f"Olá, [NOME]! Seu procedimento/exame foi LIBERADO/AUTORIZADO. "
-                f"Entre em contato com sua UBS. [SAÚDE MUNICIPAL]"
-            )
-            
-            mensagem_padrao = st.text_area(
-                f"Mensagem para {primeiro_nome}:", 
-                mensagem_default, 
-                height=100
-            )
-            
-            # Dicionário de substituições (reutilizado)
-            substituicoes = {
-                "[NOME]": primeiro_nome,
-                "[NOME_COMPLETO]": nome_completo,
-                "[CPF]": paciente_data.get('CPF', 'Não Informado'),
-                "[CNS]": paciente_data.get('CNS', 'Não Informado'),
-                "[DATA_NASCIMENTO]": paciente_data.get('Data de Nascimento', 'Não Informado')
-            }
-            
-            # Aplica substituições na mensagem
-            mensagem_personalizada = mensagem_padrao
-            for placeholder, valor in substituicoes.items():
-                mensagem_personalizada = mensagem_personalizada.replace(placeholder, str(valor))
-                
-            # Geração do link
-            whatsapp_url = f"https://wa.me/55{telefone_limpo}?text={urllib.parse.quote(mensagem_personalizada)}"
-            
-            st.warning(f"A notificação será enviada para: **{paciente_data['Telefone']}**.")
-            
-            with st.expander("Pré-visualização da Mensagem Personalizada"):
-                st.code(mensagem_personalizada, language='text')
-            
-            col1, col2 = st.columns([1, 1])
-            with col1:
-                st.link_button("Abrir WhatsApp e Enviar ↗️", whatsapp_url, type="primary", use_container_width=True)
-            with col2:
-                st.write(f"Dados do Paciente:")
-                st.dataframe(paciente_data[['Nome Completo', 'Telefone', 'ID', 'CPF']].to_frame().T, hide_index=True)
-
-        else:
+        dados_paciente = buscar_dados_completos_paciente(nome_para_buscar, df_com_telefone)
+        if dados_paciente is None:
             st.error(f"❌ Erro: O nome '{nome_para_buscar}' **NÃO CONSTA** na planilha de pacientes com telefone válido.")
+            return
+        
+        telefone_limpo = dados_paciente['Telefone Limpo']
+        
+        st.success(f"✅ Paciente '{nome_para_buscar}' **CONSTA** na planilha!")
+        
+        st.subheader("3. Alerta e Envio da Notificação")
+        
+        st.info("Utilize placeholders completos como **[IDADE]**, **[CONDICOES]**, **[MEDICAMENTOS]** para incluir dados existentes.", icon="💡")
 
+        # Mensagem default rica
+        mensagem_default = (
+            f"Olá, [NOME]! Seu procedimento foi LIBERADO. Resumo do seu histórico:\n\n"
+            f"- Idade: [IDADE] | Nasc.: [DATA_NASCIMENTO]\n"
+            f"- CPF: [CPF] | CNS: [CNS]\n"
+            f"- Condições: [CONDICOES]\n"
+            f"- Medicamentos: [MEDICAMENTOS]\n\n"
+            f"Entre em contato com sua UBS. [SAÚDE MUNICIPAL]"
+        )
+        
+        mensagem_padrao = st.text_area(
+            f"Mensagem para {nome_para_buscar.split()[0]}:", 
+            mensagem_default, 
+            height=150
+        )
+        
+        # Aplica com dados completos
+        mensagem_personalizada = aplicar_substituicoes_completas(mensagem_padrao, dados_paciente)
+        
+        whatsapp_url = f"https://wa.me/55{telefone_limpo}?text={urllib.parse.quote(mensagem_personalizada)}"
+        
+        st.warning(f"A notificação será enviada para: **{dados_paciente['Telefone']}**.")
+        
+        with st.expander("Pré-visualização da Mensagem Personalizada (com máscaras)"):
+            preview_msg = aplicar_substituicoes_completas(mensagem_padrao, {k: v for k, v in dados_paciente.items() if 'Mascarado' in k or k in ['Nome Completo', 'Idade', 'Condição', 'Medicamentos']})
+            st.code(preview_msg, language='text')
+        
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            st.link_button("Abrir WhatsApp e Enviar ↗️", whatsapp_url, type="primary", use_container_width=True)
+        with col2:
+            st.write(f"Dados Completos:")
+            st.dataframe(pd.DataFrame([dados_paciente]), hide_index=True)
 
 def pagina_analise_vacinacao(planilha, gemini_client):
     st.title("💉 Análise Automatizada de Caderneta de Vacinação")
@@ -1134,14 +1168,15 @@ def pagina_analise_vacinacao(planilha, gemini_client):
     uploaded_file = st.file_uploader("Envie a foto da caderneta de vacinação:", type=["jpg", "jpeg", "png"])
     
     if uploaded_file is not None:
-        if st.session_state.get('uploaded_file_id') != uploaded_file.id:
+        file_id = get_file_id(uploaded_file)  # FIX: Use função auxiliar
+        if st.session_state.get('uploaded_file_id') != file_id:
             st.session_state.dados_extraidos = None
             st.session_state.relatorio_final = None
-            st.session_state.uploaded_file_id = uploaded_file.id
+            st.session_state.uploaded_file_id = file_id  # FIX
             st.rerun() # Para forçar o processamento do novo arquivo
             
         if st.session_state.get('dados_extraidos') is None:
-            # --- NOVO: OCR COM GEMINI VISION ---
+            # --- OCR COM GEMINI VISION (sem mudança) ---
             texto_extraido = None
             with st.spinner("Extraindo texto da caderneta com Gemini Vision..."):
                 try:
@@ -1155,10 +1190,9 @@ def pagina_analise_vacinacao(planilha, gemini_client):
                     texto_extraido = response.text
                 except Exception as e:
                     st.error(f"Falha no OCR com Gemini Vision: {e}")
-            # --- FIM NOVO OCR ---
+            # --- FIM OCR ---
             
             if texto_extraido:
-                # Chamada com Saída Estruturada
                 dados = extrair_dados_vacinacao_com_google_gemini(texto_extraido, gemini_client)
                 if dados:
                     st.session_state.dados_extraidos = dados
@@ -1266,7 +1300,7 @@ def pagina_importar_prontuario(planilha, gemini_client):
                 medicamentos_validados = st.multiselect("Medicamentos Encontrados:", options=dados.get('medicamentos', []), default=dados.get('medicamentos', []))
                 
                 if st.form_submit_button("✅ Salvar Informações no Registo do Paciente"):
-                    with st.spinner("A atualizar a planilha..."):
+                    with st.spinner("A actualizar a planilha..."):
                         try:
                             diagnosticos_str = ", ".join(diagnosticos_validados)
                             medicamentos_str = ", ".join(medicamentos_validados)
@@ -1351,6 +1385,13 @@ def pagina_gerador_qrcode(planilha):
                 st.download_button(label="📥 Descarregar QR Code (PNG)", data=qr_buffer, file_name="qrcode_dashboard_pacientes.png", mime="image/png")
             except Exception as e:
                 st.error(f"Ocorreu um erro ao gerar o QR Code: {e}")
+
+# --- FUNÇÃO AUXILIAR PARA ID DE ARQUIVO ---
+def get_file_id(uploaded_file):
+    """Gera um ID único para UploadedFile (nome + hash para evitar colisões)."""
+    import hashlib
+    file_hash = hashlib.md5(uploaded_file.name.encode()).hexdigest()[:8]
+    return f"{uploaded_file.name}_{file_hash}"
 
 def main():
     query_params = st.query_params
