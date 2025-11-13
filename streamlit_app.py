@@ -152,6 +152,17 @@ class ClinicoSchema(BaseModel):
         }
     }
 
+# --- NOVO ESQUEMA PYDANTIC: Geração de Dicas ---
+class DicaSaude(BaseModel):
+    """Representa uma dica de saúde com título e resumo."""
+    titulo_curto: str = Field(description="Título curto e de alto impacto para o card (máx 5 palavras).")
+    texto_whatsapp: str = Field(description="Resumo da dica pronto para ser enviado no WhatsApp (máx 2 frases).")
+
+class DicasSaudeSchema(BaseModel):
+    """Esquema para uma lista de dicas de saúde."""
+    dicas: list[DicaSaude] = Field(description="Lista de 5 dicas formatadas.")
+    
+# --- FIM NOVOS ESQUEMAS ---
 
 # --- MOTOR DE REGRAS: CALENDÁRIO NACIONAL DE IMUNIZAÇÕES (PNI) ---
 CALENDARIO_PNI = [
@@ -427,6 +438,42 @@ def extrair_dados_clinicos_com_google_gemini(texto_prontuario: str, client: gena
         st.error(f"Erro ao processar a resposta da IA (Gemini - Clínico) ou na validação Pydantic: {e}")
         return None
 
+# --- NOVA FUNÇÃO: Geração de Dicas com Gemini ---
+def gerar_dicas_com_google_gemini(tema: str, client: genai.Client):
+    """
+    Gera 5 dicas curtas e formatadas com título e texto complementar para cards de saúde/WhatsApp.
+    """
+    try:
+        
+        prompt = f"""
+        Sua tarefa é criar 5 dicas de saúde pública e alimentação, simples e baseadas no Guia Alimentar para a População Brasileira.
+        O tema principal deve ser: "{tema}".
+        Instruções:
+        1.  Para cada dica, crie um **título curto e impactante** (máximo 5 palavras), ideal para ser o título de um card.
+        2.  Para cada dica, crie um **texto de acompanhamento** (máximo 2 frases) pronto para ser enviado no WhatsApp junto com o card.
+        3.  A saída deve ser um JSON estrito, conforme o esquema Pydantic fornecido (DicasSaudeSchema).
+        """
+        
+        response = client.models.generate_content(
+            model=MODELO_GEMINI,
+            contents=[prompt],
+            config={
+                "response_mime_type": "application/json",
+                "response_schema": DicasSaudeSchema, # Usa a classe Pydantic
+            }
+        )
+        
+        dados_pydantic = DicasSaudeSchema.model_validate_json(response.text)
+        dados_extraidos = dados_pydantic.model_dump()
+        
+        return dados_extraidos
+            
+    except Exception as e:
+        st.error(f"Erro ao processar a resposta da IA (Gemini - Gerador de Cards): {e}")
+        return None
+# --- FIM NOVA FUNÇÃO ---
+
+
 def salvar_no_sheets(dados, planilha):
     try:
         cabecalhos = planilha.row_values(1)
@@ -692,7 +739,68 @@ def aplicar_substituicoes_completas(mensagem, dados_paciente):
         mensagem = mensagem.replace(placeholder, str(valor))
     return mensagem
 
-# --- PÁGINA WHATSAPP ATUALIZADA COM SELECTBOX DE EXAMES E ESPECIALIDADES ---
+# --- PÁGINA GERADOR DE CARDS DE SAÚDE (NOVA) ---
+def pagina_gerador_cards(gemini_client):
+    st.title("🤖 Gerador Automático de Dicas de Saúde (Cards/WhatsApp)")
+    st.info("Use a inteligência artificial para gerar **5 dicas curtas** prontas para serem usadas como título do seu card ou enviadas no WhatsApp. Depois, basta criar a imagem no Canva ou similar e enviar!")
+
+    TEMAS_DE_CARDS = [
+        "Alimentação Saudável e Guia Alimentar",
+        "Redução de Sal e Prevenção de Hipertensão",
+        "Combate ao Sedentarismo e Atividade Física",
+        "Saúde Mental e Bem-Estar Emocional",
+        "Higiene e Prevenção de Doenças Infecciosas",
+        "Diabetes e Controle Glicêmico",
+        "Saúde da Gestante e Pré-Natal",
+        "Saúde da Criança e Imunização",
+        "Cuidado com a Saúde do Idoso"
+    ]
+
+    st.subheader("1. Escolha o Tema das Dicas")
+    tema_selecionado = st.selectbox("Selecione o tema:", options=TEMAS_DE_CARDS, index=0)
+
+    if st.button("✨ Gerar 5 Dicas com a IA"):
+        with st.spinner(f"Gerando 5 dicas de alto impacto sobre **{tema_selecionado}**..."):
+            dicas_geradas = gerar_dicas_com_google_gemini(tema_selecionado, gemini_client)
+            
+            if dicas_geradas and 'dicas' in dicas_geradas:
+                st.session_state.dicas_para_exibir = dicas_geradas['dicas']
+                st.session_state.tema_atual = tema_selecionado
+                st.success(f"✅ 5 Dicas sobre **{tema_selecionado}** geradas com sucesso!")
+            else:
+                st.error("Falha ao gerar as dicas. Tente novamente.")
+    
+    st.markdown("---")
+
+    if st.session_state.get('dicas_para_exibir'):
+        st.subheader(f"2. Conteúdo Gerado para {st.session_state.tema_atual}")
+        st.warning("Dica: Use o **Título Curto** no design do seu card e o **Texto WhatsApp** no corpo da mensagem.")
+        
+        dicas_whatsapp = ""
+        
+        for i, dica in enumerate(st.session_state.dicas_para_exibir):
+            st.markdown(f"#### 💡 Dica {i+1}")
+            st.markdown(f"**Título Curto (Para Card):** `{dica['titulo_curto']}`")
+            st.markdown(f"**Texto WhatsApp (Para Acompanhamento):**")
+            st.code(dica['texto_whatsapp'], language='text')
+            
+            dicas_whatsapp += f"💡 *{dica['titulo_curto']}*\n{dica['texto_whatsapp']}\n\n"
+            
+        st.markdown("---")
+        st.subheader("3. Conteúdo Completo para Cópia Rápida")
+        
+        mensagem_final = (
+            f"Olá! Aqui estão as dicas de saúde desta semana da equipe ESF AMPARO:\n\n"
+            f"{dicas_whatsapp}"
+            f"Cuide-se! Em caso de dúvidas, ligue para 2641-1499.\n"
+            f"Atenciosamente, ESF AMPARO."
+        )
+        
+        st.text_area("Mensagem Completa (Copie e Cole):", value=mensagem_final, height=300)
+
+# --- FIM NOVA PÁGINA ---
+
+# --- PÁGINA WHATSAPP ATUALIZADA COM SELECTBOX DE EXAMES E ESPECIALIDADES E TELEFONE ESF ---
 def pagina_whatsapp(planilha):
     global EXAMES_COMUNS 
     global ESPECIALIDADES_MEDICAS 
@@ -775,10 +883,23 @@ def pagina_whatsapp(planilha):
 
     mensagem_padrao = st.text_area("Edite a Mensagem:", mensagem_base, height=150)
 
-    # Configurações comuns
-    TELEFONE_UBS = st.text_input("Telefone da UBS (pra suporte):", placeholder="+55 11 99999-9999")
-    if TELEFONE_UBS:
-        mensagem_padrao = mensagem_padrao.replace("[TELEFONE_UBS]", TELEFONE_UBS)
+    # Configurações comuns - ATUALIZADO AQUI
+    TELEFONE_CONTATO = st.text_input(
+        "Telefone de Contato (Substitui [TELEFONE_UBS]):", 
+        value="2641-1499", # NOVO VALOR PADRÃO FORNECIDO
+        placeholder="ex: +55 22 2641-1499"
+    )
+    if TELEFONE_CONTATO:
+        # Mantém o placeholder por compatibilidade com os templates
+        mensagem_padrao = mensagem_padrao.replace("[TELEFONE_UBS]", TELEFONE_CONTATO) 
+
+    # NOVO: Assinatura/Fechamento (SAÚDE MUNICIPAL)
+    assinatura_fechamento = st.text_input(
+        "Assinatura (Substitui [SAÚDE MUNICIPAL]):", 
+        value="Atenciosamente, ESF AMPARO." # NOVO VALOR PADRÃO FORNECIDO
+    )
+    if assinatura_fechamento:
+        mensagem_padrao = mensagem_padrao.replace("[SAÚDE MUNICIPAL]", assinatura_fechamento)
 
     st.subheader("2. Selecione Paciente(s)")
     if enviar_para == "Um paciente":
@@ -820,7 +941,7 @@ def pagina_whatsapp(planilha):
     else:
         st.info("Selecione pelo menos um paciente.")
 
-# --- PÁGINAS DO APP ---
+# --- O restante do código (pagina_inicial, pagina_gerar_documentos, pagina_coleta, etc.) permanece o mesmo ---
 
 def pagina_inicial():
     st.title("Bem-vindo ao Sistema de Gestão de Pacientes Inteligente")
@@ -1227,7 +1348,7 @@ def pagina_ocr_e_alerta_whatsapp(planilha):
         mensagem_default = (
             f"Olá, [NOME]! Seu procedimento foi LIBERADO. Resumo do seu histórico:\n\n"
             f"- Idade: [IDADE] | Nasc.: [DATA_NASCIMENTO]\n"
-            f"- CPF: [CPF] | CNS: [CNS]\n"
+            f"- CPF: [CPF_Mascarado] | CNS: [CNS_Mascarado]\n" # Máscara para evitar vazar o dado completo na preview
             f"- Condições: [CONDICOES]\n"
             f"- Medicamentos: [MEDICAMENTOS]\n\n"
             f"Entre em contato com sua UBS. [SAÚDE MUNICIPAL]"
@@ -1242,12 +1363,21 @@ def pagina_ocr_e_alerta_whatsapp(planilha):
         # Aplica com dados completos
         mensagem_personalizada = aplicar_substituicoes_completas(mensagem_padrao, dados_paciente)
         
+        # Substituições fixas (Telefone e Assinatura/Fechamento)
+        mensagem_personalizada = mensagem_personalizada.replace("[TELEFONE_UBS]", "2641-1499")
+        mensagem_personalizada = mensagem_personalizada.replace("[SAÚDE MUNICIPAL]", "Atenciosamente, ESF AMPARO.")
+        # Garante que o CPF/CNS completo seja usado na URL para o WhatsApp se for o caso
+        mensagem_personalizada = mensagem_personalizada.replace("[CPF_Mascarado]", dados_paciente['CPF'])
+        mensagem_personalizada = mensagem_personalizada.replace("[CNS_Mascarado]", dados_paciente['CNS'])
+
         whatsapp_url = f"https://wa.me/55{telefone_limpo}?text={urllib.parse.quote(mensagem_personalizada)}"
         
         st.warning(f"A notificação será enviada para: **{dados_paciente['Telefone']}**.")
         
         with st.expander("Pré-visualização da Mensagem Personalizada (com máscaras)"):
             preview_msg = aplicar_substituicoes_completas(mensagem_padrao, {k: v for k, v in dados_paciente.items() if 'Mascarado' in k or k in ['Nome Completo', 'Idade', 'Condição', 'Medicamentos']})
+            preview_msg = preview_msg.replace("[TELEFONE_UBS]", "2641-1499")
+            preview_msg = preview_msg.replace("[SAÚDE MUNICIPAL]", "Atenciosamente, ESF AMPARO.")
             st.code(preview_msg, language='text')
         
         col1, col2 = st.columns([1, 1])
@@ -1536,6 +1666,7 @@ def main():
         # Paginas que precisam do cliente Gemini recebem o objeto 'gemini_client'
         paginas = {
             "🏠 Início": pagina_inicial,
+            "Gerar Cards de Saúde (IA)": lambda: pagina_gerador_cards(gemini_client), # NOVA PÁGINA AQUI
             "Verificação Rápida WhatsApp": lambda: pagina_ocr_e_alerta_whatsapp(planilha_conectada),
             "Análise de Vacinação": lambda: pagina_analise_vacinacao(planilha_conectada, gemini_client),
             "Importar Dados de Prontuário": lambda: pagina_importar_prontuario(planilha_conectada, gemini_client),
