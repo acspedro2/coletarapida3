@@ -52,7 +52,7 @@ EXAMES_COMUNS = [
     "Holter de 24 horas",
     "MAPA (Monitorização Ambulatorial da Pressão Arterial)",
     
-    # 📸 EXAMES DE IMAGEM E DIAGNÓSTICOS (Expandidos ao Máximo)
+    # 📸 EXAMES DE IMAGEM E DIAGNÓSTICOS
     "Ultrassonografia (USG) Geral",
     "Ultrassonografia com Doppler (Vascular)",
     "Radiografia (Raio-X)",
@@ -77,6 +77,23 @@ EXAMES_COMUNS = [
     "Mielografia",
     "Urografia Excretora",
     "Eletroencefalograma (EEG)",
+]
+
+
+# --- LISTA DE ESPECIALIDADES MÉDICAS (COMPLETA) ---
+ESPECIALIDADES_MEDICAS = [
+    "Clínica Médica", "Pediatria", "Ginecologia e Obstetrícia", "Cirurgia Geral",
+    "Cardiologia", "Dermatologia", "Gastroenterologia", "Oftalmologia",
+    "Ortopedia e Traumatologia", "Otorrinolaringologia", "Neurologia",
+    "Psiquiatria", "Urologia", "Endocrinologia e Metabologia", "Nefrologia",
+    "Reumatologia", "Pneumologia", "Infectologia", "Hematologia e Hemoterapia",
+    "Oncologia", "Anestesiologia", "Medicina Intensiva", "Medicina da Família e Comunidade",
+    "Medicina do Trabalho", "Cirurgia Plástica", "Cirurgia Vascular", "Neurocirurgia",
+    "Hepatologia", "Geriatria", "Alergia e Imunologia", "Nutrologia",
+    "Fisioterapia", "Nutrição", "Psicologia", "Odontologia (Geral)", "Fonoaudiologia",
+    "Acupuntura", "Angiologia", "Cancerologia (Oncologia)", "Coloproctologia",
+    "Genética Médica", "Homeopatia", "Medicina Física e Reabilitação",
+    "Medicina Legal e Perícia Médica", "Medicina Nuclear", "Patologia", "Radiologia e Diagnóstico por Imagem"
 ]
 
 
@@ -675,9 +692,10 @@ def aplicar_substituicoes_completas(mensagem, dados_paciente):
         mensagem = mensagem.replace(placeholder, str(valor))
     return mensagem
 
-# --- PÁGINA WHATSAPP ATUALIZADA COM SELECTBOX DE EXAMES ---
+# --- PÁGINA WHATSAPP ATUALIZADA COM SELECTBOX DE EXAMES E ESPECIALIDADES ---
 def pagina_whatsapp(planilha):
-    global EXAMES_COMUNS # Adicionado para garantir o acesso à lista
+    global EXAMES_COMUNS 
+    global ESPECIALIDADES_MEDICAS 
 
     st.title("📱 Enviar Mensagens de WhatsApp para Pacientes")
     df = ler_dados_da_planilha(planilha)
@@ -713,8 +731,8 @@ def pagina_whatsapp(planilha):
 
     # Campos customizáveis baseados no tipo
     custom_fields = {}
+    
     if tipo_mensagem == "Exames":
-        # ALTERAÇÃO: Usa o Selectbox com a lista EXAMES_COMUNS
         tipo_exame_selecionado = st.selectbox(
             "Selecione o Tipo de Exame:",
             options=EXAMES_COMUNS,
@@ -725,13 +743,33 @@ def pagina_whatsapp(planilha):
         custom_fields["DATA_HORA"] = st.text_input("Data/Hora:", placeholder="DD/MM/YYYY HH:MM")
         
     elif tipo_mensagem == "Marcação Médica":
-        custom_fields["MEDICO_ESPECIALIDADE"] = st.text_input("Médico/Especialidade:", placeholder="ex: Dr. Silva - Cardiologia")
+        # NOVO: SELECTBOX COM ESPECIALIDADES
+        especialidade_selecionada = st.selectbox(
+            "Selecione a Especialidade:",
+            options=ESPECIALIDADES_MEDICAS,
+            index=None,
+            placeholder="Escolha a especialidade..."
+        )
+        medico_input = st.text_input("Nome do Médico (Opcional):", placeholder="ex: Dr. Silva")
         custom_fields["DATA_HORA"] = st.text_input("Data/Hora:", placeholder="DD/MM/YYYY HH:MM")
+        
+        # Lógica para preencher o placeholder [MEDICO_ESPECIALIDADE]
+        final_medico_especialidade = ""
+        if medico_input and especialidade_selecionada:
+            final_medico_especialidade = f"{medico_input} ({especialidade_selecionada})"
+        elif especialidade_selecionada:
+            final_medico_especialidade = especialidade_selecionada
+        elif medico_input:
+            final_medico_especialidade = medico_input
+
+        custom_fields["MEDICO_ESPECIALIDADE"] = final_medico_especialidade
+        
     elif tipo_mensagem == "Orientações Gerais":
         custom_fields["DATA_PROXIMA"] = st.text_input("Próxima Ação/Data:", placeholder="ex: 15/12/2025")
     
     # Ajusta mensagem base com custom fields
     for key, value in custom_fields.items():
+        # Substitui os placeholders na mensagem base com os valores configurados
         if value:
             mensagem_base = mensagem_base.replace(f"[{key}]", value)
 
@@ -852,6 +890,12 @@ def pagina_gerar_documentos(planilha):
                     mime="application/pdf"
                 )
 
+def get_file_id(uploaded_file):
+    """Gera um ID único para UploadedFile (nome + hash para evitar colisões)."""
+    import hashlib
+    file_hash = hashlib.md5(uploaded_file.name.encode()).hexdigest()[:8]
+    return f"{uploaded_file.name}_{file_hash}"
+
 def pagina_coleta(planilha, gemini_client):
     st.title("🤖 COLETA INTELIGENTE")
     st.header("1. Envie uma ou mais imagens de fichas")
@@ -860,7 +904,6 @@ def pagina_coleta(planilha, gemini_client):
     if 'processados' not in st.session_state: st.session_state.processados = []
     
     if uploaded_files:
-        # FIX: Use get_file_id em vez de f.file_id
         proximo_arquivo = next((f for f in uploaded_files if get_file_id(f) not in st.session_state.processados), None)
         
         if proximo_arquivo:
@@ -889,7 +932,7 @@ def pagina_coleta(planilha, gemini_client):
                 dados_extraidos = extrair_dados_com_google_gemini(texto_extraido, gemini_client)
                 
                 if dados_extraidos:
-                    with st.form(key=f"form_{get_file_id(proximo_arquivo)}"):  # FIX: Use get_file_id
+                    with st.form(key=f"form_{get_file_id(proximo_arquivo)}"):
                         st.subheader("2. Confirme e salve os dados")
                         dados_para_salvar = {}
                         
@@ -927,7 +970,7 @@ def pagina_coleta(planilha, gemini_client):
                                 st.error("⚠️ Alerta de Duplicado: Já existe um paciente registado com este CPF ou CNS. O registo não foi salvo.")
                             else:
                                 salvar_no_sheets(dados_para_salvar, planilha)
-                                st.session_state.processados.append(get_file_id(proximo_arquivo))  # FIX
+                                st.session_state.processados.append(get_file_id(proximo_arquivo))
                                 st.rerun()
                 else: 
                     st.error("A IA não conseguiu extrair dados deste texto.")
@@ -1224,12 +1267,12 @@ def pagina_analise_vacinacao(planilha, gemini_client):
     uploaded_file = st.file_uploader("Envie a foto da caderneta de vacinação:", type=["jpg", "jpeg", "png"])
     
     if uploaded_file is not None:
-        file_id = get_file_id(uploaded_file)  # FIX: Use função auxiliar
+        file_id = get_file_id(uploaded_file) 
         if st.session_state.get('uploaded_file_id') != file_id:
             st.session_state.dados_extraidos = None
             st.session_state.relatorio_final = None
-            st.session_state.uploaded_file_id = file_id  # FIX
-            st.rerun() # Para forçar o processamento do novo arquivo
+            st.session_state.uploaded_file_id = file_id 
+            st.rerun() 
             
         if st.session_state.get('dados_extraidos') is None:
             # --- OCR COM GEMINI VISION (sem mudança) ---
