@@ -34,20 +34,49 @@ except ImportError as e:
 # --- CONFIGURAÇÃO GLOBAL DA API GEMINI ---
 MODELO_GEMINI = "gemini-2.5-flash"
 
-# --- LISTA DE EXAMES COMUNS PARA WHATSAPP ---
+# --- LISTA DE EXAMES COMUNS PARA WHATSAPP (COMPLETA E EXPANDIDA) ---
 EXAMES_COMUNS = [
+    # Laboratoriais de Rotina
     "Hemograma Completo",
-    "Exame de Urina (EAS)",
-    "Exame Parasitológico de Fezes (EPF)",
     "Glicemia em Jejum",
-    "Perfil Lipídico (Colesterol e Triglicerídeos)",
-    "TSH e T4 (Tireoide)",
-    "Papanicolau",
-    "Mamografia",
-    "PSA",
+    "Perfil Lipídico (Colesterol Total, HDL, LDL, Triglicerídeos)",
+    "Exame de Urina (EAS)",
+    "Ureia e Creatinina (Função Renal)",
+    "TSH e T4 Livre (Função Tireoidiana)",
+    "PSA (Antígeno Prostático Específico)",
+    "Papanicolau (Colpocitologia Oncótica)",
+
+    # Exames Cardiológicos
     "Eletrocardiograma (ECG)",
-    "Ultrassonografia",
-    "Radiografia"
+    "Teste Ergométrico",
+    "Holter de 24 horas",
+    "MAPA (Monitorização Ambulatorial da Pressão Arterial)",
+    
+    # 📸 EXAMES DE IMAGEM E DIAGNÓSTICOS (Expandidos ao Máximo)
+    "Ultrassonografia (USG) Geral",
+    "Ultrassonografia com Doppler (Vascular)",
+    "Radiografia (Raio-X)",
+    "Mamografia Digital",
+    "Mamografia com Tomossíntese (3D)",
+    "Densitometria Óssea",
+    "Tomografia Computadorizada (TC)",
+    "Angiotomografia (Angio-TC)",
+    "Ressonância Magnética (RM)",
+    "Angiorressonância (Angio-RM)",
+    "Cintilografia (Medicina Nuclear)",
+    "Ecocardiograma (Eco TT)",
+    "Ecodoppler (de Carótidas, Venoso, etc.)",
+    "Endoscopia Digestiva Alta",
+    "Colonoscopia",
+    "Retossigmoidoscopia",
+    "Colposcopia",
+    "Histerossalpingografia",
+    "Biópsia (Guiada por Imagem ou PAAF)",
+    "PET-CT (Tomografia por Emissão de Pósitrons)",
+    "Artrografia",
+    "Mielografia",
+    "Urografia Excretora",
+    "Eletroencefalograma (EEG)",
 ]
 
 
