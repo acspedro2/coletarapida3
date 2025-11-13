@@ -10,5 +10,5 @@ pypdf
 pdf2image
 pydantic # Necessário para o Structured Output
 google-genai
-
+pymupdf
 
