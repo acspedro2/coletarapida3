@@ -34,6 +34,23 @@ except ImportError as e:
 # --- CONFIGURAÇÃO GLOBAL DA API GEMINI ---
 MODELO_GEMINI = "gemini-2.5-flash"
 
+# --- LISTA DE EXAMES COMUNS PARA WHATSAPP ---
+EXAMES_COMUNS = [
+    "Hemograma Completo",
+    "Exame de Urina (EAS)",
+    "Exame Parasitológico de Fezes (EPF)",
+    "Glicemia em Jejum",
+    "Perfil Lipídico (Colesterol e Triglicerídeos)",
+    "TSH e T4 (Tireoide)",
+    "Papanicolau",
+    "Mamografia",
+    "PSA",
+    "Eletrocardiograma (ECG)",
+    "Ultrassonografia",
+    "Radiografia"
+]
+
+
 # --- ESQUEMAS PYDANTIC PARA SAÍDA ESTRUTURADA GEMINI ---
 
 # Esquema 1: Extração de Dados Cadastrais
@@ -629,8 +646,10 @@ def aplicar_substituicoes_completas(mensagem, dados_paciente):
         mensagem = mensagem.replace(placeholder, str(valor))
     return mensagem
 
-# --- PÁGINA WHATSAPP ATUALIZADA ---
+# --- PÁGINA WHATSAPP ATUALIZADA COM SELECTBOX DE EXAMES ---
 def pagina_whatsapp(planilha):
+    global EXAMES_COMUNS # Adicionado para garantir o acesso à lista
+
     st.title("📱 Enviar Mensagens de WhatsApp para Pacientes")
     df = ler_dados_da_planilha(planilha)
 
@@ -666,8 +685,16 @@ def pagina_whatsapp(planilha):
     # Campos customizáveis baseados no tipo
     custom_fields = {}
     if tipo_mensagem == "Exames":
-        custom_fields["TIPO_EXAME"] = st.text_input("Tipo de Exame:", placeholder="ex: hemograma")
+        # ALTERAÇÃO: Usa o Selectbox com a lista EXAMES_COMUNS
+        tipo_exame_selecionado = st.selectbox(
+            "Selecione o Tipo de Exame:",
+            options=EXAMES_COMUNS,
+            index=None,
+            placeholder="Escolha o exame..."
+        )
+        custom_fields["TIPO_EXAME"] = tipo_exame_selecionado
         custom_fields["DATA_HORA"] = st.text_input("Data/Hora:", placeholder="DD/MM/YYYY HH:MM")
+        
     elif tipo_mensagem == "Marcação Médica":
         custom_fields["MEDICO_ESPECIALIDADE"] = st.text_input("Médico/Especialidade:", placeholder="ex: Dr. Silva - Cardiologia")
         custom_fields["DATA_HORA"] = st.text_input("Data/Hora:", placeholder="DD/MM/YYYY HH:MM")
