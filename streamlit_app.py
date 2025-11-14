@@ -593,62 +593,136 @@ def gerar_pdf_etiquetas(familias_para_gerar):
     return pdf_buffer
 
 def gerar_pdf_capas_prontuario(pacientes_df):
+    """
+    Gera um PDF contendo capas de prontuário a partir de um DataFrame de pacientes.
+    Aplica layout profissional, espaço para logo, e um bloco de Alerta Clínico Rápido.
+    (FUNÇÃO SUBSTITUÍDA)
+    """
     pdf_buffer = BytesIO()
     can = canvas.Canvas(pdf_buffer, pagesize=A4)
     largura_pagina, altura_pagina = A4
-    COR_PRINCIPAL, COR_SECUNDARIA, COR_FUNDO_CABECALHO = HexColor('#2c3e50'), HexColor('#7f8c8d'), HexColor('#ecf0f1')
+    
+    # --- CONFIGURAÇÕES DE CORES E ESTILO (Alterado) ---
+    COR_PRINCIPAL = HexColor('#2c3e50')    # Azul Marinho/Escuro (Títulos)
+    COR_SECUNDARIA = HexColor('#7f8c8d')  # Cinza Neutro (Labels)
+    COR_FUNDO_CABECALHO = HexColor('#ecf0f1') # Cinza Claro para o cabeçalho da caixa
+    COR_ALERTA = HexColor('#e74c3c')       # Vermelho (Destaque para Alerta)
+    COR_FUNDO_ALERTA = HexColor('#fde6e4') # Fundo vermelho claro para alerta
+
+    # --- Configuração Opcional da Logo (Adicionado) ---
+    # Descomente e ajuste o caminho se for usar uma logo real:
+    # try:
+    #     LOGO_READER = ImageReader("caminho/para/sua/logo.png")
+    # except FileNotFoundError:
+    #     LOGO_READER = None
+
     for index, paciente in pacientes_df.iterrows():
+        # Reinicia o estado e define fonte padrão
+        can.setFont("Helvetica", 9)
+        can.setFillColor(COR_PRINCIPAL)
+        
+        # 1. CABEÇALHO SUPERIOR E LOGO
+        
+        # if LOGO_READER:
+        #    can.drawImage(LOGO_READER, 2 * cm, altura_pagina - 3.5 * cm, width=3 * cm, height=3 * cm)
+        
         can.setFont("Helvetica", 9)
         can.setFillColor(COR_SECUNDARIA)
-        can.drawRightString(largura_pagina - 2 * cm, altura_pagina - 2 * cm, "PB01")
-        can.setFont("Helvetica-Bold", 16)
+        can.drawRightString(largura_pagina - 2 * cm, altura_pagina - 2 * cm, "Sistema de Gestão - PB01")
+        
+        can.setFont("Helvetica-Bold", 18)
         can.setFillColor(COR_PRINCIPAL)
-        can.drawCentredString(largura_pagina / 2, altura_pagina - 3.5 * cm, "PRONTUÁRIO DO PACIENTE")
+        can.drawCentredString(largura_pagina / 2, altura_pagina - 4 * cm, "PRONTUÁRIO CLÍNICO INDIVIDUAL")
+        
+        # 2. CAIXA PRINCIPAL DE IDENTIFICAÇÃO (Nome e Dados Básicos)
         margem_caixa = 2 * cm
         largura_caixa = largura_pagina - (2 * margem_caixa)
-        altura_caixa = 5 * cm
-        x_caixa, y_caixa = margem_caixa, altura_pagina - 10 * cm
-        can.setStrokeColor(COR_FUNDO_CABECALHO)
-        can.setLineWidth(1)
-        can.rect(x_caixa, y_caixa, largura_caixa, altura_caixa, stroke=1, fill=0)
+        altura_caixa = 5.5 * cm
+        x_caixa, y_caixa = margem_caixa, altura_pagina - 10.5 * cm
+        
+        # Fundo do cabeçalho da caixa (Nome)
         altura_cabecalho_interno = 1.5 * cm
         y_cabecalho_interno = y_caixa + altura_caixa - altura_cabecalho_interno
         can.setFillColor(COR_FUNDO_CABECALHO)
         can.rect(x_caixa, y_cabecalho_interno, largura_caixa, altura_cabecalho_interno, stroke=0, fill=1)
-        nome_paciente = str(paciente.get("Nome Completo", "")).upper()
+        
+        # Borda externa da Caixa
+        can.setStrokeColor(COR_PRINCIPAL)
+        can.setLineWidth(1.5)
+        can.rect(x_caixa, y_caixa, largura_caixa, altura_caixa, stroke=1, fill=0)
+        
+        # Nome do Paciente (Maiúsculas e Centralizado)
+        nome_paciente = str(paciente.get("Nome Completo", "NOME INDISPONÍVEL")).upper()
         y_texto_nome = y_cabecalho_interno + (altura_cabecalho_interno / 2) - (0.2 * cm)
-        can.setFont("Helvetica-Bold", 14)
+        can.setFont("Helvetica-Bold", 15)
         can.setFillColor(COR_PRINCIPAL)
         can.drawCentredString(largura_pagina / 2, y_texto_nome, nome_paciente)
+        
+        # Função Auxiliar para Desenhar Pares de Dados
+        def draw_data_pair(y, label_esq, val_esq, label_dir, val_dir):
+            x_label_esq, x_valor_esq = x_caixa + 1 * cm, x_caixa + 4.5 * cm
+            x_label_dir, x_valor_dir = x_caixa + (largura_caixa / 2) + 1 * cm, x_caixa + (largura_caixa / 2) + 4 * cm
+            
+            can.setFont("Helvetica", 10)
+            can.setFillColor(COR_SECUNDARIA)
+            can.drawString(x_label_esq, y, f"{label_esq}:")
+            can.drawString(x_label_dir, y, f"{label_dir}:")
+            
+            can.setFont("Helvetica-Bold", 11)
+            can.setFillColor(COR_PRINCIPAL)
+            can.drawString(x_valor_esq, y, str(val_esq))
+            can.drawString(x_valor_dir, y, str(val_dir))
+
+        # Dados Internos
         y_inicio_dados = y_cabecalho_interno - 1.2 * cm
-        x_label_esq, x_valor_esq = x_caixa + 1 * cm, x_caixa + 4.5 * cm
-        can.setFont("Helvetica", 10)
-        can.setFillColor(COR_SECUNDARIA)
-        can.drawString(x_label_esq, y_inicio_dados, "Data de Nasc.:")
-        can.setFont("Helvetica-Bold", 11)
+        draw_data_pair(y_inicio_dados, "Data de Nasc.", paciente.get("Data de Nascimento", "N/A"), "Família", paciente.get("FAMÍLIA", "N/A"))
+        draw_data_pair(y_inicio_dados - 0.8 * cm, "CPF", paciente.get("CPF", "N/A"), "CNS", paciente.get("CNS", "N/A"))
+        draw_data_pair(y_inicio_dados - 1.6 * cm, "Telefone", paciente.get("Telefone", "N/A"), "Sexo", paciente.get("Sexo", "N/A"))
+
+        # 3. BLOCO DE ALERTA CLÍNICO RÁPIDO (Adicionado)
+        condicoes = str(paciente.get("Condição", "Nenhuma registrada")).strip()
+        medicamentos = str(paciente.get("Medicamentos", "Nenhum registrado")).strip()
+
+        x_alerta, y_alerta = 2 * cm, altura_pagina - 17 * cm
+        largura_alerta = largura_pagina - 4 * cm
+        altura_alerta = 2.5 * cm
+        
+        # Desenha Fundo e Borda do Alerta
+        can.setFillColor(COR_FUNDO_ALERTA)
+        can.setStrokeColor(COR_ALERTA)
+        can.setLineWidth(0.5)
+        can.rect(x_alerta, y_alerta, largura_alerta, altura_alerta, fill=1, stroke=1)
+        
+        # Título do Alerta
+        can.setFont("Helvetica-Bold", 12)
+        can.setFillColor(COR_ALERTA)
+        can.drawString(x_alerta + 0.5 * cm, y_alerta + altura_alerta - 0.6 * cm, "⚠️ ALERTA CLÍNICO RÁPIDO")
+        
+        # Conteúdo do Alerta
+        can.setFont("Helvetica", 9)
         can.setFillColor(COR_PRINCIPAL)
-        can.drawString(x_valor_esq, y_inicio_dados, str(paciente.get("Data de Nascimento", "")))
-        y_segunda_linha = y_inicio_dados - 1 * cm
-        can.setFont("Helvetica", 10)
-        can.setFillColor(COR_SECUNDARIA)
-        can.drawString(x_label_esq, y_segunda_linha, "CPF:")
-        can.setFont("Helvetica-Bold", 11)
+        y_texto_alerta = y_alerta + altura_alerta - 1.5 * cm
+        
+        can.drawString(x_alerta + 0.5 * cm, y_texto_alerta, f"Condições: {condicoes}")
+        can.drawString(x_alerta + 0.5 * cm, y_texto_alerta - 0.5 * cm, f"Medicamentos: {medicamentos}")
+
+        # 4. ÁREA DE OBSERVAÇÃO (Adicionado)
+        can.setFont("Helvetica-Bold", 10)
         can.setFillColor(COR_PRINCIPAL)
-        can.drawString(x_valor_esq, y_segunda_linha, str(paciente.get("CPF", "")))
-        x_label_dir, x_valor_dir = x_caixa + (largura_caixa / 2) + 1 * cm, x_caixa + (largura_caixa / 2) + 3.5 * cm
-        can.setFont("Helvetica", 10)
-        can.setFillColor(COR_SECUNDARIA)
-        can.drawString(x_label_dir, y_inicio_dados, "Família:")
-        can.setFont("Helvetica-Bold", 11)
-        can.setFillColor(COR_PRINCIPAL)
-        can.drawString(x_valor_dir, y_inicio_dados, str(paciente.get("FAMÍLIA", "")))
-        can.setFont("Helvetica", 10)
-        can.setFillColor(COR_SECUNDARIA)
-        can.drawString(x_label_dir, y_segunda_linha, "CNS:")
-        can.setFont("Helvetica-Bold", 11)
-        can.setFillColor(COR_PRINCIPAL)
-        can.drawString(x_valor_dir, y_segunda_linha, str(paciente.get("CNS", "")))
+        can.drawString(2 * cm, 5 * cm, "Observações Clínicas (uso do profissional):")
+        
+        can.setStrokeColor(COR_SECUNDARIA)
+        can.setLineWidth(0.5)
+        
+        # Desenha 4 linhas para observações
+        y_linha = 4.5 * cm
+        for _ in range(4):
+            can.line(2 * cm, y_linha, largura_pagina - 2 * cm, y_linha)
+            y_linha -= 0.6 * cm
+            
+        # Adiciona a página
         can.showPage()
+        
     can.save()
     pdf_buffer.seek(0)
     return pdf_buffer
