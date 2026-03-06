@@ -1,14 +1,6 @@
 streamlit
-gspread
-requests
-Pillow
 pandas
-reportlab
-qrcode
-matplotlib
-pypdf
-pdf2image
-pydantic # Necessário para o Structured Output
-google-genai
-pymupdf
-
+gspread
+google-auth
+google-generativeai
+openpyxl
