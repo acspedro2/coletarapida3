@@ -1,7 +1,5 @@
-import os
 import re
 import time
-import json
 import urllib.parse
 from io import BytesIO
 from datetime import datetime
@@ -25,9 +23,9 @@ from reportlab.lib.colors import HexColor
 from reportlab.lib.utils import ImageReader
 
 try:
-    import google.genai as genai
-    from pydantic import BaseModel, Field
+    from google import genai
     from google.genai.types import Part
+    from pydantic import BaseModel, Field
 except ImportError as e:
     st.error(
         f"Erro de importação: {e}. "
@@ -37,7 +35,6 @@ except ImportError as e:
 
 
 MODELO_GEMINI = "gemini-2.5-flash"
-
 
 EXAMES_COMUNS = [
     "Hemograma Completo",
@@ -91,22 +88,22 @@ ESPECIALIDADES_MEDICAS = [
     "Acupuntura", "Angiologia", "Cancerologia (Oncologia)", "Coloproctologia",
     "Genética Médica", "Homeopatia", "Medicina Física e Reabilitação",
     "Medicina Legal e Perícia Médica", "Medicina Nuclear", "Patologia",
-    "Radiologia e Diagnóstico por Imagem",
+    "Radiologia e Diagnóstico por Imagem"
 ]
 
 
 class CadastroSchema(BaseModel):
-    ID: str = Field(description="ID único gerado. Se não for claro, retorne string vazia.")
-    FAMÍLIA: str = Field(description="Código de família (ex: FAM111).")
+    ID: str = Field(description="ID único gerado. Se não for claro, retornar vazio.")
+    FAMÍLIA: str = Field(description="Código de família, ex: FAM111.")
     nome_completo: str = Field(alias="Nome Completo")
     data_nascimento: str = Field(alias="Data de Nascimento", description="Formato DD/MM/AAAA.")
-    Telefone: str
-    CPF: str
-    nome_da_mae: str = Field(alias="Nome da Mãe")
-    nome_do_pai: str = Field(alias="Nome do Pai")
-    Sexo: str = Field(description="M, F, I (Ignorado).")
-    CNS: str
-    municipio_nascimento: str = Field(alias="Município de Nascimento")
+    Telefone: str = ""
+    CPF: str = ""
+    nome_da_mae: str = Field(alias="Nome da Mãe", default="")
+    nome_do_pai: str = Field(alias="Nome do Pai", default="")
+    Sexo: str = Field(description="M, F, I (Ignorado).", default="")
+    CNS: str = ""
+    municipio_nascimento: str = Field(alias="Município de Nascimento", default="")
 
     model_config = {
         "populate_by_name": True,
@@ -122,14 +119,14 @@ class VacinaAdministrada(BaseModel):
 
 
 class VacinacaoSchema(BaseModel):
-    nome_paciente: str
-    data_nascimento: str
-    vacinas_administradas: list[VacinaAdministrada]
+    nome_paciente: str = ""
+    data_nascimento: str = ""
+    vacinas_administradas: list[VacinaAdministrada] = []
 
 
 class ClinicoSchema(BaseModel):
-    diagnosticos: list[str]
-    medicamentos: list[str]
+    diagnosticos: list[str] = []
+    medicamentos: list[str] = []
 
 
 class DicaSaude(BaseModel):
@@ -138,7 +135,7 @@ class DicaSaude(BaseModel):
 
 
 class DicasSaudeSchema(BaseModel):
-    dicas: list[DicaSaude]
+    dicas: list[DicaSaude] = []
 
 
 CALENDARIO_PNI = [
@@ -163,6 +160,116 @@ CALENDARIO_PNI = [
 ]
 
 
+# =========================
+# ESTILO VISUAL
+# =========================
+def aplicar_estilo_visual():
+    st.markdown(
+        """
+        <style>
+        .main {
+            background-color: #f7f9fc;
+        }
+        .block-container {
+            padding-top: 1.2rem;
+            padding-bottom: 2rem;
+            max-width: 1250px;
+        }
+        h1, h2, h3 {
+            color: #1f4e78;
+        }
+        .card {
+            background: white;
+            padding: 18px;
+            border-radius: 16px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+            border-left: 6px solid #1f4e78;
+            margin-bottom: 12px;
+        }
+        .card-success {
+            background: #eefaf2;
+            padding: 18px;
+            border-radius: 16px;
+            border-left: 6px solid #27ae60;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.04);
+            margin-bottom: 12px;
+        }
+        .card-warning {
+            background: #fff8ed;
+            padding: 18px;
+            border-radius: 16px;
+            border-left: 6px solid #e67e22;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.04);
+            margin-bottom: 12px;
+        }
+        .card-danger {
+            background: #fdeeee;
+            padding: 18px;
+            border-radius: 16px;
+            border-left: 6px solid #e74c3c;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.04);
+            margin-bottom: 12px;
+        }
+        .small-title {
+            font-size: 14px;
+            color: #7f8c8d;
+            margin-bottom: 6px;
+        }
+        .big-number {
+            font-size: 28px;
+            font-weight: 700;
+            color: #2c3e50;
+        }
+        .section-box {
+            background: white;
+            border-radius: 16px;
+            padding: 18px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            margin-bottom: 16px;
+        }
+        .stButton button {
+            border-radius: 10px;
+            background-color: #1f4e78;
+            color: white;
+            border: none;
+            font-weight: 600;
+        }
+        .stButton button:hover {
+            background-color: #163a59;
+            color: white;
+        }
+        .hero {
+            background: linear-gradient(135deg, #1f4e78 0%, #2c3e50 100%);
+            color: white;
+            padding: 22px;
+            border-radius: 18px;
+            margin-bottom: 18px;
+        }
+        .hero h1, .hero p {
+            color: white !important;
+            margin: 0;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def hero(titulo: str, subtitulo: str):
+    st.markdown(
+        f"""
+        <div class="hero">
+            <h1>{titulo}</h1>
+            <p>{subtitulo}</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+# =========================
+# FUNÇÕES UTILITÁRIAS
+# =========================
 def validar_cpf(cpf: str) -> bool:
     cpf = ''.join(re.findall(r'\d', str(cpf)))
     if not cpf or len(cpf) != 11 or cpf == cpf[0] * 11:
@@ -183,7 +290,7 @@ def validar_cpf(cpf: str) -> bool:
 
 def validar_data_nascimento(data_str: str) -> tuple[bool, str]:
     try:
-        data_obj = datetime.strptime(data_str, '%d/%m/%Y').date()
+        data_obj = datetime.strptime(data_str, "%d/%m/%Y").date()
         if data_obj > datetime.now().date():
             return False, "A data de nascimento está no futuro."
         return True, ""
@@ -198,95 +305,178 @@ def calcular_idade(data_nasc):
     return hoje.year - data_nasc.year - ((hoje.month, hoje.day) < (data_nasc.month, data_nasc.day))
 
 
-def analisar_carteira_vacinacao(data_nascimento_str, vacinas_administradas):
-    try:
-        data_nascimento = datetime.strptime(data_nascimento_str, "%d/%m/%Y")
-    except ValueError:
-        return {"erro": "Formato da data de nascimento inválido. Utilize DD/MM/AAAA."}
-
-    hoje = datetime.now()
-    idade = relativedelta(hoje, data_nascimento)
-    idade_total_meses = idade.years * 12 + idade.months
-    vacinas_tomadas_set = {(v['vacina'], v['dose']) for v in vacinas_administradas}
-    relatorio = {"em_dia": [], "em_atraso": [], "proximas_doses": []}
-
-    for regra in CALENDARIO_PNI:
-        vacina_requerida = (regra['vacina'], regra['dose'])
-        idade_recomendada_meses = regra['idade_meses']
-        if idade_total_meses >= idade_recomendada_meses:
-            if vacina_requerida in vacinas_tomadas_set:
-                relatorio["em_dia"].append(regra)
-            else:
-                relatorio["em_atraso"].append(regra)
-        else:
-            relatorio["proximas_doses"].append(regra)
-
-    return relatorio
-
-
-def ler_texto_prontuario_gemini(file_bytes: bytes, client: genai.Client):
-    try:
-        imagens_pil = convert_from_bytes(file_bytes)
-        texto_completo = ""
-        progress_bar = st.progress(0, text="A processar páginas do PDF com Gemini Vision...")
-
-        for i, imagem in enumerate(imagens_pil):
-            with BytesIO() as buffer:
-                imagem.save(buffer, format="JPEG")
-                img_bytes = buffer.getvalue()
-                image_part = Part.from_bytes(data=img_bytes, mime_type='image/jpeg')
-
-            prompt_ocr = "Transcreva fielmente todo o texto presente nesta imagem. Não adicione comentários, apenas o texto bruto."
-
-            response = client.models.generate_content(
-                model=MODELO_GEMINI,
-                contents=[image_part, prompt_ocr]
-            )
-
-            texto_da_pagina = response.text
-            if texto_da_pagina:
-                texto_completo += f"\n--- PÁGINA {i+1} ---\n{texto_da_pagina}"
-
-            progress_bar.progress(
-                (i + 1) / len(imagens_pil),
-                text=f"Página {i+1} de {len(imagens_pil)} processada pelo Gemini."
-            )
-
-        progress_bar.empty()
-        return texto_completo.strip()
-
-    except Exception as e:
-        st.error(f"Erro ao processar o PDF com Gemini Vision: {e}.")
-        return None
-
-
 def padronizar_telefone(telefone):
     if pd.isna(telefone) or telefone == "":
         return None
-    num_limpo = re.sub(r'\D', '', str(telefone))
-    if num_limpo.startswith('55'):
+    num_limpo = re.sub(r"\D", "", str(telefone))
+    if num_limpo.startswith("55"):
         num_limpo = num_limpo[2:]
     if 10 <= len(num_limpo) <= 11:
         return num_limpo
     return None
 
 
+def get_file_id(uploaded_file):
+    import hashlib
+    file_hash = hashlib.md5(uploaded_file.name.encode()).hexdigest()[:8]
+    return f"{uploaded_file.name}_{file_hash}"
+
+
+# =========================
+# GEMINI
+# =========================
+def extrair_dados_com_google_gemini(texto_extraido: str, client: genai.Client):
+    try:
+        prompt = f"""
+        Extraia informações de um formulário de saúde para JSON estrito.
+        Procure pelo código de família (ex: FAM111) e coloque em "FAMÍLIA".
+        Mantenha datas em DD/MM/AAAA.
+        Se um valor não for encontrado, retorne string vazia.
+        Texto:
+        --- {texto_extraido} ---
+        """
+        response = client.models.generate_content(
+            model=MODELO_GEMINI,
+            contents=prompt,
+            config={
+                "response_mime_type": "application/json",
+                "response_schema": CadastroSchema,
+            },
+        )
+        return CadastroSchema.model_validate_json(response.text).model_dump(by_alias=True)
+    except Exception as e:
+        st.error(f"Erro ao extrair dados com Gemini: {e}")
+        return None
+
+
+def extrair_dados_vacinacao_com_google_gemini(texto_extraido: str, client: genai.Client):
+    try:
+        prompt = f"""
+        Analise o texto de uma caderneta de vacinação brasileira e retorne JSON estrito.
+        Normalize:
+        - Penta / DTP+HB+Hib -> Pentavalente
+        - Polio / VIP -> VIP (Poliomielite inativada)
+        - Meningo C / MNG C -> Meningocócica C
+        - SCR -> Tríplice Viral
+        Texto:
+        --- {texto_extraido} ---
+        """
+        response = client.models.generate_content(
+            model=MODELO_GEMINI,
+            contents=prompt,
+            config={
+                "response_mime_type": "application/json",
+                "response_schema": VacinacaoSchema,
+            },
+        )
+        return VacinacaoSchema.model_validate_json(response.text).model_dump()
+    except Exception as e:
+        st.error(f"Erro ao processar vacinação com Gemini: {e}")
+        return None
+
+
+def extrair_dados_clinicos_com_google_gemini(texto_prontuario: str, client: genai.Client):
+    try:
+        prompt = f"""
+        Analise o texto de um prontuário médico e extraia:
+        - diagnosticos
+        - medicamentos
+        Retorne apenas JSON estrito.
+        Texto:
+        ---
+        {texto_prontuario}
+        ---
+        """
+        response = client.models.generate_content(
+            model=MODELO_GEMINI,
+            contents=prompt,
+            config={
+                "response_mime_type": "application/json",
+                "response_schema": ClinicoSchema,
+            },
+        )
+        return ClinicoSchema.model_validate_json(response.text).model_dump()
+    except Exception as e:
+        st.error(f"Erro ao processar prontuário com Gemini: {e}")
+        return None
+
+
+def gerar_dicas_com_google_gemini(tema: str, client: genai.Client):
+    try:
+        prompt = f"""
+        Gere 5 dicas de saúde pública e alimentação.
+        Tema: "{tema}".
+        Para cada dica:
+        - título curto (máx 5 palavras)
+        - texto curto para WhatsApp (máx 2 frases)
+        Retorne JSON estrito.
+        """
+        response = client.models.generate_content(
+            model=MODELO_GEMINI,
+            contents=prompt,
+            config={
+                "response_mime_type": "application/json",
+                "response_schema": DicasSaudeSchema,
+            },
+        )
+        return DicasSaudeSchema.model_validate_json(response.text).model_dump()
+    except Exception as e:
+        st.error(f"Erro ao gerar dicas com Gemini: {e}")
+        return None
+
+
+def ler_texto_prontuario_gemini(file_bytes: bytes, client: genai.Client):
+    try:
+        imagens_pil = convert_from_bytes(file_bytes)
+        texto_completo = ""
+        progress_bar = st.progress(0, text="Processando páginas do PDF com Gemini Vision...")
+
+        for i, imagem in enumerate(imagens_pil):
+            with BytesIO() as buffer:
+                imagem.save(buffer, format="JPEG")
+                img_bytes = buffer.getvalue()
+
+            image_part = Part.from_bytes(data=img_bytes, mime_type="image/jpeg")
+
+            response = client.models.generate_content(
+                model=MODELO_GEMINI,
+                contents=[
+                    image_part,
+                    "Transcreva fielmente todo o texto presente nesta imagem. Não adicione comentários.",
+                ],
+            )
+
+            if response.text:
+                texto_completo += f"\n--- PÁGINA {i+1} ---\n{response.text}"
+
+            progress_bar.progress(
+                (i + 1) / len(imagens_pil),
+                text=f"Página {i+1} de {len(imagens_pil)} processada.",
+            )
+
+        progress_bar.empty()
+        return texto_completo.strip()
+    except Exception as e:
+        st.error(f"Erro ao processar PDF com Gemini Vision: {e}")
+        return None
+
+
+# =========================
+# PLANILHA
+# =========================
 @st.cache_resource
 def conectar_planilha():
     try:
         creds = st.secrets["gcp_service_account"]
         client = gspread.service_account_from_dict(creds)
-        planilha = client.open_by_key(st.secrets["SHEETSID"])
-        return planilha.worksheet("Página1")
-    except Exception:
+        plan = client.open_by_key(st.secrets["SHEETSID"])
         try:
-            creds = st.secrets["gcp_service_account"]
-            client = gspread.service_account_from_dict(creds)
-            planilha = client.open_by_key(st.secrets["SHEETSID"])
-            return planilha.sheet1
-        except Exception as e:
-            st.error(f"Erro ao conectar com o Google Sheets: {e}")
-            return None
+            return plan.worksheet("Página1")
+        except Exception:
+            return plan.sheet1
+    except Exception as e:
+        st.error(f"Erro ao conectar com o Google Sheets: {e}")
+        return None
 
 
 @st.cache_data(ttl=300)
@@ -308,140 +498,28 @@ def ler_dados_da_planilha(_planilha):
             if col not in df.columns:
                 df[col] = ""
 
-        df['Data de Nascimento DT'] = pd.to_datetime(
-            df['Data de Nascimento'],
-            format='%d/%m/%Y',
-            errors='coerce'
+        df["Data de Nascimento DT"] = pd.to_datetime(
+            df["Data de Nascimento"], format="%d/%m/%Y", errors="coerce"
         )
 
-        if 'Idade' not in df.columns:
-            df['Idade'] = ""
+        if "Idade" not in df.columns:
+            df["Idade"] = ""
 
-        df['Idade'] = df.apply(
-            lambda row: row['Idade'] if str(row.get('Idade', '')).strip() != ''
-            else (calcular_idade(row['Data de Nascimento DT']) if pd.notnull(row['Data de Nascimento DT']) else 0),
-            axis=1
+        df["Idade"] = df.apply(
+            lambda row: row["Idade"]
+            if str(row.get("Idade", "")).strip() != ""
+            else (
+                calcular_idade(row["Data de Nascimento DT"])
+                if pd.notnull(row["Data de Nascimento DT"])
+                else 0
+            ),
+            axis=1,
         )
 
         return df
-
     except Exception as e:
         st.error(f"Erro ao ler os dados da planilha: {e}")
         return pd.DataFrame()
-
-
-def extrair_dados_com_google_gemini(texto_extraido: str, client: genai.Client):
-    try:
-        prompt = f"""
-        Sua tarefa é extrair informações de um texto de formulário de saúde extraído por OCR e convertê-lo para um objeto JSON estrito.
-        Procure pelo código de família (ex: 'FAM111') e coloque-o na chave "FAMÍLIA".
-        Mantenha o formato da data como DD/MM/AAAA.
-        Se um valor não for encontrado para uma chave, retorne string vazia.
-        Texto: --- {texto_extraido} ---
-        """
-
-        response = client.models.generate_content(
-            model=MODELO_GEMINI,
-            contents=[prompt],
-            config={
-                "response_mime_type": "application/json",
-                "response_schema": CadastroSchema,
-            }
-        )
-
-        dados_pydantic = CadastroSchema.model_validate_json(response.text)
-        return dados_pydantic.model_dump(by_alias=True)
-
-    except Exception as e:
-        st.error(f"Erro ao extrair dados com Gemini: {e}")
-        return None
-
-
-def extrair_dados_vacinacao_com_google_gemini(texto_extraido: str, client: genai.Client):
-    try:
-        prompt = f"""
-        Analise o texto de caderneta de vacinação e retorne JSON estrito.
-        Normalize:
-        - Penta / DTP+HB+Hib -> Pentavalente
-        - Polio / VIP -> VIP (Poliomielite inativada)
-        - Meningo C / MNG C -> Meningocócica C
-        - SCR -> Tríplice Viral
-        Texto: --- {texto_extraido} ---
-        """
-
-        response = client.models.generate_content(
-            model=MODELO_GEMINI,
-            contents=[prompt],
-            config={
-                "response_mime_type": "application/json",
-                "response_schema": VacinacaoSchema,
-            }
-        )
-
-        dados_pydantic = VacinacaoSchema.model_validate_json(response.text)
-        return dados_pydantic.model_dump()
-
-    except Exception as e:
-        st.error(f"Erro ao processar vacinação com Gemini: {e}")
-        return None
-
-
-def extrair_dados_clinicos_com_google_gemini(texto_prontuario: str, client: genai.Client):
-    try:
-        prompt = f"""
-        Analise o texto de um prontuário médico e extraia:
-        - diagnosticos
-        - medicamentos
-        Retorne apenas JSON estrito.
-        Texto:
-        ---
-        {texto_prontuario}
-        ---
-        """
-
-        response = client.models.generate_content(
-            model=MODELO_GEMINI,
-            contents=[prompt],
-            config={
-                "response_mime_type": "application/json",
-                "response_schema": ClinicoSchema,
-            }
-        )
-
-        dados_pydantic = ClinicoSchema.model_validate_json(response.text)
-        return dados_pydantic.model_dump()
-
-    except Exception as e:
-        st.error(f"Erro ao processar prontuário com Gemini: {e}")
-        return None
-
-
-def gerar_dicas_com_google_gemini(tema: str, client: genai.Client):
-    try:
-        prompt = f"""
-        Gere 5 dicas de saúde pública e alimentação.
-        Tema: "{tema}".
-        Para cada dica:
-        - título curto (máx 5 palavras)
-        - texto curto para WhatsApp (máx 2 frases)
-        Retorne JSON estrito.
-        """
-
-        response = client.models.generate_content(
-            model=MODELO_GEMINI,
-            contents=[prompt],
-            config={
-                "response_mime_type": "application/json",
-                "response_schema": DicasSaudeSchema,
-            }
-        )
-
-        dados_pydantic = DicasSaudeSchema.model_validate_json(response.text)
-        return dados_pydantic.model_dump()
-
-    except Exception as e:
-        st.error(f"Erro ao gerar dicas com Gemini: {e}")
-        return None
 
 
 def salvar_no_sheets(dados, planilha):
@@ -452,13 +530,13 @@ def salvar_no_sheets(dados, planilha):
             st.error("A planilha não possui cabeçalhos na primeira linha.")
             return
 
-        if 'ID' not in dados or not str(dados.get('ID', '')).strip():
-            dados['ID'] = f"ID-{int(time.time())}"
+        if "ID" not in dados or not str(dados.get("ID", "")).strip():
+            dados["ID"] = f"ID-{int(time.time())}"
 
         agora = datetime.now()
-        dados['Timestamp de Envio'] = agora.strftime("%d/%m/%Y %H:%M:%S")
-        dados['Data da Extração'] = agora.strftime("%d/%m/%Y")
-        dados['Data de Registo'] = agora.strftime("%d/%m/%Y %H:%M:%S")
+        dados["Timestamp de Envio"] = agora.strftime("%d/%m/%Y %H:%M:%S")
+        dados["Data da Extração"] = agora.strftime("%d/%m/%Y")
+        dados["Data de Registo"] = agora.strftime("%d/%m/%Y %H:%M:%S")
 
         idade_calculada = ""
         data_nasc_str = str(dados.get("Data de Nascimento", "")).strip()
@@ -472,7 +550,7 @@ def salvar_no_sheets(dados, planilha):
             except ValueError:
                 idade_calculada = ""
 
-        dados['Idade'] = idade_calculada
+        dados["Idade"] = idade_calculada
 
         mapa_campos = {
             "ID": dados.get("ID", ""),
@@ -498,20 +576,21 @@ def salvar_no_sheets(dados, planilha):
             "Raça/Cor": dados.get("Raça/Cor", ""),
             "Status_Vacinal": dados.get("Status_Vacinal", dados.get("Status Vacinal", "")),
             "Medicamentos": dados.get("Medicamentos", ""),
-            "Link do Prontuário": dados.get("Link do Prontuário", "")
+            "Link do Prontuário": dados.get("Link do Prontuário", ""),
         }
 
         nova_linha = [mapa_campos.get(cabecalho, "") for cabecalho in cabecalhos]
         planilha.append_row(nova_linha, value_input_option="USER_ENTERED")
 
         st.success(f"✅ Dados de '{mapa_campos.get('Nome Completo', 'Desconhecido')}' salvos com sucesso!")
-        st.balloons()
         st.cache_data.clear()
-
     except Exception as e:
         st.error(f"Erro ao salvar na planilha: {e}")
 
 
+# =========================
+# PDF / QR
+# =========================
 def preencher_pdf_formulario(paciente_dados):
     try:
         template_pdf_path = "Formulario_2IndiceDeVulnerabilidadeClinicoFuncional20IVCF20_ImpressoraPDFPreenchivel_202404-2.pdf"
@@ -523,9 +602,9 @@ def preencher_pdf_formulario(paciente_dados):
         can.drawString(16.5 * cm, 23 * cm, str(paciente_dados.get("Data de Nascimento", "")))
         sexo = str(paciente_dados.get("Sexo", "")).strip().upper()
         can.setFont("Helvetica-Bold", 12)
-        if sexo.startswith('F'):
+        if sexo.startswith("F"):
             can.drawString(12.1 * cm, 22.9 * cm, "X")
-        elif sexo.startswith('M'):
+        elif sexo.startswith("M"):
             can.drawString(12.6 * cm, 22.9 * cm, "X")
         can.save()
 
@@ -541,7 +620,6 @@ def preencher_pdf_formulario(paciente_dados):
         output.write(final_buffer)
         final_buffer.seek(0)
         return final_buffer
-
     except FileNotFoundError:
         st.error(f"Erro: O arquivo modelo '{template_pdf_path}' não foi encontrado.")
         return None
@@ -576,9 +654,9 @@ def gerar_pdf_etiquetas(familias_para_gerar):
             qr.make(fit=True)
             img_qr = qr.make_image(fill_color="black", back_color="white")
             qr_buffer = BytesIO()
-            img_qr.save(qr_buffer, format='PNG')
+            img_qr.save(qr_buffer, format="PNG")
             qr_buffer.seek(0)
-            can.drawImage(ImageReader(qr_buffer), x_base + 0.5 * cm, y_base + 0.5 * cm, width=2.5*cm, height=2.5*cm)
+            can.drawImage(ImageReader(qr_buffer), x_base + 0.5 * cm, y_base + 0.5 * cm, width=2.5 * cm, height=2.5 * cm)
 
         x_texto = x_base + 3.5 * cm
         y_texto = y_base + altura_etiqueta - 0.8 * cm
@@ -586,16 +664,16 @@ def gerar_pdf_etiquetas(familias_para_gerar):
         can.drawString(x_texto, y_texto, f"Família: {familia_id} PB01")
         y_texto -= 0.6 * cm
 
-        for membro in dados_familia['membros']:
+        for membro in dados_familia["membros"]:
             can.setFont("Helvetica-Bold", 8)
-            nome = membro.get('Nome Completo', '')
+            nome = membro.get("Nome Completo", "")
             if len(nome) > 35:
                 nome = nome[:32] + "..."
             can.drawString(x_texto, y_texto, nome)
             y_texto -= 0.4 * cm
             can.setFont("Helvetica", 7)
-            dn = membro.get('Data de Nascimento', 'N/D')
-            cns = membro.get('CNS', 'N/D')
+            dn = membro.get("Data de Nascimento", "N/D")
+            cns = membro.get("CNS", "N/D")
             can.drawString(x_texto, y_texto, f"DN: {dn} | CNS: {cns}")
             y_texto -= 0.5 * cm
             if y_texto < (y_base + 0.5 * cm):
@@ -615,11 +693,11 @@ def gerar_pdf_capas_prontuario(pacientes_df):
     can = canvas.Canvas(pdf_buffer, pagesize=A4)
     largura_pagina, altura_pagina = A4
 
-    cor_principal = HexColor('#2c3e50')
-    cor_secundaria = HexColor('#7f8c8d')
-    cor_fundo_cabecalho = HexColor('#ecf0f1')
-    cor_alerta = HexColor('#e74c3c')
-    cor_fundo_alerta = HexColor('#fde6e4')
+    cor_principal = HexColor("#2c3e50")
+    cor_secundaria = HexColor("#7f8c8d")
+    cor_fundo_cabecalho = HexColor("#ecf0f1")
+    cor_alerta = HexColor("#e74c3c")
+    cor_fundo_alerta = HexColor("#fde6e4")
 
     for _, paciente in pacientes_df.iterrows():
         can.setFont("Helvetica", 9)
@@ -653,12 +731,10 @@ def gerar_pdf_capas_prontuario(pacientes_df):
         def draw_data_pair(y, label_esq, val_esq, label_dir, val_dir):
             x_label_esq, x_valor_esq = x_caixa + 1 * cm, x_caixa + 4.5 * cm
             x_label_dir, x_valor_dir = x_caixa + (largura_caixa / 2) + 1 * cm, x_caixa + (largura_caixa / 2) + 4 * cm
-
             can.setFont("Helvetica", 10)
             can.setFillColor(cor_secundaria)
             can.drawString(x_label_esq, y, f"{label_esq}:")
             can.drawString(x_label_dir, y, f"{label_dir}:")
-
             can.setFont("Helvetica-Bold", 11)
             can.setFillColor(cor_principal)
             can.drawString(x_valor_esq, y, str(val_esq))
@@ -713,11 +789,11 @@ def gerar_pdf_relatorio_vacinacao(nome_paciente, data_nascimento, relatorio):
     pdf_buffer = BytesIO()
     can = canvas.Canvas(pdf_buffer, pagesize=A4)
     largura_pagina, altura_pagina = A4
-    cor_principal = HexColor('#2c3e50')
-    cor_secundaria = HexColor('#7f8c8d')
-    cor_sucesso = HexColor('#27ae60')
-    cor_alerta = HexColor('#e67e22')
-    cor_info = HexColor('#3498db')
+    cor_principal = HexColor("#2c3e50")
+    cor_secundaria = HexColor("#7f8c8d")
+    cor_sucesso = HexColor("#27ae60")
+    cor_alerta = HexColor("#e67e22")
+    cor_info = HexColor("#3498db")
 
     can.setFont("Helvetica-Bold", 16)
     can.setFillColor(cor_principal)
@@ -756,7 +832,7 @@ def gerar_pdf_relatorio_vacinacao(nome_paciente, data_nascimento, relatorio):
 
     y_corpo = altura_pagina - 6.5 * cm
     y_corpo = desenhar_secao("Vacinas com Pendência (Atraso)", cor_alerta, relatorio["em_atraso"], y_corpo)
-    proximas_ordenadas = sorted(relatorio["proximas_doses"], key=lambda x: x['idade_meses'])
+    proximas_ordenadas = sorted(relatorio["proximas_doses"], key=lambda x: x["idade_meses"])
     y_corpo = desenhar_secao("Próximas Doses Recomendadas", cor_info, proximas_ordenadas, y_corpo)
     y_corpo = desenhar_secao("Vacinas em Dia", cor_sucesso, relatorio["em_dia"], y_corpo)
 
@@ -765,11 +841,14 @@ def gerar_pdf_relatorio_vacinacao(nome_paciente, data_nascimento, relatorio):
     return pdf_buffer
 
 
-def mascarar_cpf_cns(valor: str, tipo: str = 'cpf') -> str:
+# =========================
+# WHATSAPP / PLACEHOLDERS
+# =========================
+def mascarar_cpf_cns(valor: str, tipo: str = "cpf") -> str:
     if pd.isna(valor) or not valor:
-        return 'Não Informado'
-    digits = re.sub(r'\D', '', str(valor))
-    if tipo == 'cpf' and len(digits) == 11:
+        return "Não Informado"
+    digits = re.sub(r"\D", "", str(valor))
+    if tipo == "cpf" and len(digits) == 11:
         return f"{digits[:3]}.***.***-{digits[-2:]}"
     elif len(digits) >= 6:
         return f"{digits[:3]}********{digits[-3:]}"
@@ -777,38 +856,113 @@ def mascarar_cpf_cns(valor: str, tipo: str = 'cpf') -> str:
 
 
 def buscar_dados_completos_paciente(nome_paciente, df):
-    paciente_row = df[df['Nome Completo'] == nome_paciente]
+    paciente_row = df[df["Nome Completo"] == nome_paciente]
     if paciente_row.empty:
         return None
     dados = paciente_row.iloc[0].to_dict()
-    dados['CPF_Mascarado'] = mascarar_cpf_cns(dados.get('CPF', ''), 'cpf')
-    dados['CNS_Mascarado'] = mascarar_cpf_cns(dados.get('CNS', ''), 'cns')
+    dados["CPF_Mascarado"] = mascarar_cpf_cns(dados.get("CPF", ""), "cpf")
+    dados["CNS_Mascarado"] = mascarar_cpf_cns(dados.get("CNS", ""), "cns")
     return dados
 
 
 def aplicar_substituicoes_completas(mensagem, dados_paciente):
     substituicoes = {
-        "[NOME]": dados_paciente.get('Nome Completo', '').split()[0] if dados_paciente.get('Nome Completo') else "",
-        "[NOME_COMPLETO]": dados_paciente.get('Nome Completo', 'Não Informado'),
+        "[NOME]": dados_paciente.get("Nome Completo", "").split()[0] if dados_paciente.get("Nome Completo") else "",
+        "[NOME_COMPLETO]": dados_paciente.get("Nome Completo", "Não Informado"),
         "[IDADE]": f"{dados_paciente.get('Idade', 'N/A')} anos",
-        "[CPF]": dados_paciente.get('CPF', 'Não Informado'),
-        "[CNS]": dados_paciente.get('CNS', 'Não Informado'),
-        "[DATA_NASCIMENTO]": dados_paciente.get('Data de Nascimento', 'Não Informado'),
-        "[TELEFONE]": dados_paciente.get('Telefone', 'Não Informado'),
-        "[CONDICOES]": dados_paciente.get('Condição', 'Nenhuma registrada'),
-        "[MEDICAMENTOS]": dados_paciente.get('Medicamentos', 'Nenhum registrado'),
-        "[FAMILIA]": dados_paciente.get('FAMÍLIA', 'N/A'),
-        "[MUNICIPIO_NASC]": dados_paciente.get('Município de Nascimento', 'N/A')
+        "[CPF]": dados_paciente.get("CPF", "Não Informado"),
+        "[CNS]": dados_paciente.get("CNS", "Não Informado"),
+        "[DATA_NASCIMENTO]": dados_paciente.get("Data de Nascimento", "Não Informado"),
+        "[TELEFONE]": dados_paciente.get("Telefone", "Não Informado"),
+        "[CONDICOES]": dados_paciente.get("Condição", "Nenhuma registrada"),
+        "[MEDICAMENTOS]": dados_paciente.get("Medicamentos", "Nenhum registrado"),
+        "[FAMILIA]": dados_paciente.get("FAMÍLIA", "N/A"),
+        "[MUNICIPIO_NASC]": dados_paciente.get("Município de Nascimento", "N/A"),
     }
     for placeholder, valor in substituicoes.items():
         mensagem = mensagem.replace(placeholder, str(valor))
     return mensagem
 
 
-def pagina_gerador_cards(gemini_client):
-    st.title("Gerador Automático de Dicas de Saúde")
-    st.info("Gere 5 dicas curtas prontas para card ou WhatsApp.")
+# =========================
+# REGRAS VACINAÇÃO
+# =========================
+def analisar_carteira_vacinacao(data_nascimento_str, vacinas_administradas):
+    try:
+        data_nascimento = datetime.strptime(data_nascimento_str, "%d/%m/%Y")
+    except ValueError:
+        return {"erro": "Formato da data de nascimento inválido. Utilize DD/MM/AAAA."}
 
+    hoje = datetime.now()
+    idade = relativedelta(hoje, data_nascimento)
+    idade_total_meses = idade.years * 12 + idade.months
+    vacinas_tomadas_set = {(v["vacina"], v["dose"]) for v in vacinas_administradas}
+    relatorio = {"em_dia": [], "em_atraso": [], "proximas_doses": []}
+
+    for regra in CALENDARIO_PNI:
+        vacina_requerida = (regra["vacina"], regra["dose"])
+        idade_recomendada_meses = regra["idade_meses"]
+        if idade_total_meses >= idade_recomendada_meses:
+            if vacina_requerida in vacinas_tomadas_set:
+                relatorio["em_dia"].append(regra)
+            else:
+                relatorio["em_atraso"].append(regra)
+        else:
+            relatorio["proximas_doses"].append(regra)
+
+    return relatorio
+
+
+# =========================
+# PÁGINAS
+# =========================
+def pagina_inicial():
+    hero("Coleta Rápida", "Sistema inteligente para coleta, gestão e comunicação com pacientes.")
+    c1, c2 = st.columns(2)
+
+    with c1:
+        st.markdown(
+            """
+            <div class="section-box">
+                <h3>🤖 Coleta Inteligente</h3>
+                <p>Extraia automaticamente dados de fichas e registre na base.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            """
+            <div class="section-box">
+                <h3>💉 Análise de Vacinação</h3>
+                <p>Leia cadernetas e gere relatórios com doses em dia e pendentes.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    with c2:
+        st.markdown(
+            """
+            <div class="section-box">
+                <h3>🔎 Gestão de Pacientes</h3>
+                <p>Pesquise, edite, apague registros e visualize famílias.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            """
+            <div class="section-box">
+                <h3>📱 WhatsApp</h3>
+                <p>Gere mensagens personalizadas para alertas, consultas e exames.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+def pagina_gerador_cards(gemini_client):
+    hero("Gerador de Cards de Saúde", "Crie 5 dicas curtas para cards e WhatsApp.")
     temas = [
         "Alimentação Saudável e Guia Alimentar",
         "Redução de Sal e Prevenção de Hipertensão",
@@ -818,32 +972,29 @@ def pagina_gerador_cards(gemini_client):
         "Diabetes e Controle Glicêmico",
         "Saúde da Gestante e Pré-Natal",
         "Saúde da Criança e Imunização",
-        "Cuidado com a Saúde do Idoso"
+        "Cuidado com a Saúde do Idoso",
     ]
 
     tema_selecionado = st.selectbox("Selecione o tema:", options=temas, index=0)
-
-    if st.button("Gerar 5 Dicas com a IA"):
+    if st.button("✨ Gerar 5 Dicas com a IA"):
         with st.spinner("Gerando dicas..."):
             dicas_geradas = gerar_dicas_com_google_gemini(tema_selecionado, gemini_client)
-            if dicas_geradas and 'dicas' in dicas_geradas:
-                st.session_state.dicas_para_exibir = dicas_geradas['dicas']
+            if dicas_geradas and "dicas" in dicas_geradas:
+                st.session_state.dicas_para_exibir = dicas_geradas["dicas"]
                 st.session_state.tema_atual = tema_selecionado
                 st.success("Dicas geradas com sucesso.")
             else:
                 st.error("Falha ao gerar as dicas.")
 
-    st.markdown("---")
-
-    if st.session_state.get('dicas_para_exibir'):
+    if st.session_state.get("dicas_para_exibir"):
+        st.markdown("---")
         st.subheader(f"Conteúdo Gerado para {st.session_state.tema_atual}")
-
         dicas_whatsapp = ""
         for i, dica in enumerate(st.session_state.dicas_para_exibir):
-            st.markdown(f"### Dica {i+1}")
-            st.markdown(f"**Título:** `{dica['titulo_curto']}`")
-            st.code(dica['texto_whatsapp'], language='text')
-            dicas_whatsapp += f"• {dica['titulo_curto']}\n{dica['texto_whatsapp']}\n\n"
+            st.markdown(f"### 💡 Dica {i+1}")
+            st.markdown(f"**Título curto:** `{dica['titulo_curto']}`")
+            st.code(dica["texto_whatsapp"], language="text")
+            dicas_whatsapp += f"💡 {dica['titulo_curto']}\n{dica['texto_whatsapp']}\n\n"
 
         mensagem_final = (
             "Olá! Aqui estão as dicas de saúde desta semana da equipe ESF AMPARO:\n\n"
@@ -851,41 +1002,429 @@ def pagina_gerador_cards(gemini_client):
             "Cuide-se! Em caso de dúvidas, ligue para 2641-1499.\n"
             "Atenciosamente, ESF AMPARO."
         )
+        st.text_area("Mensagem completa:", value=mensagem_final, height=300)
 
-        st.text_area("Mensagem Completa:", value=mensagem_final, height=300)
+
+def pagina_coleta(planilha, gemini_client):
+    hero("Coleta Inteligente", "Envie imagens de fichas para extração e cadastro automático.")
+    df_existente = ler_dados_da_planilha(planilha)
+
+    uploaded_files = st.file_uploader(
+        "Selecione uma ou mais imagens",
+        type=["jpg", "jpeg", "png"],
+        accept_multiple_files=True,
+    )
+
+    if "processados" not in st.session_state:
+        st.session_state.processados = []
+
+    if uploaded_files:
+        proximo_arquivo = next(
+            (f for f in uploaded_files if get_file_id(f) not in st.session_state.processados),
+            None,
+        )
+
+        if proximo_arquivo:
+            st.subheader(f"Processando ficha: `{proximo_arquivo.name}`")
+            st.image(Image.open(proximo_arquivo), width=420)
+
+            file_bytes = proximo_arquivo.getvalue()
+            texto_extraido = None
+
+            with st.spinner("Extraindo texto da imagem com Gemini Vision..."):
+                try:
+                    image_part = Part.from_bytes(data=file_bytes, mime_type=proximo_arquivo.type)
+                    response = gemini_client.models.generate_content(
+                        model=MODELO_GEMINI,
+                        contents=[image_part, "Transcreva fielmente todo o texto do formulário contido nesta imagem."],
+                    )
+                    texto_extraido = response.text
+                except Exception as e:
+                    st.error(f"Falha no OCR com Gemini Vision: {e}")
+
+            if texto_extraido:
+                dados_extraidos = extrair_dados_com_google_gemini(texto_extraido, gemini_client)
+
+                if dados_extraidos:
+                    with st.form(key=f"form_{get_file_id(proximo_arquivo)}"):
+                        st.subheader("Confirmar e salvar dados")
+                        dados_para_salvar = {}
+
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            dados_para_salvar["ID"] = st.text_input("ID", value=dados_extraidos.get("ID", ""))
+                            dados_para_salvar["FAMÍLIA"] = st.text_input("FAMÍLIA", value=dados_extraidos.get("FAMÍLIA", ""))
+                            dados_para_salvar["Nome Completo"] = st.text_input("Nome Completo", value=dados_extraidos.get("Nome Completo", ""))
+                            dados_para_salvar["Data de Nascimento"] = st.text_input("Data de Nascimento", value=dados_extraidos.get("Data de Nascimento", ""))
+                            dados_para_salvar["CPF"] = st.text_input("CPF", value=dados_extraidos.get("CPF", ""))
+                            dados_para_salvar["CNS"] = st.text_input("CNS", value=dados_extraidos.get("CNS", ""))
+
+                        with col2:
+                            dados_para_salvar["Telefone"] = st.text_input("Telefone", value=dados_extraidos.get("Telefone", ""))
+                            dados_para_salvar["Nome da Mãe"] = st.text_input("Nome da Mãe", value=dados_extraidos.get("Nome da Mãe", ""))
+                            dados_para_salvar["Nome do Pai"] = st.text_input("Nome do Pai", value=dados_extraidos.get("Nome do Pai", ""))
+                            sexo_extraido = dados_extraidos.get("Sexo", "").strip().upper()[:1]
+                            sexo_selecionado = sexo_extraido if sexo_extraido in ["M", "F", "I"] else ""
+                            dados_para_salvar["Sexo"] = st.selectbox(
+                                "Sexo",
+                                options=["", "M", "F", "I"],
+                                index=["", "M", "F", "I"].index(sexo_selecionado) if sexo_selecionado else 0,
+                            )
+                            dados_para_salvar["Município de Nascimento"] = st.text_input(
+                                "Município de Nascimento",
+                                value=dados_extraidos.get("Município de Nascimento", ""),
+                            )
+                            dados_para_salvar["Município de Residência"] = st.text_input("Município de Residência", value="")
+
+                        dados_para_salvar["Observações"] = st.text_area("Observações", value="")
+                        c3, c4, c5 = st.columns(3)
+                        with c3:
+                            dados_para_salvar["Condição"] = st.text_input("Condição", value="")
+                        with c4:
+                            dados_para_salvar["Raça/Cor"] = st.text_input("Raça/Cor", value="")
+                        with c5:
+                            dados_para_salvar["Status_Vacinal"] = st.text_input("Status Vacinal", value="")
+
+                        dados_para_salvar["Fonte da Imagem"] = proximo_arquivo.name
+                        dados_para_salvar["Link da Pasta da Família"] = st.text_input("Link da Pasta da Família", value="")
+                        dados_para_salvar["Medicamentos"] = st.text_input("Medicamentos", value="")
+                        dados_para_salvar["Link do Prontuário"] = st.text_input("Link do Prontuário", value="")
+
+                        if st.form_submit_button("✅ Salvar Dados Desta Ficha"):
+                            cpf_a_verificar = "".join(re.findall(r"\d", dados_para_salvar["CPF"]))
+                            cns_a_verificar = "".join(re.findall(r"\d", dados_para_salvar["CNS"]))
+
+                            duplicado_cpf = False
+                            if cpf_a_verificar and not df_existente.empty:
+                                duplicado_cpf = any(
+                                    df_existente["CPF"].astype(str).str.replace(r"\D", "", regex=True) == cpf_a_verificar
+                                )
+
+                            duplicado_cns = False
+                            if cns_a_verificar and not df_existente.empty:
+                                duplicado_cns = any(
+                                    df_existente["CNS"].astype(str).str.replace(r"\D", "", regex=True) == cns_a_verificar
+                                )
+
+                            if duplicado_cpf or duplicado_cns:
+                                st.error("⚠️ Já existe um paciente registrado com este CPF ou CNS.")
+                            else:
+                                salvar_no_sheets(dados_para_salvar, planilha)
+                                st.session_state.processados.append(get_file_id(proximo_arquivo))
+                                st.rerun()
+                else:
+                    st.error("A IA não conseguiu extrair dados deste texto.")
+            else:
+                st.error("Não foi possível extrair texto desta imagem.")
+
+        elif len(uploaded_files) > 0:
+            st.success("🎉 Todas as fichas enviadas foram processadas e salvas.")
+            if st.button("Limpar lista para enviar novas imagens"):
+                st.session_state.processados = []
+                st.rerun()
+
+
+def pagina_dashboard(planilha):
+    hero("Dashboard de Dados", "Visualize métricas, filtros e distribuição da sua base.")
+    df_original = ler_dados_da_planilha(planilha)
+    if df_original.empty:
+        st.warning("Ainda não há dados na planilha para exibir.")
+        return
+
+    st.sidebar.header("Filtros do Dashboard")
+    municipios = sorted(df_original["Município de Nascimento"].astype(str).unique())
+    municipios_selecionados = st.sidebar.multiselect("Filtrar por Município:", options=municipios, default=municipios)
+
+    df_original["Idade"] = pd.to_numeric(df_original["Idade"], errors="coerce").fillna(0)
+    idade_max = int(df_original["Idade"].max()) if not df_original["Idade"].empty else 100
+    faixa_etaria = st.sidebar.slider("Filtrar por Faixa Etária:", min_value=0, max_value=max(idade_max, 1), value=(0, max(idade_max, 1)))
+
+    df_filtrado = df_original[
+        (df_original["Município de Nascimento"].isin(municipios_selecionados))
+        & (df_original["Idade"] >= faixa_etaria[0])
+        & (df_original["Idade"] <= faixa_etaria[1])
+    ]
+
+    if df_filtrado.empty:
+        st.warning("Nenhum dado encontrado com os filtros selecionados.")
+        return
+
+    total = len(df_filtrado)
+    idade_media = df_filtrado.loc[df_filtrado["Idade"] > 0, "Idade"].mean()
+    idosos = df_filtrado[df_filtrado["Idade"] >= 60].shape[0]
+    criancas = df_filtrado[df_filtrado["Idade"].between(0, 11)].shape[0]
+
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.markdown(
+            f'<div class="card"><div class="small-title">Total de Fichas</div><div class="big-number">{total}</div></div>',
+            unsafe_allow_html=True,
+        )
+    with c2:
+        st.markdown(
+            f'<div class="card-warning"><div class="small-title">Idosos</div><div class="big-number">{idosos}</div></div>',
+            unsafe_allow_html=True,
+        )
+    with c3:
+        st.markdown(
+            f'<div class="card-success"><div class="small-title">Crianças</div><div class="big-number">{criancas}</div></div>',
+            unsafe_allow_html=True,
+        )
+    with c4:
+        st.markdown(
+            f'<div class="card"><div class="small-title">Idade Média</div><div class="big-number">{idade_media:.1f if pd.notna(idade_media) else 0}</div></div>'.replace("nan", "0"),
+            unsafe_allow_html=True,
+        )
+
+    gcol1, gcol2 = st.columns(2)
+    with gcol1:
+        st.markdown("### Pacientes por Município")
+        municipio_counts = df_filtrado["Município de Nascimento"].value_counts()
+        st.bar_chart(municipio_counts)
+
+    with gcol2:
+        st.markdown("### Distribuição por Sexo")
+        sexo_counts = df_filtrado["Sexo"].astype(str).str.strip().str.capitalize().value_counts()
+        fig, ax = plt.subplots(figsize=(5, 3))
+        if not sexo_counts.empty:
+            sexo_counts.plot.pie(ax=ax, autopct="%1.1f%%", startangle=90)
+            ax.axis("equal")
+            st.pyplot(fig)
+
+    st.markdown("### Tabela de Dados")
+    st.dataframe(df_filtrado, use_container_width=True)
+
+
+def desenhar_dashboard_familia(familia_id, df_completo):
+    st.header(f"Dashboard da Família: {familia_id}")
+    df_familia = df_completo[df_completo["FAMÍLIA"] == familia_id].copy()
+    st.subheader("Membros da Família")
+    st.dataframe(df_familia[["Nome Completo", "Data de Nascimento", "Idade", "Sexo", "CPF", "CNS"]], use_container_width=True)
+
+    st.markdown("---")
+    st.subheader("Acompanhamento Individual")
+    cols = st.columns(max(len(df_familia), 1))
+
+    for i, (_, membro) in enumerate(df_familia.iterrows()):
+        with cols[i]:
+            st.info(f"**{membro['Nome Completo'].split()[0]}** ({membro['Idade']} anos)")
+            condicoes = membro.get("Condição", "")
+            medicamentos = membro.get("Medicamentos", "")
+            st.write(f"**Condições:** {condicoes if condicoes else 'Nenhuma registrada.'}")
+            st.write(f"**Medicamentos:** {medicamentos if medicamentos else 'Nenhum registrado.'}")
+
+
+def pagina_pesquisa(planilha):
+    hero("Gestão de Pacientes", "Pesquise, edite, apague e visualize famílias.")
+    if "familia_selecionada_id" in st.session_state and st.session_state.familia_selecionada_id:
+        if st.button("⬅️ Voltar para a Pesquisa"):
+            del st.session_state.familia_selecionada_id
+            st.rerun()
+
+    df = ler_dados_da_planilha(planilha)
+    if df.empty:
+        st.warning("Ainda não há dados na planilha para pesquisar.")
+        return
+
+    if "familia_selecionada_id" in st.session_state and st.session_state.familia_selecionada_id:
+        desenhar_dashboard_familia(st.session_state.familia_selecionada_id, df)
+        return
+
+    colunas_pesquisaveis = ["Nome Completo", "CPF", "CNS", "Nome da Mãe", "ID", "FAMÍLIA"]
+    coluna_selecionada = st.selectbox("Pesquisar por:", colunas_pesquisaveis)
+    termo_pesquisa = st.text_input("Digite o termo de pesquisa:")
+
+    if termo_pesquisa:
+        resultados = df[df[coluna_selecionada].astype(str).str.contains(termo_pesquisa, case=False, na=False)]
+        st.markdown(f"**{len(resultados)}** resultado(s) encontrado(s):")
+
+        for _, row in resultados.iterrows():
+            id_paciente = row["ID"]
+            with st.expander(f"**{row['Nome Completo']}** (ID: {id_paciente})"):
+                st.dataframe(row.to_frame().T, hide_index=True, use_container_width=True)
+                botoes = st.columns(3)
+
+                with botoes[0]:
+                    if st.button("✏️ Editar Dados", key=f"edit_{id_paciente}"):
+                        st.session_state["patient_to_edit"] = row.to_dict()
+                        st.rerun()
+
+                with botoes[1]:
+                    if st.button("🗑️ Apagar Registo", key=f"delete_{id_paciente}"):
+                        try:
+                            cell = planilha.find(str(id_paciente))
+                            planilha.delete_rows(cell.row)
+                            st.success(f"Registo de {row['Nome Completo']} apagado com sucesso!")
+                            st.cache_data.clear()
+                            time.sleep(1)
+                            st.rerun()
+                        except gspread.exceptions.CellNotFound:
+                            st.error(f"Não foi possível encontrar o paciente com ID {id_paciente}.")
+                        except Exception as e:
+                            st.error(f"Ocorreu um erro ao apagar: {e}")
+
+                with botoes[2]:
+                    familia_id = row.get("FAMÍLIA")
+                    if familia_id:
+                        if st.button("👨‍👩‍👧 Ver Dashboard da Família", key=f"fam_{id_paciente}"):
+                            st.session_state.familia_selecionada_id = familia_id
+                            st.rerun()
+
+    if "patient_to_edit" in st.session_state:
+        st.markdown("---")
+        st.subheader("Editando Paciente")
+        patient_data = st.session_state["patient_to_edit"]
+
+        with st.form(key="edit_form"):
+            edited_data = {}
+            for key, value in patient_data.items():
+                if key not in ["Data de Nascimento DT"]:
+                    edited_data[key] = st.text_input(f"{key}", value=value, key=f"edit_{key}")
+
+            if st.form_submit_button("Salvar Alterações"):
+                try:
+                    cell = planilha.find(str(patient_data["ID"]))
+                    cabecalhos = planilha.row_values(1)
+                    update_values = [edited_data.get(h, "") for h in cabecalhos]
+                    planilha.update(f"A{cell.row}", [update_values])
+                    st.success("Dados do paciente atualizados com sucesso!")
+                    del st.session_state["patient_to_edit"]
+                    st.cache_data.clear()
+                    time.sleep(1)
+                    st.rerun()
+                except gspread.exceptions.CellNotFound:
+                    st.error(f"Não foi possível encontrar o paciente com ID {patient_data['ID']}.")
+                except Exception as e:
+                    st.error(f"Ocorreu um erro ao salvar: {e}")
+
+
+def pagina_etiquetas(planilha):
+    hero("Gerador de Etiquetas", "Crie etiquetas por família com QR Code da pasta.")
+    df = ler_dados_da_planilha(planilha)
+    if df.empty:
+        st.warning("Ainda não há dados na planilha para gerar etiquetas.")
+        return
+
+    def agregador(x):
+        return {
+            "membros": x[["Nome Completo", "Data de Nascimento", "CNS"]].to_dict("records"),
+            "link_pasta": x["Link da Pasta da Família"].iloc[0] if "Link da Pasta da Família" in x.columns and not x["Link da Pasta da Família"].empty else "",
+        }
+
+    df_familias = df[df["FAMÍLIA"].astype(str).str.strip() != ""]
+    if df_familias.empty:
+        st.warning("Não há famílias para exibir.")
+        return
+
+    familias_dict = df_familias.groupby("FAMÍLIA").apply(agregador).to_dict()
+    lista_familias = sorted([f for f in familias_dict.keys() if f])
+    familias_selecionadas = st.multiselect("Famílias:", lista_familias)
+
+    familias_para_gerar = familias_dict if not familias_selecionadas else {
+        fid: familias_dict[fid] for fid in familias_selecionadas
+    }
+
+    if not familias_para_gerar:
+        st.warning("Nenhuma família para exibir.")
+        return
+
+    for familia_id, dados_familia in familias_para_gerar.items():
+        with st.expander(f"**Família: {familia_id}** ({len(dados_familia['membros'])} membro(s))"):
+            for membro in dados_familia["membros"]:
+                st.write(f"**{membro['Nome Completo']}**")
+                st.caption(f"DN: {membro['Data de Nascimento']} | CNS: {membro['CNS']}")
+
+    if st.button("📥 Gerar PDF das Etiquetas com QR Code"):
+        pdf_bytes = gerar_pdf_etiquetas(familias_para_gerar)
+        st.download_button(
+            label="Descarregar PDF",
+            data=pdf_bytes,
+            file_name=f"etiquetas_qrcode_{datetime.now().strftime('%Y%m%d')}.pdf",
+            mime="application/pdf",
+        )
+
+
+def pagina_capas_prontuario(planilha):
+    hero("Capas de Prontuário", "Gere capas profissionais para os pacientes selecionados.")
+    df = ler_dados_da_planilha(planilha)
+    if df.empty:
+        st.warning("Ainda não há dados para gerar capas.")
+        return
+
+    lista_pacientes = df["Nome Completo"].tolist()
+    pacientes_selecionados_nomes = st.multiselect("Escolha um ou mais pacientes:", sorted(lista_pacientes))
+
+    if pacientes_selecionados_nomes:
+        pacientes_df = df[df["Nome Completo"].isin(pacientes_selecionados_nomes)]
+        st.dataframe(
+            pacientes_df[["Nome Completo", "Data de Nascimento", "FAMÍLIA", "CPF", "CNS"]],
+            use_container_width=True,
+        )
+
+        if st.button("📥 Gerar PDF das Capas"):
+            pdf_bytes = gerar_pdf_capas_prontuario(pacientes_df)
+            st.download_button(
+                label="Descarregar PDF das Capas",
+                data=pdf_bytes,
+                file_name=f"capas_prontuario_{datetime.now().strftime('%Y%m%d')}.pdf",
+                mime="application/pdf",
+            )
+
+
+def pagina_gerar_documentos(planilha):
+    hero("Gerador de Documentos", "Preencha formulários PDF com dados do paciente.")
+    df = ler_dados_da_planilha(planilha)
+    if df.empty:
+        st.warning("Não há pacientes para gerar documentos.")
+        return
+
+    lista_pacientes = sorted(df["Nome Completo"].tolist())
+    paciente_selecionado_nome = st.selectbox("Escolha um paciente:", lista_pacientes, index=None)
+
+    if paciente_selecionado_nome:
+        paciente_dados = df[df["Nome Completo"] == paciente_selecionado_nome].iloc[0]
+        if st.button("📄 Gerar Formulário de Vulnerabilidade"):
+            pdf_buffer = preencher_pdf_formulario(paciente_dados.to_dict())
+            if pdf_buffer:
+                st.download_button(
+                    label="Descarregar Formulário Preenchido (PDF)",
+                    data=pdf_buffer,
+                    file_name=f"formulario_{paciente_selecionado_nome.replace(' ', '_')}.pdf",
+                    mime="application/pdf",
+                )
 
 
 def pagina_whatsapp(planilha):
-    st.title("Enviar Mensagens de WhatsApp")
+    hero("WhatsApp Manual", "Gere mensagens personalizadas por paciente ou em massa.")
     df = ler_dados_da_planilha(planilha)
 
-    df_com_telefone = df[df['Telefone'].astype(str).str.strip() != ''].copy()
-    df_com_telefone['Telefone Limpo'] = df_com_telefone['Telefone'].apply(padronizar_telefone)
-    df_com_telefone.dropna(subset=['Telefone Limpo'], inplace=True)
+    df_com_telefone = df[df["Telefone"].astype(str).str.strip() != ""].copy()
+    df_com_telefone["Telefone Limpo"] = df_com_telefone["Telefone"].apply(padronizar_telefone)
+    df_com_telefone.dropna(subset=["Telefone Limpo"], inplace=True)
 
     if df_com_telefone.empty:
         st.warning("Não há pacientes com telefones válidos.")
         return
 
-    lista_pacientes = sorted(df_com_telefone['Nome Completo'].tolist())
+    lista_pacientes = sorted(df_com_telefone["Nome Completo"].tolist())
 
     col1, col2 = st.columns(2)
     with col1:
         tipo_mensagem = st.selectbox(
             "Tipo de Notificação:",
-            options=["Exames", "Marcação Médica", "Orientações Gerais", "Personalizada"]
+            options=["Exames", "Marcação Médica", "Orientações Gerais", "Personalizada"],
         )
     with col2:
         enviar_para = st.selectbox(
             "Enviar para:",
-            options=["Um paciente", "Múltiplos pacientes (em massa)"]
+            options=["Um paciente", "Múltiplos pacientes (em massa)"],
         )
 
     templates = {
         "Exames": """Olá, [NOME]! Seu exame [TIPO_EXAME] está agendado para [DATA_HORA]. Leve jejum de 8h e seu CNS: [CNS]. Histórico: [IDADE], condições: [CONDICOES]. Dúvidas? Ligue [TELEFONE_UBS]. [SAÚDE MUNICIPAL]""",
         "Marcação Médica": """Olá, [NOME]! Consulta com [MEDICO_ESPECIALIDADE] marcada para [DATA_HORA]. Traga medicamentos: [MEDICAMENTOS]. Família: [FAMILIA]. Confirme presença! [SAÚDE MUNICIPAL]""",
         "Orientações Gerais": """Olá, [NOME]! Orientação: Mantenha hidratação e monitore [CONDICOES]. Próxima dose vacinal em [DATA_PROXIMA]. Idade: [IDADE] | Nasc.: [DATA_NASCIMENTO]. Suporte: [TELEFONE_UBS]. [SAÚDE MUNICIPAL]""",
-        "Personalizada": "Olá, [NOME]! [SUA_MENSAGEM_AQUI]. Histórico: [CONDICOES] | Medicamentos: [MEDICAMENTOS]. [SAÚDE MUNICIPAL]"
+        "Personalizada": """Olá, [NOME]! [SUA_MENSAGEM_AQUI]. Histórico: [CONDICOES] | Medicamentos: [MEDICAMENTOS]. [SAÚDE MUNICIPAL]""",
     }
     mensagem_base = templates.get(tipo_mensagem, templates["Personalizada"])
 
@@ -893,10 +1432,9 @@ def pagina_whatsapp(planilha):
     if tipo_mensagem == "Exames":
         custom_fields["TIPO_EXAME"] = st.selectbox("Tipo de Exame:", options=EXAMES_COMUNS, index=None)
         custom_fields["DATA_HORA"] = st.text_input("Data/Hora:", placeholder="DD/MM/YYYY HH:MM")
-
     elif tipo_mensagem == "Marcação Médica":
         especialidade = st.selectbox("Especialidade:", options=ESPECIALIDADES_MEDICAS, index=None)
-        medico_input = st.text_input("Nome do Médico (opcional):", placeholder="ex: Dr. Silva")
+        medico_input = st.text_input("Nome do Médico (Opcional):", placeholder="ex: Dr. Silva")
         custom_fields["DATA_HORA"] = st.text_input("Data/Hora:", placeholder="DD/MM/YYYY HH:MM")
 
         final_medico_especialidade = ""
@@ -908,7 +1446,6 @@ def pagina_whatsapp(planilha):
             final_medico_especialidade = medico_input
 
         custom_fields["MEDICO_ESPECIALIDADE"] = final_medico_especialidade
-
     elif tipo_mensagem == "Orientações Gerais":
         custom_fields["DATA_PROXIMA"] = st.text_input("Próxima Ação/Data:", placeholder="ex: 15/12/2025")
 
@@ -916,9 +1453,9 @@ def pagina_whatsapp(planilha):
         if value:
             mensagem_base = mensagem_base.replace(f"[{key}]", value)
 
-    mensagem_padrao = st.text_area("Edite a Mensagem:", mensagem_base, height=150)
+    mensagem_padrao = st.text_area("Edite a mensagem:", mensagem_base, height=160)
 
-    telefone_contato = st.text_input("Telefone de Contato:", value="2641-1499")
+    telefone_contato = st.text_input("Telefone de contato:", value="2641-1499")
     if telefone_contato:
         mensagem_padrao = mensagem_padrao.replace("[TELEFONE_UBS]", telefone_contato)
 
@@ -939,389 +1476,22 @@ def pagina_whatsapp(planilha):
                 dados_paciente = buscar_dados_completos_paciente(nome_paciente, df_com_telefone)
                 if dados_paciente:
                     mensagem_final = aplicar_substituicoes_completas(mensagem_padrao, dados_paciente)
-                    st.code(mensagem_final, language='text')
-
-                    telefone_limpo = dados_paciente['Telefone Limpo']
+                    st.code(mensagem_final, language="text")
+                    telefone_limpo = dados_paciente["Telefone Limpo"]
                     whatsapp_url = f"https://wa.me/55{telefone_limpo}?text={urllib.parse.quote(mensagem_final)}"
                     st.link_button("Abrir WhatsApp", whatsapp_url)
 
 
-def pagina_inicial():
-    st.title("Bem-vindo ao Sistema de Gestão de Pacientes Inteligente")
-    st.write("Use o menu lateral para acessar as funcionalidades.")
-
-
-def pagina_gerar_documentos(planilha):
-    st.title("Gerador de Documentos")
-    df = ler_dados_da_planilha(planilha)
-    if df.empty:
-        st.warning("Não há pacientes para gerar documentos.")
-        return
-
-    lista_pacientes = sorted(df['Nome Completo'].tolist())
-    paciente_selecionado_nome = st.selectbox("Escolha um paciente:", lista_pacientes, index=None)
-
-    if paciente_selecionado_nome:
-        paciente_dados = df[df['Nome Completo'] == paciente_selecionado_nome].iloc[0]
-        if st.button("Gerar Formulário de Vulnerabilidade"):
-            pdf_buffer = preencher_pdf_formulario(paciente_dados.to_dict())
-            if pdf_buffer:
-                st.download_button(
-                    label="Descarregar PDF",
-                    data=pdf_buffer,
-                    file_name=f"formulario_{paciente_selecionado_nome.replace(' ', '_')}.pdf",
-                    mime="application/pdf"
-                )
-
-
-def get_file_id(uploaded_file):
-    import hashlib
-    file_hash = hashlib.md5(uploaded_file.name.encode()).hexdigest()[:8]
-    return f"{uploaded_file.name}_{file_hash}"
-
-
-def pagina_coleta(planilha, gemini_client):
-    st.title("COLETA INTELIGENTE")
-    st.header("Envie uma ou mais imagens de fichas")
-
-    df_existente = ler_dados_da_planilha(planilha)
-    uploaded_files = st.file_uploader(
-        "Pode selecionar vários arquivos de uma vez",
-        type=["jpg", "jpeg", "png"],
-        accept_multiple_files=True
-    )
-
-    if 'processados' not in st.session_state:
-        st.session_state.processados = []
-
-    if uploaded_files:
-        proximo_arquivo = next((f for f in uploaded_files if get_file_id(f) not in st.session_state.processados), None)
-
-        if proximo_arquivo:
-            st.subheader(f"Processando Ficha: `{proximo_arquivo.name}`")
-            st.image(Image.open(proximo_arquivo), width=400)
-            file_bytes = proximo_arquivo.getvalue()
-            texto_extraido = None
-
-            with st.spinner("Extraindo texto da imagem com Gemini Vision..."):
-                try:
-                    image_part = Part.from_bytes(data=file_bytes, mime_type=proximo_arquivo.type)
-                    prompt_ocr = "Transcreva fielmente todo o texto do formulário contido nesta imagem."
-                    response = gemini_client.models.generate_content(
-                        model=MODELO_GEMINI,
-                        contents=[image_part, prompt_ocr]
-                    )
-                    texto_extraido = response.text
-                except Exception as e:
-                    st.error(f"Falha no OCR com Gemini Vision: {e}")
-
-            if texto_extraido:
-                dados_extraidos = extrair_dados_com_google_gemini(texto_extraido, gemini_client)
-
-                if dados_extraidos:
-                    with st.form(key=f"form_{get_file_id(proximo_arquivo)}"):
-                        st.subheader("Confirme e salve os dados")
-                        dados_para_salvar = {}
-
-                        dados_para_salvar['ID'] = st.text_input("ID", value=dados_extraidos.get("ID", ""))
-                        dados_para_salvar['FAMÍLIA'] = st.text_input("FAMÍLIA", value=dados_extraidos.get("FAMÍLIA", ""))
-                        dados_para_salvar['Nome Completo'] = st.text_input("Nome Completo", value=dados_extraidos.get("Nome Completo", ""))
-                        dados_para_salvar['Data de Nascimento'] = st.text_input("Data de Nascimento", value=dados_extraidos.get("Data de Nascimento", ""))
-                        dados_para_salvar['CPF'] = st.text_input("CPF", value=dados_extraidos.get("CPF", ""))
-                        dados_para_salvar['CNS'] = st.text_input("CNS", value=dados_extraidos.get("CNS", ""))
-                        dados_para_salvar['Telefone'] = st.text_input("Telefone", value=dados_extraidos.get("Telefone", ""))
-                        dados_para_salvar['Nome da Mãe'] = st.text_input("Nome da Mãe", value=dados_extraidos.get("Nome da Mãe", ""))
-                        dados_para_salvar['Nome do Pai'] = st.text_input("Nome do Pai", value=dados_extraidos.get("Nome do Pai", ""))
-
-                        sexo_extraido = dados_extraidos.get("Sexo", "").strip().upper()[:1]
-                        sexo_selecionado = sexo_extraido if sexo_extraido in ["M", "F", "I"] else ""
-                        dados_para_salvar['Sexo'] = st.selectbox(
-                            "Sexo",
-                            options=["", "M", "F", "I"],
-                            index=["", "M", "F", "I"].index(sexo_selecionado) if sexo_selecionado else 0
-                        )
-
-                        dados_para_salvar['Município de Nascimento'] = st.text_input(
-                            "Município de Nascimento",
-                            value=dados_extraidos.get("Município de Nascimento", "")
-                        )
-                        dados_para_salvar['Município de Residência'] = st.text_input("Município de Residência", value="")
-                        dados_para_salvar['Observações'] = st.text_area("Observações", value="")
-                        dados_para_salvar['Condição'] = st.text_input("Condição", value="")
-                        dados_para_salvar['Raça/Cor'] = st.text_input("Raça/Cor", value="")
-                        dados_para_salvar['Status_Vacinal'] = st.text_input("Status Vacinal", value="")
-                        dados_para_salvar['Fonte da Imagem'] = proximo_arquivo.name
-                        dados_para_salvar['Link da Pasta da Família'] = st.text_input("Link da Pasta da Família", value="")
-                        dados_para_salvar['Medicamentos'] = st.text_input("Medicamentos", value="")
-                        dados_para_salvar['Link do Prontuário'] = st.text_input("Link do Prontuário", value="")
-
-                        if st.form_submit_button("Salvar Dados Desta Ficha"):
-                            cpf_a_verificar = ''.join(re.findall(r'\d', dados_para_salvar['CPF']))
-                            cns_a_verificar = ''.join(re.findall(r'\d', dados_para_salvar['CNS']))
-
-                            duplicado_cpf = False
-                            if cpf_a_verificar and not df_existente.empty:
-                                duplicado_cpf = any(
-                                    df_existente['CPF'].astype(str).str.replace(r'\D', '', regex=True) == cpf_a_verificar
-                                )
-
-                            duplicado_cns = False
-                            if cns_a_verificar and not df_existente.empty:
-                                duplicado_cns = any(
-                                    df_existente['CNS'].astype(str).str.replace(r'\D', '', regex=True) == cns_a_verificar
-                                )
-
-                            if duplicado_cpf or duplicado_cns:
-                                st.error("Alerta de duplicado: já existe paciente com este CPF ou CNS.")
-                            else:
-                                salvar_no_sheets(dados_para_salvar, planilha)
-                                st.session_state.processados.append(get_file_id(proximo_arquivo))
-                                st.rerun()
-                else:
-                    st.error("A IA não conseguiu extrair dados deste texto.")
-            else:
-                st.error("Não foi possível extrair texto desta imagem.")
-        elif len(uploaded_files) > 0:
-            st.success("Todas as fichas enviadas foram processadas e salvas.")
-            if st.button("Limpar lista para enviar novas imagens"):
-                st.session_state.processados = []
-                st.rerun()
-
-
-def pagina_dashboard(planilha):
-    st.title("Dashboard de Dados")
-    df_original = ler_dados_da_planilha(planilha)
-    if df_original.empty:
-        st.warning("Ainda não há dados na planilha para exibir.")
-        return
-
-    st.sidebar.header("Filtros do Dashboard")
-    municipios = sorted(df_original['Município de Nascimento'].astype(str).unique())
-    municipios_selecionados = st.sidebar.multiselect("Filtrar por Município:", options=municipios, default=municipios)
-
-    idade_max = int(pd.to_numeric(df_original['Idade'], errors='coerce').fillna(0).max()) if not df_original['Idade'].empty else 100
-    faixa_etaria = st.sidebar.slider("Filtrar por Faixa Etária:", min_value=0, max_value=max(idade_max, 1), value=(0, max(idade_max, 1)))
-
-    df_original['Idade'] = pd.to_numeric(df_original['Idade'], errors='coerce').fillna(0)
-
-    df_filtrado = df_original[
-        (df_original['Município de Nascimento'].isin(municipios_selecionados)) &
-        (df_original['Idade'] >= faixa_etaria[0]) &
-        (df_original['Idade'] <= faixa_etaria[1])
-    ]
-
-    if df_filtrado.empty:
-        st.warning("Nenhum dado encontrado com os filtros selecionados.")
-        return
-
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Total de Fichas", len(df_filtrado))
-    idade_media = df_filtrado.loc[df_filtrado['Idade'] > 0, 'Idade'].mean()
-    col2.metric("Idade Média", f"{idade_media:.1f} anos" if pd.notna(idade_media) else "N/A")
-    sexo_counts = df_filtrado['Sexo'].astype(str).str.strip().str.capitalize().value_counts()
-    col3.metric("Sexo (Moda)", sexo_counts.index[0] if not sexo_counts.empty else "N/A")
-
-    gcol1, gcol2 = st.columns(2)
-    with gcol1:
-        st.markdown("### Pacientes por Município")
-        municipio_counts = df_filtrado['Município de Nascimento'].value_counts()
-        st.bar_chart(municipio_counts)
-
-    with gcol2:
-        st.markdown("### Distribuição por Sexo")
-        fig, ax = plt.subplots(figsize=(5, 3))
-        sexo_counts.plot.pie(ax=ax, autopct='%1.1f%%', startangle=90)
-        ax.axis('equal')
-        st.pyplot(fig)
-
-    st.markdown("### Tabela de Dados")
-    st.dataframe(df_filtrado)
-
-
-def desenhar_dashboard_familia(familia_id, df_completo):
-    st.header(f"Dashboard da Família: {familia_id}")
-    df_familia = df_completo[df_completo['FAMÍLIA'] == familia_id].copy()
-    st.subheader("Membros da Família")
-    st.dataframe(df_familia[['Nome Completo', 'Data de Nascimento', 'Idade', 'Sexo', 'CPF', 'CNS']])
-
-    st.markdown("---")
-    st.subheader("Acompanhamento Individual")
-
-    cols = st.columns(max(len(df_familia), 1))
-    for i, (_, membro) in enumerate(df_familia.iterrows()):
-        with cols[i]:
-            st.info(f"**{membro['Nome Completo'].split()[0]}** ({membro['Idade']} anos)")
-            condicoes = membro.get('Condição', '')
-            medicamentos = membro.get('Medicamentos', '')
-            st.write(f"**Condições:** {condicoes if condicoes else 'Nenhuma registada.'}")
-            st.write(f"**Medicamentos:** {medicamentos if medicamentos else 'Nenhum registado.'}")
-
-
-def pagina_pesquisa(planilha):
-    st.title("Gestão de Pacientes")
-
-    if 'familia_selecionada_id' in st.session_state and st.session_state.familia_selecionada_id:
-        if st.button("Voltar para a Pesquisa"):
-            del st.session_state.familia_selecionada_id
-            st.rerun()
-
-    df = ler_dados_da_planilha(planilha)
-    if df.empty:
-        st.warning("Ainda não há dados na planilha para pesquisar.")
-        return
-
-    if 'familia_selecionada_id' in st.session_state and st.session_state.familia_selecionada_id:
-        desenhar_dashboard_familia(st.session_state.familia_selecionada_id, df)
-        return
-
-    colunas_pesquisaveis = ["Nome Completo", "CPF", "CNS", "Nome da Mãe", "ID", "FAMÍLIA"]
-    coluna_selecionada = st.selectbox("Pesquisar por:", colunas_pesquisaveis)
-    termo_pesquisa = st.text_input("Digite o termo de pesquisa:")
-
-    if termo_pesquisa:
-        resultados = df[df[coluna_selecionada].astype(str).str.contains(termo_pesquisa, case=False, na=False)]
-        st.markdown(f"**{len(resultados)}** resultado(s) encontrado(s):")
-
-        for _, row in resultados.iterrows():
-            id_paciente = row['ID']
-            with st.expander(f"**{row['Nome Completo']}** (ID: {id_paciente})"):
-                st.dataframe(row.to_frame().T, hide_index=True)
-
-                botoes = st.columns(3)
-                with botoes[0]:
-                    if st.button("Editar Dados", key=f"edit_{id_paciente}"):
-                        st.session_state['patient_to_edit'] = row.to_dict()
-                        st.rerun()
-
-                with botoes[1]:
-                    if st.button("Apagar Registo", key=f"delete_{id_paciente}"):
-                        try:
-                            cell = planilha.find(str(id_paciente))
-                            planilha.delete_rows(cell.row)
-                            st.success(f"Registo de {row['Nome Completo']} apagado com sucesso!")
-                            st.cache_data.clear()
-                            time.sleep(1)
-                            st.rerun()
-                        except gspread.exceptions.CellNotFound:
-                            st.error(f"Não foi possível encontrar o paciente com ID {id_paciente}.")
-                        except Exception as e:
-                            st.error(f"Ocorreu um erro ao apagar: {e}")
-
-                with botoes[2]:
-                    familia_id = row.get('FAMÍLIA')
-                    if familia_id:
-                        if st.button("Ver Dashboard da Família", key=f"fam_{id_paciente}"):
-                            st.session_state.familia_selecionada_id = familia_id
-                            st.rerun()
-
-    if 'patient_to_edit' in st.session_state:
-        st.markdown("---")
-        st.subheader("Editando Paciente")
-        patient_data = st.session_state['patient_to_edit']
-
-        with st.form(key="edit_form"):
-            edited_data = {}
-            for key, value in patient_data.items():
-                if key not in ['Data de Nascimento DT']:
-                    edited_data[key] = st.text_input(f"{key}", value=value, key=f"edit_{key}")
-
-            if st.form_submit_button("Salvar Alterações"):
-                try:
-                    cell = planilha.find(str(patient_data['ID']))
-                    cabecalhos = planilha.row_values(1)
-                    update_values = [edited_data.get(h, '') for h in cabecalhos]
-                    planilha.update(f'A{cell.row}', [update_values])
-                    st.success("Dados do paciente atualizados com sucesso!")
-                    del st.session_state['patient_to_edit']
-                    st.cache_data.clear()
-                    time.sleep(1)
-                    st.rerun()
-                except gspread.exceptions.CellNotFound:
-                    st.error(f"Não foi possível encontrar o paciente com ID {patient_data['ID']}.")
-                except Exception as e:
-                    st.error(f"Ocorreu um erro ao salvar: {e}")
-
-
-def pagina_etiquetas(planilha):
-    st.title("Gerador de Etiquetas por Família")
-    df = ler_dados_da_planilha(planilha)
-    if df.empty:
-        st.warning("Ainda não há dados na planilha para gerar etiquetas.")
-        return
-
-    def agregador(x):
-        return {
-            "membros": x[['Nome Completo', 'Data de Nascimento', 'CNS']].to_dict('records'),
-            "link_pasta": x['Link da Pasta da Família'].iloc[0] if 'Link da Pasta da Família' in x.columns and not x['Link da Pasta da Família'].empty else ""
-        }
-
-    df_familias = df[df['FAMÍLIA'].astype(str).str.strip() != '']
-    if df_familias.empty:
-        st.warning("Não há famílias para exibir.")
-        return
-
-    familias_dict = df_familias.groupby('FAMÍLIA').apply(agregador).to_dict()
-    lista_familias = sorted([f for f in familias_dict.keys() if f])
-    familias_selecionadas = st.multiselect("Famílias:", lista_familias)
-
-    familias_para_gerar = familias_dict if not familias_selecionadas else {
-        fid: familias_dict[fid] for fid in familias_selecionadas
-    }
-
-    if not familias_para_gerar:
-        st.warning("Nenhuma família para exibir.")
-        return
-
-    for familia_id, dados_familia in familias_para_gerar.items():
-        with st.expander(f"**Família: {familia_id}** ({len(dados_familia['membros'])} membro(s))"):
-            for membro in dados_familia['membros']:
-                st.write(f"**{membro['Nome Completo']}**")
-                st.caption(f"DN: {membro['Data de Nascimento']} | CNS: {membro['CNS']}")
-
-    if st.button("Gerar PDF das Etiquetas com QR Code"):
-        pdf_bytes = gerar_pdf_etiquetas(familias_para_gerar)
-        st.download_button(
-            label="Descarregar PDF",
-            data=pdf_bytes,
-            file_name=f"etiquetas_qrcode_{datetime.now().strftime('%Y%m%d')}.pdf",
-            mime="application/pdf"
-        )
-
-
-def pagina_capas_prontuario(planilha):
-    st.title("Gerador de Capas de Prontuário")
-    df = ler_dados_da_planilha(planilha)
-    if df.empty:
-        st.warning("Ainda não há dados para gerar capas.")
-        return
-
-    lista_pacientes = df['Nome Completo'].tolist()
-    pacientes_selecionados_nomes = st.multiselect("Escolha um ou mais pacientes:", sorted(lista_pacientes))
-
-    if pacientes_selecionados_nomes:
-        pacientes_df = df[df['Nome Completo'].isin(pacientes_selecionados_nomes)]
-        st.dataframe(pacientes_df[["Nome Completo", "Data de Nascimento", "FAMÍLIA", "CPF", "CNS"]])
-
-        if st.button("Gerar PDF das Capas"):
-            pdf_bytes = gerar_pdf_capas_prontuario(pacientes_df)
-            st.download_button(
-                label="Descarregar PDF das Capas",
-                data=pdf_bytes,
-                file_name=f"capas_prontuario_{datetime.now().strftime('%Y%m%d')}.pdf",
-                mime="application/pdf"
-            )
-
-
 def pagina_ocr_e_alerta_whatsapp(planilha):
-    st.title("Verificação Rápida e Alerta WhatsApp")
+    hero("Verificação Rápida + WhatsApp", "Localize um paciente e gere a notificação com dados completos.")
     df = ler_dados_da_planilha(planilha)
     if df.empty:
         st.error("A planilha não possui dados para busca.")
         return
 
-    df_com_telefone = df[df['Telefone'].astype(str).str.strip() != ''].copy()
-    df_com_telefone['Telefone Limpo'] = df_com_telefone['Telefone'].apply(padronizar_telefone)
-    df_com_telefone.dropna(subset=['Telefone Limpo'], inplace=True)
+    df_com_telefone = df[df["Telefone"].astype(str).str.strip() != ""].copy()
+    df_com_telefone["Telefone Limpo"] = df_com_telefone["Telefone"].apply(padronizar_telefone)
+    df_com_telefone.dropna(subset=["Telefone Limpo"], inplace=True)
 
     if df_com_telefone.empty:
         st.error("Nenhum paciente na planilha tem telefone válido.")
@@ -1331,11 +1501,11 @@ def pagina_ocr_e_alerta_whatsapp(planilha):
     nome_para_buscar = None
 
     if foto_paciente is not None:
-        lista_pacientes_validos = df_com_telefone['Nome Completo'].tolist()
+        lista_pacientes_validos = df_com_telefone["Nome Completo"].tolist()
         nome_para_buscar = st.selectbox(
             "Simule o nome que a IA extraiu:",
             options=sorted(lista_pacientes_validos),
-            index=None
+            index=None,
         )
 
     if nome_para_buscar:
@@ -1344,9 +1514,10 @@ def pagina_ocr_e_alerta_whatsapp(planilha):
             st.error(f"O nome '{nome_para_buscar}' não consta na planilha.")
             return
 
-        telefone_limpo = dados_paciente['Telefone Limpo']
+        telefone_limpo = dados_paciente["Telefone Limpo"]
+
         mensagem_default = (
-            "Olá, [NOME]! Seu procedimento foi LIBERADO.\n\n"
+            "Olá, [NOME]! Seu procedimento foi LIBERADO. Resumo do seu histórico:\n\n"
             "- Idade: [IDADE] | Nasc.: [DATA_NASCIMENTO]\n"
             "- CPF: [CPF_Mascarado] | CNS: [CNS_Mascarado]\n"
             "- Condições: [CONDICOES]\n"
@@ -1357,23 +1528,22 @@ def pagina_ocr_e_alerta_whatsapp(planilha):
         mensagem_padrao = st.text_area(
             f"Mensagem para {nome_para_buscar.split()[0]}:",
             mensagem_default,
-            height=150
+            height=150,
         )
 
         mensagem_personalizada = aplicar_substituicoes_completas(mensagem_padrao, dados_paciente)
         mensagem_personalizada = mensagem_personalizada.replace("[TELEFONE_UBS]", "2641-1499")
         mensagem_personalizada = mensagem_personalizada.replace("[SAÚDE MUNICIPAL]", "Atenciosamente, ESF AMPARO.")
-        mensagem_personalizada = mensagem_personalizada.replace("[CPF_Mascarado]", dados_paciente['CPF'])
-        mensagem_personalizada = mensagem_personalizada.replace("[CNS_Mascarado]", dados_paciente['CNS'])
+        mensagem_personalizada = mensagem_personalizada.replace("[CPF_Mascarado]", dados_paciente["CPF"])
+        mensagem_personalizada = mensagem_personalizada.replace("[CNS_Mascarado]", dados_paciente["CNS"])
 
         whatsapp_url = f"https://wa.me/55{telefone_limpo}?text={urllib.parse.quote(mensagem_personalizada)}"
         st.link_button("Abrir WhatsApp e Enviar", whatsapp_url)
 
 
 def pagina_analise_vacinacao(planilha, gemini_client):
-    st.title("Análise Automatizada de Caderneta de Vacinação")
-
-    if 'uploaded_file_id' not in st.session_state:
+    hero("Análise de Vacinação", "Leia cadernetas e gere relatórios automáticos.")
+    if "uploaded_file_id" not in st.session_state:
         st.session_state.dados_extraidos = None
         st.session_state.relatorio_final = None
 
@@ -1381,21 +1551,20 @@ def pagina_analise_vacinacao(planilha, gemini_client):
 
     if uploaded_file is not None:
         file_id = get_file_id(uploaded_file)
-        if st.session_state.get('uploaded_file_id') != file_id:
+        if st.session_state.get("uploaded_file_id") != file_id:
             st.session_state.dados_extraidos = None
             st.session_state.relatorio_final = None
             st.session_state.uploaded_file_id = file_id
             st.rerun()
 
-        if st.session_state.get('dados_extraidos') is None:
+        if st.session_state.get("dados_extraidos") is None:
             texto_extraido = None
             with st.spinner("Extraindo texto da caderneta com Gemini Vision..."):
                 try:
                     image_part = Part.from_bytes(data=uploaded_file.getvalue(), mime_type=uploaded_file.type)
-                    prompt_ocr = "Transcreva fielmente todos os dados de vacinação e as datas desta caderneta."
                     response = gemini_client.models.generate_content(
                         model=MODELO_GEMINI,
-                        contents=[image_part, prompt_ocr]
+                        contents=[image_part, "Transcreva fielmente todos os dados de vacinação e as datas desta caderneta."],
                     )
                     texto_extraido = response.text
                 except Exception as e:
@@ -1411,7 +1580,7 @@ def pagina_analise_vacinacao(planilha, gemini_client):
             else:
                 st.error("O OCR não conseguiu extrair texto da imagem.")
 
-        if st.session_state.get('dados_extraidos') is not None and st.session_state.get('relatorio_final') is None:
+        if st.session_state.get("dados_extraidos") is not None and st.session_state.get("relatorio_final") is None:
             st.subheader("Validação dos Dados Extraídos")
             with st.form(key="validation_form"):
                 dados = st.session_state.dados_extraidos
@@ -1420,44 +1589,53 @@ def pagina_analise_vacinacao(planilha, gemini_client):
                 vacinas_validadas_df = pd.DataFrame(dados.get("vacinas_administradas", []))
                 vacinas_editadas = st.data_editor(vacinas_validadas_df, num_rows="dynamic")
 
-                if st.form_submit_button("Confirmar Dados e Analisar"):
-                    relatorio = analisar_carteira_vacinacao(dn_validada, vacinas_editadas.to_dict('records'))
+                if st.form_submit_button("✅ Confirmar Dados e Analisar"):
+                    relatorio = analisar_carteira_vacinacao(dn_validada, vacinas_editadas.to_dict("records"))
                     st.session_state.relatorio_final = relatorio
                     st.session_state.nome_paciente_final = nome_validado
                     st.session_state.data_nasc_final = dn_validada
                     st.rerun()
 
-        if st.session_state.get('relatorio_final') is not None:
+        if st.session_state.get("relatorio_final") is not None:
             relatorio = st.session_state.relatorio_final
             st.subheader(f"Relatório para: {st.session_state.nome_paciente_final}")
 
             if "erro" in relatorio:
                 st.error(relatorio["erro"])
             else:
-                st.success("Vacinas em Dia")
-                for vac in relatorio["em_dia"]:
-                    st.write(f"- **{vac['vacina']} ({vac['dose']})**")
+                st.success("✅ Vacinas em Dia")
+                if relatorio["em_dia"]:
+                    for vac in relatorio["em_dia"]:
+                        st.write(f"- **{vac['vacina']} ({vac['dose']})**")
+                else:
+                    st.write("Nenhuma vacina registrada como em dia.")
 
-                st.warning("Vacinas em Atraso")
-                for vac in relatorio["em_atraso"]:
-                    st.write(f"- **{vac['vacina']} ({vac['dose']})** - Recomendada aos {vac['idade_meses']} meses.")
+                st.warning("⚠️ Vacinas em Atraso")
+                if relatorio["em_atraso"]:
+                    for vac in relatorio["em_atraso"]:
+                        st.write(f"- **{vac['vacina']} ({vac['dose']})** - Recomendada aos {vac['idade_meses']} meses.")
+                else:
+                    st.write("Nenhuma vacina em atraso identificada.")
 
-                st.info("Próximas Doses")
-                proximas_ordenadas = sorted(relatorio["proximas_doses"], key=lambda x: x['idade_meses'])
-                for vac in proximas_ordenadas:
-                    st.write(f"- **{vac['vacina']} ({vac['dose']})** - Recomendada aos **{vac['idade_meses']} meses**.")
+                st.info("🗓️ Próximas Doses")
+                if relatorio["proximas_doses"]:
+                    proximas_ordenadas = sorted(relatorio["proximas_doses"], key=lambda x: x["idade_meses"])
+                    for vac in proximas_ordenadas:
+                        st.write(f"- **{vac['vacina']} ({vac['dose']})** - Recomendada aos **{vac['idade_meses']} meses**.")
+                else:
+                    st.write("Nenhuma próxima dose identificada.")
 
                 pdf_bytes = gerar_pdf_relatorio_vacinacao(
                     st.session_state.nome_paciente_final,
                     st.session_state.data_nasc_final,
-                    st.session_state.relatorio_final
+                    st.session_state.relatorio_final,
                 )
                 file_name = f"relatorio_vacinacao_{st.session_state.nome_paciente_final.replace(' ', '_')}.pdf"
                 st.download_button(
-                    label="Descarregar Relatório (PDF)",
+                    label="📥 Descarregar Relatório (PDF)",
                     data=pdf_bytes,
                     file_name=file_name,
-                    mime="application/pdf"
+                    mime="application/pdf",
                 )
 
     if st.button("Analisar Nova Caderneta"):
@@ -1466,21 +1644,21 @@ def pagina_analise_vacinacao(planilha, gemini_client):
 
 
 def pagina_importar_prontuario(planilha, gemini_client):
-    st.title("Importar Dados de Prontuário Clínico")
+    hero("Importar Prontuário Clínico", "Extraia diagnósticos e medicamentos de PDFs.")
     try:
         df = ler_dados_da_planilha(planilha)
         if df.empty:
             st.warning("Não há pacientes na base de dados.")
             return
 
-        lista_pacientes = sorted(df['Nome Completo'].tolist())
+        lista_pacientes = sorted(df["Nome Completo"].tolist())
         paciente_selecionado = st.selectbox("Selecione o paciente:", lista_pacientes, index=None)
         uploaded_file = st.file_uploader("Carregue o prontuário em PDF:", type=["pdf"])
 
         if paciente_selecionado and uploaded_file:
-            if st.button("Iniciar Extração de Dados"):
+            if st.button("🔍 Iniciar Extração de Dados"):
                 st.session_state.dados_clinicos_extraidos = None
-                with st.spinner("A processar PDF e a analisar com IA..."):
+                with st.spinner("Processando PDF e analisando com IA..."):
                     texto_prontuario = ler_texto_prontuario_gemini(uploaded_file.getvalue(), gemini_client)
 
                 if texto_prontuario:
@@ -1494,7 +1672,7 @@ def pagina_importar_prontuario(planilha, gemini_client):
                 else:
                     st.error("Não foi possível extrair texto do PDF.")
 
-        if 'dados_clinicos_extraidos' in st.session_state and st.session_state.dados_clinicos_extraidos is not None:
+        if "dados_clinicos_extraidos" in st.session_state and st.session_state.dados_clinicos_extraidos is not None:
             st.subheader("Valide os Dados e Salve na Planilha")
             dados = st.session_state.dados_clinicos_extraidos
 
@@ -1502,16 +1680,16 @@ def pagina_importar_prontuario(planilha, gemini_client):
                 st.write(f"**Paciente:** {st.session_state.paciente_para_atualizar}")
                 diagnosticos_validados = st.multiselect(
                     "Diagnósticos Encontrados:",
-                    options=dados.get('diagnosticos', []),
-                    default=dados.get('diagnosticos', [])
+                    options=dados.get("diagnosticos", []),
+                    default=dados.get("diagnosticos", []),
                 )
                 medicamentos_validados = st.multiselect(
                     "Medicamentos Encontrados:",
-                    options=dados.get('medicamentos', []),
-                    default=dados.get('medicamentos', [])
+                    options=dados.get("medicamentos", []),
+                    default=dados.get("medicamentos", []),
                 )
 
-                if st.form_submit_button("Salvar Informações no Registo do Paciente"):
+                if st.form_submit_button("✅ Salvar Informações no Registo do Paciente"):
                     try:
                         diagnosticos_str = ", ".join(diagnosticos_validados)
                         medicamentos_str = ", ".join(medicamentos_validados)
@@ -1542,7 +1720,7 @@ def pagina_importar_prontuario(planilha, gemini_client):
 
 
 def pagina_dashboard_resumo(planilha):
-    st.title("Resumo de Pacientes")
+    hero("Resumo de Pacientes", "Visão rápida para monitoramento e exibição em TV ou painel.")
     st.caption(f"Dados atualizados em: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
 
     try:
@@ -1552,37 +1730,49 @@ def pagina_dashboard_resumo(planilha):
             return
 
         total_pacientes = len(df)
-        sexo_counts = df['Sexo'].str.strip().str.upper().value_counts()
-        total_homens = sexo_counts.get('M', 0) + sexo_counts.get('MASCULINO', 0)
-        total_mulheres = sexo_counts.get('F', 0) + sexo_counts.get('FEMININO', 0)
+        sexo_counts = df["Sexo"].astype(str).str.strip().str.upper().value_counts()
+        total_homens = sexo_counts.get("M", 0) + sexo_counts.get("MASCULINO", 0)
+        total_mulheres = sexo_counts.get("F", 0) + sexo_counts.get("FEMININO", 0)
 
-        df['Idade'] = pd.to_numeric(df['Idade'], errors='coerce').fillna(0)
-        total_criancas = df[df['Idade'].between(0, 11)].shape[0]
-        total_adolescentes = df[df['Idade'].between(12, 17)].shape[0]
-        total_idosos = df[df['Idade'] >= 60].shape[0]
+        df["Idade"] = pd.to_numeric(df["Idade"], errors="coerce").fillna(0)
+        total_criancas = df[df["Idade"].between(0, 11)].shape[0]
+        total_adolescentes = df[df["Idade"].between(12, 17)].shape[0]
+        total_idosos = df[df["Idade"] >= 60].shape[0]
 
-        st.header("Visão Geral")
-        st.metric("Total de Pacientes", f"{total_pacientes}")
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.markdown(
+                f'<div class="card"><div class="small-title">Total de Pacientes</div><div class="big-number">{total_pacientes}</div></div>',
+                unsafe_allow_html=True,
+            )
+        with col2:
+            st.markdown(
+                f'<div class="card-warning"><div class="small-title">Idosos</div><div class="big-number">{total_idosos}</div></div>',
+                unsafe_allow_html=True,
+            )
+        with col3:
+            st.markdown(
+                f'<div class="card-success"><div class="small-title">Crianças</div><div class="big-number">{total_criancas}</div></div>',
+                unsafe_allow_html=True,
+            )
+        with col4:
+            st.markdown(
+                f'<div class="card"><div class="small-title">Adolescentes</div><div class="big-number">{total_adolescentes}</div></div>',
+                unsafe_allow_html=True,
+            )
 
-        st.header("Distribuição por Sexo")
-        col1, col2 = st.columns(2)
-        col1.metric("Homens", f"{total_homens}")
-        col2.metric("Mulheres", f"{total_mulheres}")
-
-        st.header("Distribuição por Faixa Etária")
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Crianças (0-11)", f"{total_criancas}")
-        col2.metric("Adolescentes (12-17)", f"{total_adolescentes}")
-        col3.metric("Idosos (60+)", f"{total_idosos}")
+        st.markdown("### Distribuição por Sexo")
+        c1, c2 = st.columns(2)
+        c1.metric("Homens", total_homens)
+        c2.metric("Mulheres", total_mulheres)
 
     except Exception as e:
         st.error(f"Ocorreu um erro ao carregar as estatísticas: {e}")
 
 
 def pagina_gerador_qrcode(planilha):
-    st.title("Gerador de QR Code para Dashboard")
+    hero("Gerador de QR Code", "Crie um QR Code para abrir o resumo em TV, totem ou celular.")
     base_url = st.text_input("URL Base da sua aplicação Streamlit Cloud:", placeholder="Ex: https://sua-app.streamlit.app")
-
     if base_url:
         dashboard_url = f"{base_url.strip('/')}?page=resumo"
         st.success(f"URL do Dashboard: {dashboard_url}")
@@ -1594,19 +1784,22 @@ def pagina_gerador_qrcode(planilha):
                 qr.make(fit=True)
                 img_qr = qr.make_image(fill_color="black", back_color="white")
                 qr_buffer = BytesIO()
-                img_qr.save(qr_buffer, format='PNG')
+                img_qr.save(qr_buffer, format="PNG")
                 qr_buffer.seek(0)
                 st.image(qr_buffer, caption="QR Code Gerado", width=300)
                 st.download_button(
-                    label="Descarregar QR Code (PNG)",
+                    label="📥 Descarregar QR Code (PNG)",
                     data=qr_buffer,
                     file_name="qrcode_dashboard_pacientes.png",
-                    mime="image/png"
+                    mime="image/png",
                 )
             except Exception as e:
                 st.error(f"Ocorreu um erro ao gerar o QR Code: {e}")
 
 
+# =========================
+# MAIN
+# =========================
 def main():
     query_params = st.query_params
 
@@ -1621,8 +1814,9 @@ def main():
         return
 
     if query_params.get("page") == "resumo":
+        st.set_page_config(page_title="Resumo de Pacientes", layout="centered")
+        aplicar_estilo_visual()
         try:
-            st.set_page_config(page_title="Resumo de Pacientes", layout="centered")
             planilha_conectada = conectar_planilha()
             if planilha_conectada:
                 pagina_dashboard_resumo(planilha_conectada)
@@ -1630,38 +1824,40 @@ def main():
                 st.error("Falha na conexão com a base de dados.")
         except Exception as e:
             st.error(f"Ocorreu um erro crítico: {e}")
-    else:
-        st.set_page_config(page_title="Coleta Inteligente", page_icon="🤖", layout="wide")
-        st.sidebar.title("Navegação")
+        return
 
-        try:
-            planilha_conectada = conectar_planilha()
-        except Exception as e:
-            st.error(f"Não foi possível inicializar os serviços de Sheets. Erro: {e}")
-            st.stop()
+    st.set_page_config(page_title="Coleta Rápida", page_icon="🤖", layout="wide")
+    aplicar_estilo_visual()
+    st.sidebar.title("Navegação")
 
-        if planilha_conectada is None:
-            st.error("A conexão com a planilha falhou.")
-            st.stop()
+    try:
+        planilha_conectada = conectar_planilha()
+    except Exception as e:
+        st.error(f"Não foi possível inicializar os serviços de Sheets. Erro: {e}")
+        st.stop()
 
-        paginas = {
-            "🏠 Início": pagina_inicial,
-            "Gerar Cards de Saúde (IA)": lambda: pagina_gerador_cards(gemini_client),
-            "Verificação Rápida WhatsApp": lambda: pagina_ocr_e_alerta_whatsapp(planilha_conectada),
-            "Análise de Vacinação": lambda: pagina_analise_vacinacao(planilha_conectada, gemini_client),
-            "Importar Dados de Prontuário": lambda: pagina_importar_prontuario(planilha_conectada, gemini_client),
-            "Coletar Fichas": lambda: pagina_coleta(planilha_conectada, gemini_client),
-            "Gestão de Pacientes": lambda: pagina_pesquisa(planilha_conectada),
-            "Dashboard": lambda: pagina_dashboard(planilha_conectada),
-            "Gerar Etiquetas": lambda: pagina_etiquetas(planilha_conectada),
-            "Gerar Capas de Prontuário": lambda: pagina_capas_prontuario(planilha_conectada),
-            "Gerar Documentos": lambda: pagina_gerar_documentos(planilha_conectada),
-            "Enviar WhatsApp (Manual)": lambda: pagina_whatsapp(planilha_conectada),
-            "Gerador de QR Code": lambda: pagina_gerador_qrcode(planilha_conectada),
-        }
+    if planilha_conectada is None:
+        st.error("A conexão com a planilha falhou.")
+        st.stop()
 
-        pagina_selecionada = st.sidebar.radio("Escolha uma página:", paginas.keys())
-        paginas[pagina_selecionada]()
+    paginas = {
+        "🏠 Início": pagina_inicial,
+        "🤖 Gerar Cards de Saúde (IA)": lambda: pagina_gerador_cards(gemini_client),
+        "📸 Verificação Rápida WhatsApp": lambda: pagina_ocr_e_alerta_whatsapp(planilha_conectada),
+        "💉 Análise de Vacinação": lambda: pagina_analise_vacinacao(planilha_conectada, gemini_client),
+        "📄 Importar Dados de Prontuário": lambda: pagina_importar_prontuario(planilha_conectada, gemini_client),
+        "🧾 Coletar Fichas": lambda: pagina_coleta(planilha_conectada, gemini_client),
+        "🔎 Gestão de Pacientes": lambda: pagina_pesquisa(planilha_conectada),
+        "📊 Dashboard": lambda: pagina_dashboard(planilha_conectada),
+        "🏷️ Gerar Etiquetas": lambda: pagina_etiquetas(planilha_conectada),
+        "📇 Gerar Capas de Prontuário": lambda: pagina_capas_prontuario(planilha_conectada),
+        "📄 Gerar Documentos": lambda: pagina_gerar_documentos(planilha_conectada),
+        "📱 Enviar WhatsApp (Manual)": lambda: pagina_whatsapp(planilha_conectada),
+        "🔳 Gerador de QR Code": lambda: pagina_gerador_qrcode(planilha_conectada),
+    }
+
+    pagina_selecionada = st.sidebar.radio("Escolha uma página:", list(paginas.keys()))
+    paginas[pagina_selecionada]()
 
 
 if __name__ == "__main__":
