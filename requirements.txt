@@ -2,5 +2,14 @@ streamlit
 pandas
 gspread
 google-auth
-google-generativeai
+google-genai
 openpyxl
+requests
+pillow
+reportlab
+qrcode[pil]
+matplotlib
+pypdf
+python-dateutil
+pdf2image
+pydantic
