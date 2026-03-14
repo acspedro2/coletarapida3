@@ -239,6 +239,24 @@ def aplicar_estilo():
         box-shadow: 0 2px 10px rgba(0,0,0,0.06);
         margin-bottom: 16px;
     }
+    .menu-card {
+        border-radius: 18px;
+        padding: 20px 16px;
+        min-height: 130px;
+        margin-bottom: 14px;
+        box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+        border: none;
+    }
+    .menu-title {
+        font-size: 22px;
+        font-weight: 800;
+        margin-bottom: 8px;
+    }
+    .menu-text {
+        font-size: 14px;
+        opacity: 0.95;
+        line-height: 1.35;
+    }
     .metric-card {
         background: white;
         padding: 16px;
@@ -320,12 +338,19 @@ def aplicar_estilo():
         background: #ff7675;
         color: white;
     }
+    .small-topbar {
+        display:flex;
+        justify-content:space-between;
+        align-items:center;
+        margin-bottom:12px;
+    }
     .stButton button {
-        border-radius: 10px;
+        border-radius: 12px;
         background-color: #1f4e78;
         color: white;
         border: none;
-        font-weight: 600;
+        font-weight: 700;
+        padding: 0.6rem 0.9rem;
     }
     .stButton button:hover {
         background-color: #163a59;
@@ -357,6 +382,12 @@ def metric_card(titulo, valor):
         """,
         unsafe_allow_html=True,
     )
+
+
+def botao_voltar_menu():
+    if st.button("⬅️ Voltar ao menu", use_container_width=True):
+        st.session_state["pagina"] = "menu"
+        st.rerun()
 
 
 @st.cache_resource
@@ -447,24 +478,6 @@ def padronizar_telefone(telefone):
     if 10 <= len(num_limpo) <= 11:
         return num_limpo
     return None
-
-
-def validar_cpf(cpf: str) -> bool:
-    cpf = "".join(re.findall(r"\d", str(cpf)))
-    if not cpf or len(cpf) != 11 or cpf == cpf[0] * 11:
-        return False
-    try:
-        soma = sum(int(cpf[i]) * (10 - i) for i in range(9))
-        d1 = (soma * 10 % 11) % 10
-        if d1 != int(cpf[9]):
-            return False
-        soma = sum(int(cpf[i]) * (11 - i) for i in range(10))
-        d2 = (soma * 10 % 11) % 10
-        if d2 != int(cpf[10]):
-            return False
-    except Exception:
-        return False
-    return True
 
 
 def buscar_dados_paciente(df, nome_paciente):
@@ -1071,49 +1084,94 @@ def gerar_pdf_relatorio_vacinacao(nome_paciente, data_nascimento, relatorio):
 
 
 def pagina_inicial():
-    hero("Sistema Unificado", "Pacientes, WhatsApp, PDFs, vacinação, prontuário, QR Code, cards IA e Kanban.")
-    c1, c2 = st.columns(2)
-    with c1:
+    hero("Sistema Unificado", "Selecione uma função no painel abaixo.")
+    col1, col2 = st.columns(2)
+
+    with col1:
         st.markdown("""
-        <div class="section-box">
-            <h3>👥 Gestão de Pacientes</h3>
-            <p>Cadastre, pesquise, edite e acompanhe pacientes em uma base única.</p>
+        <div class="menu-card" style="background:#eaf2ff;color:#17324d;">
+            <div class="menu-title">📝 Coleta de Dados</div>
+            <div class="menu-text">Envio de fichas com extração por IA e revisão manual.</div>
         </div>
         """, unsafe_allow_html=True)
+        if st.button("Abrir Coleta de Dados", key="btn_menu_coleta", use_container_width=True):
+            st.session_state["pagina"] = "🤖 Coletar Fichas"
+            st.rerun()
+
         st.markdown("""
-        <div class="section-box">
-            <h3>📱 WhatsApp</h3>
-            <p>Gere mensagens personalizadas para consultas, exames e orientações.</p>
+        <div class="menu-card" style="background:#fff5e8;color:#5b3b00;">
+            <div class="menu-title">👥 Cadastro de Pacientes</div>
+            <div class="menu-text">Cadastro manual, edição e gestão completa da base.</div>
         </div>
         """, unsafe_allow_html=True)
+        if st.button("Abrir Cadastro/Gestão", key="btn_menu_cadastro", use_container_width=True):
+            st.session_state["pagina"] = "👥 Cadastro de Pacientes"
+            st.rerun()
+
         st.markdown("""
-        <div class="section-box">
-            <h3>🧾 PDFs</h3>
-            <p>Etiquetas, capas de prontuário, formulários e relatórios em PDF.</p>
+        <div class="menu-card" style="background:#f0fff4;color:#184d2f;">
+            <div class="menu-title">📱 WhatsApp</div>
+            <div class="menu-text">Geração de mensagens para consultas, exames e orientações.</div>
         </div>
         """, unsafe_allow_html=True)
-    with c2:
+        if st.button("Abrir WhatsApp", key="btn_menu_whats", use_container_width=True):
+            st.session_state["pagina"] = "📱 WhatsApp Manual"
+            st.rerun()
+
+    with col2:
         st.markdown("""
-        <div class="section-box">
-            <h3>🤖 IA</h3>
-            <p>Coleta de fichas, vacinação, prontuário e cards de saúde com Gemini.</p>
+        <div class="menu-card" style="background:#f4f0ff;color:#36205c;">
+            <div class="menu-title">📊 Dashboard</div>
+            <div class="menu-text">Indicadores da base, distribuição por sexo, idade e município.</div>
         </div>
         """, unsafe_allow_html=True)
+        if st.button("Abrir Dashboard", key="btn_menu_dashboard", use_container_width=True):
+            st.session_state["pagina"] = "📊 Dashboard de Pacientes"
+            st.rerun()
+
         st.markdown("""
-        <div class="section-box">
-            <h3>📊 Dashboard</h3>
-            <p>Indicadores gerais da base de pacientes e do quadro de tarefas.</p>
+        <div class="menu-card" style="background:#fff0f6;color:#6c1f46;">
+            <div class="menu-title">🏷️ Etiquetas / QR Code</div>
+            <div class="menu-text">Etiquetas por família, QR Code e documentos auxiliares.</div>
         </div>
         """, unsafe_allow_html=True)
+        if st.button("Abrir Etiquetas/QR", key="btn_menu_etiquetas", use_container_width=True):
+            st.session_state["pagina"] = "🏷️ Etiquetas QR Code"
+            st.rerun()
+
         st.markdown("""
-        <div class="section-box">
-            <h3>📋 Kanban</h3>
-            <p>Controle visual de tarefas com checklist, comentários e prazo.</p>
+        <div class="menu-card" style="background:#eefaf7;color:#114738;">
+            <div class="menu-title">📋 Kanban</div>
+            <div class="menu-text">Controle visual de tarefas, prazos, checklist e comentários.</div>
         </div>
         """, unsafe_allow_html=True)
+        if st.button("Abrir Kanban", key="btn_menu_kanban", use_container_width=True):
+            st.session_state["pagina"] = "📋 Kanban"
+            st.rerun()
+
+    st.markdown("---")
+    st.subheader("Outras funções")
+    c3, c4, c5, c6 = st.columns(4)
+    with c3:
+        if st.button("📇 Capas", use_container_width=True):
+            st.session_state["pagina"] = "📇 Capas de Prontuário"
+            st.rerun()
+    with c4:
+        if st.button("📄 Documentos", use_container_width=True):
+            st.session_state["pagina"] = "📄 Gerar Documentos"
+            st.rerun()
+    with c5:
+        if st.button("💉 Vacinação", use_container_width=True):
+            st.session_state["pagina"] = "💉 Análise de Vacinação"
+            st.rerun()
+    with c6:
+        if st.button("🧠 Cards IA", use_container_width=True):
+            st.session_state["pagina"] = "🧠 Cards de Saúde com IA"
+            st.rerun()
 
 
 def pagina_coletar_fichas(aba_pacientes, gemini_client):
+    botao_voltar_menu()
     hero("Coletar Fichas", "Envie imagens de fichas para extração assistida por IA.")
     st.info("Envie uma imagem. A IA tentará preencher os campos; você revisa e salva.")
 
@@ -1179,6 +1237,7 @@ def pagina_coletar_fichas(aba_pacientes, gemini_client):
 
 
 def pagina_cadastro_pacientes(aba_pacientes):
+    botao_voltar_menu()
     hero("Cadastro de Pacientes", "Cadastro manual direto na planilha.")
     with st.form("cadastro_paciente"):
         c1, c2 = st.columns(2)
@@ -1230,6 +1289,7 @@ def pagina_cadastro_pacientes(aba_pacientes):
 
 
 def pagina_gestao_pacientes(aba_pacientes):
+    botao_voltar_menu()
     hero("Gestão de Pacientes", "Pesquise, edite e exclua registros.")
     df = garantir_colunas_pacientes(carregar_dados_aba(aba_pacientes))
     if df.empty:
@@ -1282,6 +1342,7 @@ def pagina_gestao_pacientes(aba_pacientes):
 
 
 def pagina_dashboard_pacientes(aba_pacientes):
+    botao_voltar_menu()
     hero("Dashboard de Pacientes", "Indicadores gerais da base cadastrada.")
     df = garantir_colunas_pacientes(carregar_dados_aba(aba_pacientes))
     if df.empty:
@@ -1326,6 +1387,7 @@ def pagina_dashboard_pacientes(aba_pacientes):
 
 
 def pagina_whatsapp(aba_pacientes):
+    botao_voltar_menu()
     hero("WhatsApp Manual", "Gere mensagens personalizadas para pacientes.")
     df = garantir_colunas_pacientes(carregar_dados_aba(aba_pacientes))
     if df.empty:
@@ -1384,6 +1446,7 @@ def pagina_whatsapp(aba_pacientes):
 
 
 def pagina_etiquetas_qrcode(aba_pacientes):
+    botao_voltar_menu()
     hero("Etiquetas com QR Code", "Gere etiquetas por família em PDF.")
     df = garantir_colunas_pacientes(carregar_dados_aba(aba_pacientes))
     if df.empty:
@@ -1424,6 +1487,7 @@ def pagina_etiquetas_qrcode(aba_pacientes):
 
 
 def pagina_capas_prontuario(aba_pacientes):
+    botao_voltar_menu()
     hero("Capas de Prontuário", "Gere capas em PDF para pacientes.")
     df = garantir_colunas_pacientes(carregar_dados_aba(aba_pacientes))
     if df.empty:
@@ -1449,6 +1513,7 @@ def pagina_capas_prontuario(aba_pacientes):
 
 
 def pagina_gerar_documentos(aba_pacientes):
+    botao_voltar_menu()
     hero("Gerar Documentos", "Preencha formulário PDF a partir do paciente.")
     df = garantir_colunas_pacientes(carregar_dados_aba(aba_pacientes))
     if df.empty:
@@ -1472,6 +1537,7 @@ def pagina_gerar_documentos(aba_pacientes):
 
 
 def pagina_analise_vacinacao(gemini_client):
+    botao_voltar_menu()
     hero("Análise de Vacinação", "Envie foto da caderneta para extrair e analisar.")
     if not gemini_client:
         st.warning("GOOGLE_API_KEY ausente ou Gemini indisponível.")
@@ -1527,6 +1593,7 @@ def pagina_analise_vacinacao(gemini_client):
 
 
 def pagina_importar_prontuario(aba_pacientes, gemini_client):
+    botao_voltar_menu()
     hero("Importar Prontuário", "Envie um PDF e atualize condições e medicamentos.")
     if not gemini_client:
         st.warning("GOOGLE_API_KEY ausente ou Gemini indisponível.")
@@ -1581,6 +1648,7 @@ def pagina_importar_prontuario(aba_pacientes, gemini_client):
 
 
 def pagina_gerador_qrcode():
+    botao_voltar_menu()
     hero("Gerador de QR Code", "Crie QR Code para o dashboard público do app.")
     base_url = st.text_input("URL base da sua aplicação Streamlit Cloud", placeholder="https://seu-app.streamlit.app")
     if not base_url:
@@ -1607,6 +1675,7 @@ def pagina_gerador_qrcode():
 
 
 def pagina_gerador_cards(gemini_client):
+    botao_voltar_menu()
     hero("Cards de Saúde com IA", "Gere 5 dicas prontas para card e WhatsApp.")
     if not gemini_client:
         st.warning("GOOGLE_API_KEY ausente ou Gemini indisponível.")
@@ -1638,6 +1707,7 @@ def pagina_gerador_cards(gemini_client):
 
 
 def pagina_kanban(aba_kanban):
+    botao_voltar_menu()
     hero("Kanban", "Controle visual de tarefas com checklist, comentários e prazo.")
     df = garantir_colunas_kanban(carregar_dados_aba(aba_kanban))
     if df.empty:
@@ -1847,16 +1917,18 @@ def main():
     st.set_page_config(page_title="Sistema Unificado", page_icon="📋", layout="wide")
     aplicar_estilo()
 
+    if "pagina" not in st.session_state:
+        st.session_state["pagina"] = "menu"
+
     planilha = conectar_planilha()
     aba_pacientes = obter_aba_pacientes(planilha)
     aba_kanban = obter_ou_criar_aba(planilha, "KANBAN", COLUNAS_KANBAN)
     gemini_client = cliente_gemini()
 
-    st.sidebar.title("Menu")
-    pagina = st.sidebar.radio(
-        "Escolha uma página:",
-        [
-            "🏠 Início",
+    with st.sidebar:
+        st.title("Navegação")
+        opcoes = [
+            "menu",
             "🤖 Coletar Fichas",
             "👥 Cadastro de Pacientes",
             "🔎 Gestão de Pacientes",
@@ -1870,10 +1942,19 @@ def main():
             "🧠 Cards de Saúde com IA",
             "🔳 Gerador de QR Code",
             "📋 Kanban",
-        ],
-    )
+        ]
+        escolha = st.radio(
+            "Escolha a página:",
+            options=opcoes,
+            index=opcoes.index(st.session_state["pagina"]) if st.session_state["pagina"] in opcoes else 0,
+        )
+        if escolha != st.session_state["pagina"]:
+            st.session_state["pagina"] = escolha
+            st.rerun()
 
-    if pagina == "🏠 Início":
+    pagina = st.session_state["pagina"]
+
+    if pagina == "menu":
         pagina_inicial()
     elif pagina == "🤖 Coletar Fichas":
         pagina_coletar_fichas(aba_pacientes, gemini_client)
