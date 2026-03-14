@@ -212,7 +212,9 @@ if GENAI_OK:
 def aplicar_estilo():
     st.markdown("""
     <style>
-    .main { background-color: #f7f9fc; }
+    .main {
+        background-color: #f7f9fc;
+    }
     .block-container {
         max-width: 1450px;
         padding-top: 1rem;
@@ -301,10 +303,22 @@ def aplicar_estilo():
         margin-right: 6px;
         margin-top: 4px;
     }
-    .b-baixa { background: #dfe6e9; color: #2d3436; }
-    .b-media { background: #ffeaa7; color: #2d3436; }
-    .b-alta { background: #fab1a0; color: #2d3436; }
-    .b-urgente { background: #ff7675; color: white; }
+    .b-baixa {
+        background: #dfe6e9;
+        color: #2d3436;
+    }
+    .b-media {
+        background: #ffeaa7;
+        color: #2d3436;
+    }
+    .b-alta {
+        background: #fab1a0;
+        color: #2d3436;
+    }
+    .b-urgente {
+        background: #ff7675;
+        color: white;
+    }
     .stButton button {
         border-radius: 10px;
         background-color: #1f4e78;
@@ -1082,7 +1096,6 @@ def pagina_coletar_fichas(aba_pacientes, gemini_client):
 
     st.image(Image.open(uploaded_file), width=380)
 
-    texto_extraido = None
     if st.button("Extrair texto da imagem"):
         with st.spinner("Lendo imagem com IA..."):
             texto_extraido = ocr_imagem_com_gemini(uploaded_file.getvalue(), uploaded_file.type, gemini_client)
@@ -1695,11 +1708,17 @@ def pagina_kanban(aba_kanban):
     for i, status in enumerate(STATUS_OPCOES):
         with colunas[i]:
             cor = CORES_STATUS[status]
-            st.markdown(f'<div class="kanban-header" style="background:{cor};">{status}</div>', unsafe_allow_html=True)
+            st.markdown(
+                f'<div class="kanban-header" style="background:{cor};">{status}</div>',
+                unsafe_allow_html=True,
+            )
             tarefas_coluna = df_filtrado[df_filtrado["Status"] == status]
 
             if tarefas_coluna.empty:
-                st.markdown('<div class="kanban-col"><p style="text-align:center;color:#999;">Sem tarefas</p></div>', unsafe_allow_html=True)
+                st.markdown(
+                    '<div class="kanban-col"><p style="text-align:center;color:#999;">Sem tarefas</p></div>',
+                    unsafe_allow_html=True,
+                )
             else:
                 st.markdown('<div class="kanban-col">', unsafe_allow_html=True)
                 for _, row in tarefas_coluna.iterrows():
@@ -1742,7 +1761,11 @@ def pagina_kanban(aba_kanban):
                             checklist_editado = []
                             if checklist_itens:
                                 for idx, item in enumerate(checklist_itens):
-                                    feito = st.checkbox(item.get("texto", ""), value=item.get("feito", False), key=f"check_{row['ID']}_{idx}")
+                                    feito = st.checkbox(
+                                        item.get("texto", ""),
+                                        value=item.get("feito", False),
+                                        key=f"check_{row['ID']}_{idx}",
+                                    )
                                     checklist_editado.append({"texto": item.get("texto", ""), "feito": feito})
 
                             novo_item_checklist = st.text_input("Adicionar item ao checklist", key=f"novo_item_{row['ID']}")
