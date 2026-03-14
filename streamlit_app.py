@@ -19,9 +19,6 @@ from reportlab.lib.units import cm
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
-# =========================
-# IMPORTS OPCIONAIS
-# =========================
 GENAI_OK = True
 PDF2IMAGE_OK = True
 
@@ -38,9 +35,6 @@ except Exception:
     PDF2IMAGE_OK = False
 
 
-# =========================
-# CONFIGURAÇÕES
-# =========================
 MODELO_GEMINI = "gemini-2.5-flash"
 
 STATUS_OPCOES = ["Backlog", "Para Fazer", "Em Andamento", "Aguardando", "Concluído"]
@@ -178,10 +172,6 @@ CALENDARIO_PNI = [
     {"vacina": "Meningocócica C", "dose": "Reforço", "idade_meses": 12},
 ]
 
-
-# =========================
-# SCHEMAS PYDANTIC
-# =========================
 if GENAI_OK:
     class CadastroSchema(BaseModel):
         ID: str = Field(description="ID único gerado. Se não for claro, retorne string vazia.")
@@ -219,57 +209,113 @@ if GENAI_OK:
         dicas: list[DicaSaude]
 
 
-# =========================
-# ESTILO
-# =========================
 def aplicar_estilo():
     st.markdown("""
     <style>
     .main { background-color: #f7f9fc; }
-    .block-container { max-width: 1450px; padding-top: 1rem; padding-bottom: 2rem; }
+    .block-container {
+        max-width: 1450px;
+        padding-top: 1rem;
+        padding-bottom: 2rem;
+    }
     .hero {
         background: linear-gradient(135deg, #1f4e78 0%, #2c3e50 100%);
-        color: white; padding: 22px; border-radius: 18px; margin-bottom: 18px;
+        color: white;
+        padding: 22px;
+        border-radius: 18px;
+        margin-bottom: 18px;
     }
-    .hero h1, .hero p { color: white !important; margin: 0; }
+    .hero h1, .hero p {
+        color: white !important;
+        margin: 0;
+    }
     .section-box {
-        background: white; padding: 18px; border-radius: 16px;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.06); margin-bottom: 16px;
+        background: white;
+        padding: 18px;
+        border-radius: 16px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+        margin-bottom: 16px;
     }
     .metric-card {
-        background: white; padding: 16px; border-radius: 16px;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.06); text-align: center; margin-bottom: 10px;
+        background: white;
+        padding: 16px;
+        border-radius: 16px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+        text-align: center;
+        margin-bottom: 10px;
     }
-    .metric-title { font-size: 13px; color: #7f8c8d; }
-    .metric-number { font-size: 28px; font-weight: 700; color: #1f4e78; }
+    .metric-title {
+        font-size: 13px;
+        color: #7f8c8d;
+    }
+    .metric-number {
+        font-size: 28px;
+        font-weight: 700;
+        color: #1f4e78;
+    }
     .kanban-header {
-        font-weight: 700; font-size: 17px; margin-bottom: 12px; text-align: center;
-        padding: 10px; border-radius: 12px; color: #2d3436;
+        font-weight: 700;
+        font-size: 17px;
+        margin-bottom: 12px;
+        text-align: center;
+        padding: 10px;
+        border-radius: 12px;
+        color: #2d3436;
     }
     .kanban-col {
-        background: #ffffff; border-radius: 16px; padding: 12px;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.06); min-height: 500px;
+        background: #ffffff;
+        border-radius: 16px;
+        padding: 12px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+        min-height: 500px;
     }
     .task-card {
-        background: white; border-radius: 14px; padding: 12px; margin-bottom: 12px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.08); border-left: 6px solid #1f4e78;
+        background: white;
+        border-radius: 14px;
+        padding: 12px;
+        margin-bottom: 12px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        border-left: 6px solid #1f4e78;
     }
-    .task-card-late { background: #fff1f1; border-left: 6px solid #e74c3c; }
-    .task-title { font-size: 16px; font-weight: 700; color: #2c3e50; margin-bottom: 6px; }
-    .task-text { font-size: 13px; color: #636e72; margin-bottom: 6px; }
+    .task-card-late {
+        background: #fff1f1;
+        border-left: 6px solid #e74c3c;
+    }
+    .task-title {
+        font-size: 16px;
+        font-weight: 700;
+        color: #2c3e50;
+        margin-bottom: 6px;
+    }
+    .task-text {
+        font-size: 13px;
+        color: #636e72;
+        margin-bottom: 6px;
+    }
     .badge {
-        display: inline-block; padding: 4px 8px; border-radius: 999px; font-size: 12px;
-        font-weight: 600; margin-right: 6px; margin-top: 4px;
+        display: inline-block;
+        padding: 4px 8px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 600;
+        margin-right: 6px;
+        margin-top: 4px;
     }
     .b-baixa { background: #dfe6e9; color: #2d3436; }
     .b-media { background: #ffeaa7; color: #2d3436; }
     .b-alta { background: #fab1a0; color: #2d3436; }
     .b-urgente { background: #ff7675; color: white; }
     .stButton button {
-        border-radius: 10px; background-color: #1f4e78; color: white;
-        border: none; font-weight: 600;
+        border-radius: 10px;
+        background-color: #1f4e78;
+        color: white;
+        border: none;
+        font-weight: 600;
     }
-    .stButton button:hover { background-color: #163a59; color: white; }
+    .stButton button:hover {
+        background-color: #163a59;
+        color: white;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -298,9 +344,6 @@ def metric_card(titulo, valor):
     )
 
 
-# =========================
-# GOOGLE SHEETS
-# =========================
 @st.cache_resource
 def conectar_planilha():
     if "APP_SHEET_ID" not in st.secrets:
@@ -331,9 +374,6 @@ def carregar_dados_aba(_aba):
     return pd.DataFrame(dados)
 
 
-# =========================
-# GEMINI
-# =========================
 @st.cache_resource
 def cliente_gemini():
     if not GENAI_OK:
@@ -346,9 +386,6 @@ def cliente_gemini():
         return None
 
 
-# =========================
-# HELPERS GERAIS
-# =========================
 def calcular_idade_por_data(data_str):
     if not str(data_str).strip():
         return ""
@@ -415,9 +452,6 @@ def aplicar_substituicoes(mensagem, dados_paciente):
     return mensagem
 
 
-# =========================
-# HELPERS KANBAN
-# =========================
 def parse_checklist(raw):
     if not str(raw).strip():
         return []
@@ -506,9 +540,6 @@ def card_tarefa_html(row):
     """
 
 
-# =========================
-# CRUD PACIENTES
-# =========================
 def garantir_colunas_pacientes(df):
     for col in COLUNAS_PACIENTES:
         if col not in df.columns:
@@ -555,9 +586,6 @@ def excluir_paciente_por_id(aba_pacientes, patient_id):
             return
 
 
-# =========================
-# CRUD KANBAN
-# =========================
 def garantir_colunas_kanban(df):
     for col in COLUNAS_KANBAN:
         if col not in df.columns:
@@ -592,9 +620,6 @@ def excluir_tarefa_por_id(aba_kanban, task_id):
             return
 
 
-# =========================
-# FUNÇÕES IA
-# =========================
 def ocr_imagem_com_gemini(file_bytes, mime_type, client):
     if not client or not GENAI_OK:
         return None
@@ -736,9 +761,6 @@ def ler_texto_prontuario_gemini(file_bytes, client):
         return None
 
 
-# =========================
-# VACINAÇÃO
-# =========================
 def analisar_carteira_vacinacao(data_nascimento_str, vacinas_administradas):
     try:
         data_nascimento = datetime.strptime(data_nascimento_str, "%d/%m/%Y")
@@ -764,9 +786,6 @@ def analisar_carteira_vacinacao(data_nascimento_str, vacinas_administradas):
     return relatorio
 
 
-# =========================
-# PDFs
-# =========================
 def preencher_pdf_formulario(paciente_dados):
     template_pdf_path = "Formulario_2IndiceDeVulnerabilidadeClinicoFuncional20IVCF20_ImpressoraPDFPreenchivel_202404-2.pdf"
     try:
@@ -1010,9 +1029,6 @@ def gerar_pdf_relatorio_vacinacao(nome_paciente, data_nascimento, relatorio):
     return pdf_buffer
 
 
-# =========================
-# PÁGINAS
-# =========================
 def pagina_inicial():
     hero("Sistema Unificado", "Pacientes, WhatsApp, PDFs, vacinação, prontuário, QR Code, cards IA e Kanban.")
     c1, c2 = st.columns(2)
@@ -1777,9 +1793,6 @@ def pagina_kanban(aba_kanban):
                 st.markdown("</div>", unsafe_allow_html=True)
 
 
-# =========================
-# MAIN
-# =========================
 def main():
     st.set_page_config(page_title="Sistema Unificado", page_icon="📋", layout="wide")
     aplicar_estilo()
