@@ -211,153 +211,153 @@ if GENAI_OK:
 
 
 def aplicar_estilo():
-    st.markdown("""
-    <style>
-    .main {
-        background-color: #f7f9fc;
-    }
-    .block-container {
-        max-width: 1450px;
-        padding-top: 1rem;
-        padding-bottom: 2rem;
-    }
-    .hero {
-        background: linear-gradient(135deg, #1f4e78 0%, #2c3e50 100%);
-        color: white;
-        padding: 22px;
-        border-radius: 18px;
-        margin-bottom: 18px;
-    }
-    .hero h1, .hero p {
-        color: white !important;
-        margin: 0;
-    }
-    .section-box {
-        background: white;
-        padding: 18px;
-        border-radius: 16px;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.06);
-        margin-bottom: 16px;
-    }
-    .menu-card {
-        border-radius: 18px;
-        padding: 20px 16px;
-        min-height: 130px;
-        margin-bottom: 14px;
-        box-shadow: 0 4px 14px rgba(0,0,0,0.08);
-        border: none;
-    }
-    .menu-title {
-        font-size: 22px;
-        font-weight: 800;
-        margin-bottom: 8px;
-    }
-    .menu-text {
-        font-size: 14px;
-        opacity: 0.95;
-        line-height: 1.35;
-    }
-    .metric-card {
-        background: white;
-        padding: 16px;
-        border-radius: 16px;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.06);
-        text-align: center;
-        margin-bottom: 10px;
-    }
-    .metric-title {
-        font-size: 13px;
-        color: #7f8c8d;
-    }
-    .metric-number {
-        font-size: 28px;
-        font-weight: 700;
-        color: #1f4e78;
-    }
-    .kanban-header {
-        font-weight: 700;
-        font-size: 17px;
-        margin-bottom: 12px;
-        text-align: center;
-        padding: 10px;
-        border-radius: 12px;
-        color: #2d3436;
-    }
-    .kanban-col {
-        background: #ffffff;
-        border-radius: 16px;
-        padding: 12px;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.06);
-        min-height: 500px;
-    }
-    .task-card {
-        background: white;
-        border-radius: 14px;
-        padding: 12px;
-        margin-bottom: 12px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-        border-left: 6px solid #1f4e78;
-    }
-    .task-card-late {
-        background: #fff1f1;
-        border-left: 6px solid #e74c3c;
-    }
-    .task-title {
-        font-size: 16px;
-        font-weight: 700;
-        color: #2c3e50;
-        margin-bottom: 6px;
-    }
-    .task-text {
-        font-size: 13px;
-        color: #636e72;
-        margin-bottom: 6px;
-    }
-    .badge {
-        display: inline-block;
-        padding: 4px 8px;
-        border-radius: 999px;
-        font-size: 12px;
-        font-weight: 600;
-        margin-right: 6px;
-        margin-top: 4px;
-    }
-    .b-baixa {
-        background: #dfe6e9;
-        color: #2d3436;
-    }
-    .b-media {
-        background: #ffeaa7;
-        color: #2d3436;
-    }
-    .b-alta {
-        background: #fab1a0;
-        color: #2d3436;
-    }
-    .b-urgente {
-        background: #ff7675;
-        color: white;
-    }
-    .small-topbar {
-        display:flex;
-        justify-content:space-between;
-        align-items:center;
-        margin-bottom:12px;
-    }
-    .stButton button {
-        border-radius: 12px;
-        background-color: #1f4e78;
-        color: white;
-        border: none;
-        font-weight: 700;
-        padding: 0.6rem 0.9rem;
-    }
-    .stButton button:hover {
-        background-color: #163a59;
-        color: white;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+    st.markdown(
+        """
+        <style>
+        .main {
+            background-color: #f7f9fc;
+        }
+        .block-container {
+            max-width: 1450px;
+            padding-top: 1rem;
+            padding-bottom: 2rem;
+        }
+        .hero {
+            background: linear-gradient(135deg, #1f4e78 0%, #2c3e50 100%);
+            color: white;
+            padding: 24px;
+            border-radius: 20px;
+            margin-bottom: 18px;
+        }
+        .hero h1, .hero p {
+            color: white !important;
+            margin: 0;
+        }
+        .menu-card {
+            border-radius: 20px;
+            padding: 22px;
+            min-height: 150px;
+            margin-bottom: 16px;
+            box-shadow: 0 6px 18px rgba(0,0,0,0.08);
+        }
+        .menu-title {
+            font-size: 24px;
+            font-weight: 800;
+            margin-bottom: 8px;
+        }
+        .menu-icon {
+            font-size: 34px;
+            margin-bottom: 8px;
+        }
+        .menu-text {
+            font-size: 14px;
+            line-height: 1.4;
+            opacity: 0.95;
+        }
+        .metric-card {
+            background: white;
+            padding: 18px;
+            border-radius: 18px;
+            box-shadow: 0 3px 12px rgba(0,0,0,0.06);
+            text-align: center;
+            margin-bottom: 12px;
+        }
+        .metric-title {
+            font-size: 13px;
+            color: #7f8c8d;
+        }
+        .metric-number {
+            font-size: 30px;
+            font-weight: 800;
+            color: #1f4e78;
+        }
+        .section-box {
+            background: white;
+            padding: 18px;
+            border-radius: 16px;
+            box-shadow: 0 3px 12px rgba(0,0,0,0.06);
+            margin-bottom: 16px;
+        }
+        .kanban-header {
+            font-weight: 700;
+            font-size: 17px;
+            margin-bottom: 12px;
+            text-align: center;
+            padding: 10px;
+            border-radius: 12px;
+            color: #2d3436;
+        }
+        .kanban-col {
+            background: #ffffff;
+            border-radius: 16px;
+            padding: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+            min-height: 500px;
+        }
+        .task-card {
+            background: white;
+            border-radius: 14px;
+            padding: 12px;
+            margin-bottom: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            border-left: 6px solid #1f4e78;
+        }
+        .task-card-late {
+            background: #fff1f1;
+            border-left: 6px solid #e74c3c;
+        }
+        .task-title {
+            font-size: 16px;
+            font-weight: 700;
+            color: #2c3e50;
+            margin-bottom: 6px;
+        }
+        .task-text {
+            font-size: 13px;
+            color: #636e72;
+            margin-bottom: 6px;
+        }
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-right: 6px;
+            margin-top: 4px;
+        }
+        .b-baixa {
+            background: #dfe6e9;
+            color: #2d3436;
+        }
+        .b-media {
+            background: #ffeaa7;
+            color: #2d3436;
+        }
+        .b-alta {
+            background: #fab1a0;
+            color: #2d3436;
+        }
+        .b-urgente {
+            background: #ff7675;
+            color: white;
+        }
+        .stButton button {
+            border-radius: 12px;
+            background-color: #1f4e78;
+            color: white;
+            border: none;
+            font-weight: 700;
+            padding: 0.65rem 0.95rem;
+        }
+        .stButton button:hover {
+            background-color: #163a59;
+            color: white;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def hero(titulo, subtitulo):
@@ -1083,88 +1083,143 @@ def gerar_pdf_relatorio_vacinacao(nome_paciente, data_nascimento, relatorio):
     return pdf_buffer
 
 
-def pagina_inicial():
-    hero("Sistema Unificado", "Selecione uma função no painel abaixo.")
+def pagina_menu(aba_pacientes, aba_kanban):
+    hero("Coleta Rápida", "Sistema inteligente de cadastro, gestão de pacientes e rotinas de campo.")
+
+    df = garantir_colunas_pacientes(carregar_dados_aba(aba_pacientes))
+    df_kanban = garantir_colunas_kanban(carregar_dados_aba(aba_kanban))
+
+    total = len(df)
+    idosos = len(df[pd.to_numeric(df["Idade"], errors="coerce").fillna(0) >= 60]) if not df.empty else 0
+    criancas = len(df[pd.to_numeric(df["Idade"], errors="coerce").fillna(0).between(0, 11)]) if not df.empty else 0
+    tarefas_abertas = len(df_kanban[df_kanban["Status"].astype(str) != "Concluído"]) if not df_kanban.empty else 0
+
+    m1, m2, m3, m4 = st.columns(4)
+    with m1:
+        metric_card("Pacientes", total)
+    with m2:
+        metric_card("Idosos", idosos)
+    with m3:
+        metric_card("Crianças", criancas)
+    with m4:
+        metric_card("Tarefas abertas", tarefas_abertas)
+
+    st.markdown("---")
+
     col1, col2 = st.columns(2)
 
     with col1:
-        st.markdown("""
-        <div class="menu-card" style="background:#eaf2ff;color:#17324d;">
-            <div class="menu-title">📝 Coleta de Dados</div>
-            <div class="menu-text">Envio de fichas com extração por IA e revisão manual.</div>
-        </div>
-        """, unsafe_allow_html=True)
-        if st.button("Abrir Coleta de Dados", key="btn_menu_coleta", use_container_width=True):
+        st.markdown(
+            """
+            <div class="menu-card" style="background:#eaf2ff;color:#17324d;">
+                <div class="menu-icon">📝</div>
+                <div class="menu-title">Coleta de Dados</div>
+                <div class="menu-text">Envio de fichas com extração assistida por IA e conferência manual.</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button("Abrir Coleta de Dados", key="menu_coleta", use_container_width=True):
             st.session_state["pagina"] = "🤖 Coletar Fichas"
             st.rerun()
 
-        st.markdown("""
-        <div class="menu-card" style="background:#fff5e8;color:#5b3b00;">
-            <div class="menu-title">👥 Cadastro de Pacientes</div>
-            <div class="menu-text">Cadastro manual, edição e gestão completa da base.</div>
-        </div>
-        """, unsafe_allow_html=True)
-        if st.button("Abrir Cadastro/Gestão", key="btn_menu_cadastro", use_container_width=True):
+        st.markdown(
+            """
+            <div class="menu-card" style="background:#fff5e8;color:#5b3b00;">
+                <div class="menu-icon">👥</div>
+                <div class="menu-title">Cadastro de Pacientes</div>
+                <div class="menu-text">Cadastro manual, atualização de registros e estrutura básica da base.</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button("Abrir Cadastro", key="menu_cadastro", use_container_width=True):
             st.session_state["pagina"] = "👥 Cadastro de Pacientes"
             st.rerun()
 
-        st.markdown("""
-        <div class="menu-card" style="background:#f0fff4;color:#184d2f;">
-            <div class="menu-title">📱 WhatsApp</div>
-            <div class="menu-text">Geração de mensagens para consultas, exames e orientações.</div>
-        </div>
-        """, unsafe_allow_html=True)
-        if st.button("Abrir WhatsApp", key="btn_menu_whats", use_container_width=True):
+        st.markdown(
+            """
+            <div class="menu-card" style="background:#f0fff4;color:#184d2f;">
+                <div class="menu-icon">📱</div>
+                <div class="menu-title">WhatsApp</div>
+                <div class="menu-text">Mensagens para consultas, exames, orientações e comunicação rápida.</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button("Abrir WhatsApp", key="menu_whats", use_container_width=True):
             st.session_state["pagina"] = "📱 WhatsApp Manual"
             st.rerun()
 
     with col2:
-        st.markdown("""
-        <div class="menu-card" style="background:#f4f0ff;color:#36205c;">
-            <div class="menu-title">📊 Dashboard</div>
-            <div class="menu-text">Indicadores da base, distribuição por sexo, idade e município.</div>
-        </div>
-        """, unsafe_allow_html=True)
-        if st.button("Abrir Dashboard", key="btn_menu_dashboard", use_container_width=True):
+        st.markdown(
+            """
+            <div class="menu-card" style="background:#f4f0ff;color:#36205c;">
+                <div class="menu-icon">📊</div>
+                <div class="menu-title">Dashboard</div>
+                <div class="menu-text">Indicadores de sexo, idade, municípios e visão geral da base de pacientes.</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button("Abrir Dashboard", key="menu_dashboard", use_container_width=True):
             st.session_state["pagina"] = "📊 Dashboard de Pacientes"
             st.rerun()
 
-        st.markdown("""
-        <div class="menu-card" style="background:#fff0f6;color:#6c1f46;">
-            <div class="menu-title">🏷️ Etiquetas / QR Code</div>
-            <div class="menu-text">Etiquetas por família, QR Code e documentos auxiliares.</div>
-        </div>
-        """, unsafe_allow_html=True)
-        if st.button("Abrir Etiquetas/QR", key="btn_menu_etiquetas", use_container_width=True):
+        st.markdown(
+            """
+            <div class="menu-card" style="background:#fff0f6;color:#6c1f46;">
+                <div class="menu-icon">🏷️</div>
+                <div class="menu-title">Etiquetas / QR Code</div>
+                <div class="menu-text">Etiquetas por família, QR Code e materiais auxiliares em PDF.</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button("Abrir Etiquetas / QR Code", key="menu_etiquetas", use_container_width=True):
             st.session_state["pagina"] = "🏷️ Etiquetas QR Code"
             st.rerun()
 
-        st.markdown("""
-        <div class="menu-card" style="background:#eefaf7;color:#114738;">
-            <div class="menu-title">📋 Kanban</div>
-            <div class="menu-text">Controle visual de tarefas, prazos, checklist e comentários.</div>
-        </div>
-        """, unsafe_allow_html=True)
-        if st.button("Abrir Kanban", key="btn_menu_kanban", use_container_width=True):
+        st.markdown(
+            """
+            <div class="menu-card" style="background:#eefaf7;color:#114738;">
+                <div class="menu-icon">📋</div>
+                <div class="menu-title">Kanban</div>
+                <div class="menu-text">Controle de tarefas, responsáveis, prioridades, checklist e comentários.</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button("Abrir Kanban", key="menu_kanban", use_container_width=True):
             st.session_state["pagina"] = "📋 Kanban"
             st.rerun()
 
     st.markdown("---")
     st.subheader("Outras funções")
-    c3, c4, c5, c6 = st.columns(4)
-    with c3:
+
+    a1, a2, a3, a4, a5, a6 = st.columns(6)
+
+    with a1:
+        if st.button("🔎 Gestão", use_container_width=True):
+            st.session_state["pagina"] = "🔎 Gestão de Pacientes"
+            st.rerun()
+    with a2:
         if st.button("📇 Capas", use_container_width=True):
             st.session_state["pagina"] = "📇 Capas de Prontuário"
             st.rerun()
-    with c4:
+    with a3:
         if st.button("📄 Documentos", use_container_width=True):
             st.session_state["pagina"] = "📄 Gerar Documentos"
             st.rerun()
-    with c5:
+    with a4:
         if st.button("💉 Vacinação", use_container_width=True):
             st.session_state["pagina"] = "💉 Análise de Vacinação"
             st.rerun()
-    with c6:
+    with a5:
+        if st.button("🩺 Prontuário", use_container_width=True):
+            st.session_state["pagina"] = "📄 Importar Prontuário"
+            st.rerun()
+    with a6:
         if st.button("🧠 Cards IA", use_container_width=True):
             st.session_state["pagina"] = "🧠 Cards de Saúde com IA"
             st.rerun()
@@ -1500,7 +1555,10 @@ def pagina_capas_prontuario(aba_pacientes):
         return
 
     pacientes_df = df[df["Nome Completo"].isin(selecionados)]
-    st.dataframe(pacientes_df[["Nome Completo", "Data de Nascimento", "FAMÍLIA", "CPF", "CNS"]], use_container_width=True)
+    st.dataframe(
+        pacientes_df[["Nome Completo", "Data de Nascimento", "FAMÍLIA", "CPF", "CNS"]],
+        use_container_width=True,
+    )
 
     if st.button("Gerar PDF das Capas"):
         pdf_bytes = gerar_pdf_capas_prontuario(pacientes_df)
@@ -1649,7 +1707,7 @@ def pagina_importar_prontuario(aba_pacientes, gemini_client):
 
 def pagina_gerador_qrcode():
     botao_voltar_menu()
-    hero("Gerador de QR Code", "Crie QR Code para o dashboard público do app.")
+    hero("Gerador de QR Code", "Crie QR Code para o link do sistema ou dashboard.")
     base_url = st.text_input("URL base da sua aplicação Streamlit Cloud", placeholder="https://seu-app.streamlit.app")
     if not base_url:
         return
@@ -1914,7 +1972,7 @@ def pagina_kanban(aba_kanban):
 
 
 def main():
-    st.set_page_config(page_title="Sistema Unificado", page_icon="📋", layout="wide")
+    st.set_page_config(page_title="Coleta Rápida", page_icon="📋", layout="wide")
     aplicar_estilo()
 
     if "pagina" not in st.session_state:
@@ -1955,7 +2013,7 @@ def main():
     pagina = st.session_state["pagina"]
 
     if pagina == "menu":
-        pagina_inicial()
+        pagina_menu(aba_pacientes, aba_kanban)
     elif pagina == "🤖 Coletar Fichas":
         pagina_coletar_fichas(aba_pacientes, gemini_client)
     elif pagina == "👥 Cadastro de Pacientes":
