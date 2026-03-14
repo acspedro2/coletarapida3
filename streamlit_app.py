@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import qrcode
 import streamlit as st
+from google.oauth2.service_account import Credentials
 from PIL import Image
 from pypdf import PdfReader, PdfWriter
 from reportlab.lib.colors import HexColor
@@ -368,8 +369,17 @@ def conectar_planilha():
         st.error("Falta gcp_service_account nos Secrets do Streamlit.")
         st.stop()
 
-    creds = st.secrets["gcp_service_account"]
-    client = gspread.service_account_from_dict(creds)
+    scope = [
+        "https://spreadsheets.google.com/feeds",
+        "https://www.googleapis.com/auth/drive",
+    ]
+
+    creds = Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"],
+        scopes=scope,
+    )
+
+    client = gspread.authorize(creds)
     return client.open_by_key(st.secrets["APP_SHEET_ID"])
 
 
@@ -380,6 +390,23 @@ def obter_ou_criar_aba(planilha, nome_aba, colunas):
         aba = planilha.add_worksheet(title=nome_aba, rows=4000, cols=max(30, len(colunas) + 5))
         aba.append_row(colunas)
     return aba
+
+
+def obter_aba_pacientes(planilha):
+    nomes_tentativa = ["Página1", "PACIENTES", "BASE_DE_DADOS", "Pagina1"]
+
+    for nome in nomes_tentativa:
+        try:
+            aba = planilha.worksheet(nome)
+            valores = aba.get_all_values()
+            if valores and len(valores) > 0:
+                cab = valores[0]
+                if "Nome Completo" in cab and "CPF" in cab:
+                    return aba
+        except Exception:
+            pass
+
+    return obter_ou_criar_aba(planilha, "Página1", COLUNAS_PACIENTES)
 
 
 @st.cache_data(ttl=60)
@@ -1821,7 +1848,7 @@ def main():
     aplicar_estilo()
 
     planilha = conectar_planilha()
-    aba_pacientes = obter_ou_criar_aba(planilha, "PACIENTES", COLUNAS_PACIENTES)
+    aba_pacientes = obter_aba_pacientes(planilha)
     aba_kanban = obter_ou_criar_aba(planilha, "KANBAN", COLUNAS_KANBAN)
     gemini_client = cliente_gemini()
 
